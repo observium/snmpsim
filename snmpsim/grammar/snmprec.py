@@ -46,14 +46,14 @@ class SnmprecGrammar(AbstractGrammar):
 
     def parse(self, line):
         try:
-            oid, tag, value = line.decode("iso-8859-1").strip().split("|", 2)
+            oid, tag, value = line.decode("iso-8859-1").split("|", 2)
 
         except Exception as exc:
             raise error.SnmpsimError(f"broken record <{line}>: {exc}")
 
         else:
             if oid and tag:
-                return oid, tag, value
+                return oid.strip(), tag.strip(), value.strip("\r\n\t")
 
             raise error.SnmpsimError("broken record <%s>" % line)
 
