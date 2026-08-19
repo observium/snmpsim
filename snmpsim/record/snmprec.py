@@ -6,6 +6,8 @@
 #
 import bz2
 
+from pyasn1.type import univ
+
 from snmpsim import error
 from snmpsim.grammar import snmprec
 from snmpsim.record import dump
@@ -76,6 +78,37 @@ class SnmprecRecord(dump.DumpRecord):
 
         return unescaped
 
+    @staticmethod
+    def coerce_value(value):
+        """Make sure the value can be BER-encoded, repair it where possible.
+
+        The only SNMP type which builds fine but blows up at encoding time is
+        OBJECT IDENTIFIER: pyasn1 accepts a single-arc OID such as `0` while
+        BER has no representation for it - the first two arcs always share the
+        first sub-identifier.
+
+        A device cannot have put such an OID on the wire, so a single-arc
+        value in a recording is a lossy dump of `<arc>.0` (`0` is the very
+        common `zeroDotZero`). We restore the missing arc, which makes the
+        agent send exactly the bytes the device did, rather than dropping the
+        record.
+
+        Anything else that cannot be encoded (an empty OID, a hex-encoded OID
+        which did not decode into a value) is rejected so that the caller can
+        handle it gracefully.
+        """
+        if isinstance(value, univ.ObjectIdentifier):
+            if not value.isValue:
+                raise error.SnmpsimError("OID value is not decodable")
+
+            if len(value) == 1:
+                return value.clone(tuple(value) + (0,))
+
+            if not len(value):
+                raise error.SnmpsimError("empty OID value")
+
+        return value
+
     def evaluate_value(self, oid, tag, value, **context):
         tag, encoding_id = self.unpack_tag(tag)
 
@@ -83,16 +116,20 @@ class SnmprecRecord(dump.DumpRecord):
             if encoding_id == "e":
                 value = self.evaluate_raw_string(value)
 
-                return oid, tag, self.grammar.TAG_MAP[tag](value)
+                return oid, tag, self.coerce_value(self.grammar.TAG_MAP[tag](value))
 
             elif encoding_id == "x":
                 if isinstance(value, bytes):
                     value = value.decode("iso-8859-1")
 
-                return oid, tag, self.grammar.TAG_MAP[tag](hexValue=value)
+                return (
+                    oid,
+                    tag,
+                    self.coerce_value(self.grammar.TAG_MAP[tag](hexValue=value)),
+                )
 
             else:
-                return oid, tag, self.grammar.TAG_MAP[tag](value)
+                return oid, tag, self.coerce_value(self.grammar.TAG_MAP[tag](value))
 
         except Exception as exc:
             raise error.SnmpsimError(
