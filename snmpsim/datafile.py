@@ -36,6 +36,7 @@ class DataFile(AbstractLayout):
     layout = "text"
     opened_queue = []
     max_queue_entries = 31  # max number of open text and index files
+    max_broken_records = 100  # max number of broken records skipped in a row
 
     def __init__(self, textFile, textParser, variationModules):
         self._record_index = RecordIndex(textFile, textParser)
@@ -125,6 +126,8 @@ class DataFile(AbstractLayout):
             vars_remaining -= 1
 
             line, _, _ = get_record(text)  # matched line
+
+            broken_records = 0
 
             while True:
                 if exact_match:
@@ -223,10 +226,22 @@ class DataFile(AbstractLayout):
                     raise
 
                 except Exception as exc:
-                    _oid = oid
-                    _val = error_status
                     err_total += 1
                     log.error(f"data error at {self} for {text_oid}: {exc}")
+
+                    # a broken record must not cut the walk short - step over
+                    # it so that the client still reaches the records behind
+                    if (
+                        context.get("nextFlag")
+                        and broken_records < self.max_broken_records
+                    ):
+                        broken_records += 1
+                        exact_match = True
+                        subtree_flag = False
+                        continue
+
+                    _oid = oid
+                    _val = error_status
 
                 break
 

@@ -146,3 +146,36 @@ the *snmpsim-manage-records --escaped-strings* call, you can convert your
         --input-file=data/sample.snmprec --escaped-strings
     1.3.6.1.2.1.55.1.5.1.8.2|4e|\x00\x12yb\xf9@
     # Records: written 1, filtered out 0, deduplicated 0, broken 0, variated 0
+
+.. _snmpsim-lint-records:
+
+Checking data files
+-------------------
+
+Recordings taken from real devices occasionally hold values which no SNMP
+agent can put back on the wire. The *snmpsim-lint-records* tool walks over
+data files (or whole directories of them) and reports every record which
+cannot be served, along with the records Simulator has to repair before
+serving them:
+
+.. code-block:: bash
+
+    $ snmpsim-lint-records data/
+    data/huawei-s2326.snmprec:812: WARNING: short OID value '0' is served as 0.0
+    data/huawei-s2326.snmprec:836: ERROR: value evaluation error for tag '6', value '': empty OID value
+    # Checked 3714 record(s) in 12 file(s): 1 error(s), 1 warning(s)
+
+The tool exits with a non-zero status when errors are found, so it can be
+used as a repository check. Pass *--quiet* to report errors only, or
+*--strict* to fail on warnings as well.
+
+Warnings point at values Simulator repairs on the fly. The most common one
+is an OBJECT IDENTIFIER value made of a single arc, such as *0*: BER has no
+representation for such an OID - the first two arcs always share the first
+encoded sub-identifier - so the device must have sent *0.0* (the common
+*zeroDotZero*), and that is what Simulator serves.
+
+Records reported as errors cannot be served at all. Such a record is
+answered with *noSuchInstance* on GET, and is stepped over on GETNEXT and
+GETBULK, so that a single broken record does not truncate the walk of
+everything behind it.
