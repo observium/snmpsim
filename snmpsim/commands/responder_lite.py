@@ -51,12 +51,6 @@ DESCRIPTION = (
 
 
 def main():
-    # Python 3.14+ no longer auto-creates a default event loop.
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop())
-
     parser = argparse.ArgumentParser(description=DESCRIPTION)
 
     parser.add_argument("-v", "--version", action="version", version=utils.TITLE)
@@ -279,6 +273,14 @@ def main():
             sys.stderr.write("ERROR: cant daemonize process: %s\r\n" % exc)
             parser.print_usage(sys.stderr)
             return 1
+
+    # Python 3.14+ no longer auto-creates a default event loop. Create it only
+    # now: an event loop does not survive the fork() done by --daemonize, the
+    # daemon would inherit descriptors which are already invalid there.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
     if not os.path.exists(confdir.cache):
         try:
