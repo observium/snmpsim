@@ -17,16 +17,22 @@ import traceback
 from pyasn1 import debug as pyasn1_debug
 from pyasn1.type import univ
 from pysnmp import debug as pysnmp_debug
-from pysnmp.carrier.asyncio.dgram import udp
-from pysnmp.carrier.asyncio.dgram import udp6
-from pysnmp.entity import engine, config
-from pysnmp.entity.rfc3413 import cmdgen
+from pysnmp.entity import config
 from pysnmp.error import PySnmpError
+from pysnmp.hlapi.v3arch.asyncio import CommunityData
+from pysnmp.hlapi.v3arch.asyncio import ContextData
+from pysnmp.hlapi.v3arch.asyncio import SnmpEngine
+from pysnmp.hlapi.v3arch.asyncio import Udp6TransportTarget
+from pysnmp.hlapi.v3arch.asyncio import UdpTransportTarget
+from pysnmp.hlapi.v3arch.asyncio import UsmUserData
+from pysnmp.hlapi.v3arch.asyncio import bulk_walk_cmd
+from pysnmp.hlapi.v3arch.asyncio import walk_cmd
 from pysnmp.proto import rfc1902
 from pysnmp.proto import rfc1905
 from pysnmp.smi import compiler
 from pysnmp.smi import view
 from pysnmp.smi.rfc1902 import ObjectIdentity
+from pysnmp.smi.rfc1902 import ObjectType
 
 from snmpsim import confdir
 from snmpsim import error
@@ -417,30 +423,30 @@ def main():
     # thread, and Python 3.10+ does not hand out one which was never created
     # (or was closed by someone else)
     try:
-        asyncio.get_event_loop()
+        event_loop = asyncio.get_event_loop()
 
     except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop())
+        event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(event_loop)
 
-    snmp_engine = engine.SnmpEngine()
+    snmp_engine = SnmpEngine()
 
     if args.protocol_version == "3":
         if args.v3_priv_key is None and args.v3_auth_key is None:
-            secLevel = "noAuthNoPriv"
+            sec_level = "noAuthNoPriv"
 
         elif args.v3_priv_key is None:
-            secLevel = "authNoPriv"
+            sec_level = "authNoPriv"
 
         else:
-            secLevel = "authPriv"
+            sec_level = "authPriv"
 
-        config.add_v3_user(
-            snmp_engine,
+        auth_data = UsmUserData(
             args.v3_user,
-            AUTH_PROTOCOLS[args.v3_auth_proto],
-            args.v3_auth_key,
-            PRIV_PROTOCOLS[args.v3_priv_proto],
-            args.v3_priv_key,
+            authKey=args.v3_auth_key,
+            authProtocol=AUTH_PROTOCOLS[args.v3_auth_proto],
+            privKey=args.v3_priv_key,
+            privProtocol=PRIV_PROTOCOLS[args.v3_priv_proto],
         )
 
         log.info(
@@ -452,11 +458,9 @@ def main():
                 args.v3_context_engine_id
                 and args.v3_context_engine_id.prettyPrint()
                 or "<default>",
-                args.v3_context_name
-                and args.v3_context_name.prettyPrint()
-                or "<default>",
+                args.v3_context_name and args.v3_context_name.prettyPrint() or '""',
                 args.v3_user,
-                secLevel,
+                sec_level,
                 args.v3_auth_key is None and "<NONE>" or args.v3_auth_key,
                 args.v3_auth_proto,
                 args.v3_priv_key is None and "<NONE>" or args.v3_priv_key,
@@ -465,52 +469,21 @@ def main():
         )
 
     else:
-        args.v3_user = "agt"
-        secLevel = "noAuthNoPriv"
-
-        config.add_v1_system(snmp_engine, args.v3_user, args.community)
+        auth_data = CommunityData(
+            args.community, mpModel=VERSION_MAP[args.protocol_version]
+        )
 
         log.info(
             "SNMP version %s, Community name: "
             "%s" % (args.protocol_version, args.community)
         )
 
-    config.add_target_parameters(
-        snmp_engine, "pms", args.v3_user, secLevel, VERSION_MAP[args.protocol_version]
-    )
+    context_data = ContextData(args.v3_context_engine_id, args.v3_context_name)
 
     if args.agent_udpv6_endpoint:
-        config.add_transport(
-            snmp_engine, udp6.DOMAIN_NAME, udp6.Udp6Transport().open_client_mode()
-        )
-
-        config.add_target_address(
-            snmp_engine,
-            "tgt",
-            udp6.DOMAIN_NAME,
-            args.agent_udpv6_endpoint,
-            "pms",
-            args.timeout * 100,
-            args.retries,
-        )
-
         log.info("Querying UDP/IPv6 agent at [%s]:%s" % args.agent_udpv6_endpoint)
 
     elif args.agent_udpv4_endpoint:
-        config.add_transport(
-            snmp_engine, udp.DOMAIN_NAME, udp.UdpTransport().open_client_mode()
-        )
-
-        config.add_target_address(
-            snmp_engine,
-            "tgt",
-            udp.DOMAIN_NAME,
-            args.agent_udpv4_endpoint,
-            "pms",
-            args.timeout * 100,
-            args.retries,
-        )
-
         log.info("Querying UDP/IPv4 agent at %s:%s" % args.agent_udpv4_endpoint)
 
     log.info(
@@ -520,16 +493,18 @@ def main():
     if isinstance(args.start_object, ObjectIdentity) or isinstance(
         args.stop_object, ObjectIdentity
     ):
-        compiler.addMibCompiler(snmp_engine.getMibBuilder(), sources=args.mib_sources)
+        compiler.add_mib_compiler(
+            snmp_engine.get_mib_builder(), sources=args.mib_sources
+        )
 
-        mib_view_controller = view.MibViewController(snmp_engine.getMibBuilder())
+        mib_view_controller = view.MibViewController(snmp_engine.get_mib_builder())
 
         try:
             if isinstance(args.start_object, ObjectIdentity):
-                args.start_object.resolveWithMib(mib_view_controller)
+                args.start_object.resolve_with_mib(mib_view_controller)
 
             if isinstance(args.stop_object, ObjectIdentity):
-                args.stop_object.resolveWithMib(mib_view_controller)
+                args.stop_object.resolve_with_mib(mib_view_controller)
 
         except PySnmpError as exc:
             sys.stderr.write("ERROR: %s\r\n" % exc)
@@ -572,117 +547,50 @@ def main():
 
     # SNMP worker
 
-    def send_request(oid):
-        """Ask the agent for whatever comes after `oid`.
+    state = {
+        "total": 0,
+        "count": 0,
+        "errors": 0,
+        "iteration": 0,
+        "reqTime": time.time(),
+        "retries": args.continue_on_errors,
+        "lastOID": args.start_object,
+    }
 
-        pysnmp used to keep walking on its own for as long as the callback
-        asked for more; since pysnmp 7 it hands over a single response and
-        stops there, so every step of the walk is issued from here.
-        """
-        if args.use_getbulk:
-            cmd_gen.send_varbinds(
-                snmp_engine,
-                "tgt",
-                args.v3_context_engine_id,
-                args.v3_context_name,
-                0,
-                args.getbulk_repetitions,
-                [(oid, None)],
-                cbFun,
-                cb_ctx,
-            )
+    def oid_after_error(var_binds):
+        """Guess where to resume a walk which the agent broke off"""
+        try:
+            next_oid = var_binds[-1][0]
+
+        except IndexError:
+            next_oid = state["lastOID"]
 
         else:
-            cmd_gen.send_varbinds(
-                snmp_engine,
-                "tgt",
-                args.v3_context_engine_id,
-                args.v3_context_name,
-                [(oid, None)],
-                cbFun,
-                cb_ctx,
-            )
+            log.error("Failed OID: %s" % next_oid)
 
-    def stop_walking():
-        """Leave run_dispatcher().
+        # fuzzy logic of walking a broken OID
+        if len(next_oid) < 4:
+            pass
 
-        The asyncio dispatcher runs its loop until the loop is stopped; it
-        does not return when the last job is done.
+        elif (
+            args.continue_on_errors - state["retries"]
+        ) * 10 / args.continue_on_errors > 5:
+            next_oid = next_oid[:-2] + (next_oid[-2] + 1,)
+
+        elif next_oid[-1]:
+            next_oid = next_oid[:-1] + (next_oid[-1] + 1,)
+
+        else:
+            next_oid = next_oid[:-2] + (next_oid[-2] + 1, 0)
+
+        return next_oid
+
+    def record(var_binds):
+        """Write one response worth of var-binds into the data file
+
+        Returns whether the walk is over, and whether a variation module has
+        asked for a fresh iteration of it.
         """
-        snmp_engine.transport_dispatcher.loop.stop()
-
-    def cbFun(
-        snmp_engine,
-        send_request_handle,
-        error_indication,
-        error_status,
-        error_index,
-        var_binds,
-        cb_ctx,
-    ):
-        if error_indication and not cb_ctx["retries"]:
-            cb_ctx["errors"] += 1
-            log.error("SNMP Engine error: %s" % error_indication)
-            stop_walking()
-            return False
-
-        # SNMPv1 response may contain noSuchName error *and* SNMPv2c exception,
-        # so we ignore noSuchName error here
-        if error_status and error_status != 2 or error_indication:
-            log.error(
-                "Remote SNMP error %s"
-                % (error_indication or error_status.prettyPrint())
-            )
-
-            if cb_ctx["retries"]:
-                try:
-                    next_oid = var_binds[-1][0]
-
-                except IndexError:
-                    next_oid = cb_ctx["lastOID"]
-
-                else:
-                    log.error("Failed OID: %s" % next_oid)
-
-                # fuzzy logic of walking a broken OID
-                if len(next_oid) < 4:
-                    pass
-
-                elif (
-                    args.continue_on_errors - cb_ctx["retries"]
-                ) * 10 / args.continue_on_errors > 5:
-                    next_oid = next_oid[:-2] + (next_oid[-2] + 1,)
-
-                elif next_oid[-1]:
-                    next_oid = next_oid[:-1] + (next_oid[-1] + 1,)
-
-                else:
-                    next_oid = next_oid[:-2] + (next_oid[-2] + 1, 0)
-
-                cb_ctx["retries"] -= 1
-                cb_ctx["lastOID"] = next_oid
-
-                log.info(
-                    "Retrying with OID %s (%s retries left)"
-                    "..." % (next_oid, cb_ctx["retries"])
-                )
-
-                # initiate another SNMP walk iteration
-                send_request(next_oid)
-
-            else:
-                stop_walking()
-
-            cb_ctx["errors"] += 1
-
-            return False
-
-        if args.continue_on_errors != cb_ctx["retries"]:
-            cb_ctx["retries"] += 1
-
-        if var_binds and var_binds[-1]:
-            cb_ctx["lastOID"] = var_binds[-1][0]
-
         stop_flag = False
         restarted = False
 
@@ -714,10 +622,10 @@ def main():
             context = {
                 "origOid": oid,
                 "origValue": value,
-                "count": cb_ctx["count"],
-                "total": cb_ctx["total"],
-                "iteration": cb_ctx["iteration"],
-                "reqTime": cb_ctx["reqTime"],
+                "count": state["count"],
+                "total": state["total"],
+                "iteration": state["iteration"],
+                "reqTime": state["reqTime"],
                 "args.start_object": args.start_object,
                 "stopOID": args.stop_object,
                 "stopFlag": stop_flag,
@@ -728,22 +636,20 @@ def main():
                 line = data_file_handler.format(oid, value, **context)
 
             except error.MoreDataNotification as exc:
-                cb_ctx["count"] = 0
-                cb_ctx["iteration"] += 1
+                state["count"] = 0
+                state["iteration"] += 1
 
                 more_data_notification = exc
 
                 if "period" in more_data_notification:
                     log.info(
                         "%s OIDs dumped, waiting %.2f sec(s)"
-                        "..." % (cb_ctx["total"], more_data_notification["period"])
+                        "..." % (state["total"], more_data_notification["period"])
                     )
 
                     time.sleep(more_data_notification["period"])
 
-                # initiate another SNMP walk iteration
-                send_request(args.start_object)
-
+                # the caller starts another walk from the beginning
                 restarted = True
                 stop_flag = True  # stop current iteration
 
@@ -757,61 +663,129 @@ def main():
             else:
                 args.output_file.write(line)
 
-                cb_ctx["count"] += 1
-                cb_ctx["total"] += 1
+                state["count"] += 1
+                state["total"] += 1
 
-                if cb_ctx["count"] % 100 == 0:
+                if state["count"] % 100 == 0:
                     log.info(
-                        "OIDs dumped: %s/%s" % (cb_ctx["iteration"], cb_ctx["count"])
+                        "OIDs dumped: %s/%s" % (state["iteration"], state["count"])
                     )
 
         # Next request time
-        cb_ctx["reqTime"] = time.time()
+        state["reqTime"] = time.time()
 
-        if restarted:
-            return False  # a fresh walk is already on its way
+        return stop_flag, restarted
 
-        if stop_flag or not var_binds:
-            stop_walking()
-            return False
+    async def walk_agent():
+        """Walk the agent from the start OID, restarting where asked to
 
-        # Continue walking
-        send_request(cb_ctx["lastOID"])
+        pysnmp hands over one response per request and does not walk on its
+        own (lextudio/pysnmp#251), so the walking is the caller's business.
+        """
+        if args.agent_udpv6_endpoint:
+            transport = await Udp6TransportTarget.create(
+                args.agent_udpv6_endpoint, timeout=args.timeout, retries=args.retries
+            )
 
-        return True
+        else:
+            transport = await UdpTransportTarget.create(
+                args.agent_udpv4_endpoint, timeout=args.timeout, retries=args.retries
+            )
 
-    cb_ctx = {
-        "total": 0,
-        "count": 0,
-        "errors": 0,
-        "iteration": 0,
-        "reqTime": time.time(),
-        "retries": args.continue_on_errors,
-        "lastOID": args.start_object,
-    }
+        start_oid = args.start_object
 
-    if args.use_getbulk:
-        cmd_gen = cmdgen.BulkCommandGenerator()
+        while start_oid is not None:
+            log.info(
+                "Sending %s request for %s (stop at %s)"
+                "...."
+                % (
+                    args.use_getbulk and "GETBULK" or "GETNEXT",
+                    start_oid,
+                    args.stop_object or "<end-of-mib>",
+                )
+            )
 
-    else:
-        cmd_gen = cmdgen.NextCommandGenerator()
+            if args.use_getbulk:
+                walk = bulk_walk_cmd(
+                    snmp_engine,
+                    auth_data,
+                    transport,
+                    context_data,
+                    0,
+                    args.getbulk_repetitions,
+                    ObjectType(ObjectIdentity(start_oid)),
+                    lexicographicMode=True,
+                    lookupMib=False,
+                )
 
-    send_request(args.start_object)
+            else:
+                walk = walk_cmd(
+                    snmp_engine,
+                    auth_data,
+                    transport,
+                    context_data,
+                    ObjectType(ObjectIdentity(start_oid)),
+                    lexicographicMode=True,
+                    lookupMib=False,
+                )
 
-    log.info(
-        "Sending initial %s request for %s (stop at %s)"
-        "...."
-        % (
-            args.use_getbulk and "GETBULK" or "GETNEXT",
-            args.start_object,
-            args.stop_object or "<end-of-mib>",
-        )
-    )
+            start_oid = None
+
+            async for (
+                error_indication,
+                error_status,
+                error_index,
+                var_binds,
+            ) in walk:
+                if error_indication and not state["retries"]:
+                    state["errors"] += 1
+                    log.error("SNMP Engine error: %s" % error_indication)
+                    return
+
+                # SNMPv1 response may contain noSuchName error *and* SNMPv2c
+                # exception, so we ignore noSuchName error here
+                if error_status and error_status != 2 or error_indication:
+                    log.error(
+                        "Remote SNMP error %s"
+                        % (error_indication or error_status.prettyPrint())
+                    )
+
+                    state["errors"] += 1
+
+                    if not state["retries"]:
+                        return
+
+                    start_oid = oid_after_error(var_binds)
+
+                    state["retries"] -= 1
+                    state["lastOID"] = start_oid
+
+                    log.info(
+                        "Retrying with OID %s (%s retries left)"
+                        "..." % (start_oid, state["retries"])
+                    )
+
+                    break
+
+                if args.continue_on_errors != state["retries"]:
+                    state["retries"] += 1
+
+                if var_binds and var_binds[-1]:
+                    state["lastOID"] = var_binds[-1][0]
+
+                stop_flag, restarted = record(var_binds)
+
+                if restarted:
+                    start_oid = args.start_object
+                    break
+
+                if stop_flag:
+                    return
 
     started = time.time()
 
     try:
-        snmp_engine.transport_dispatcher.run_dispatcher()
+        event_loop.run_until_complete(walk_agent())
 
     except KeyboardInterrupt:
         log.info("Shutting down process...")
@@ -838,7 +812,8 @@ def main():
             else:
                 log.info("Variation module %s shutdown OK" % args.variation_module)
 
-        snmp_engine.transport_dispatcher.close_dispatcher()
+        if snmp_engine.transport_dispatcher:
+            snmp_engine.transport_dispatcher.close_dispatcher()
 
         started = time.time() - started
 
@@ -846,17 +821,17 @@ def main():
             "OIDs dumped: %s, elapsed: %.2f sec, rate: %.2f OIDs/sec, errors: "
             "%d"
             % (
-                cb_ctx["total"],
+                state["total"],
                 started,
-                started and cb_ctx["count"] // started or 0,
-                cb_ctx["errors"],
+                started and state["count"] // started or 0,
+                state["errors"],
             )
         )
 
         args.output_file.flush()
         args.output_file.close()
 
-        return cb_ctx.get("errors", 0) and 1 or 0
+        return state.get("errors", 0) and 1 or 0
 
 
 if __name__ == "__main__":
