@@ -4,16 +4,44 @@
 [![PyPI](https://img.shields.io/pypi/v/snmpsim.svg)](https://pypi.python.org/pypi/snmpsim)
 [![PyPI Downloads](https://img.shields.io/pypi/dd/snmpsim)](https://pypi.python.org/pypi/snmpsim/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/snmpsim.svg)](https://pypi.python.org/pypi/snmpsim/)
-[![GitHub license](https://img.shields.io/badge/license-BSD-blue.svg)](https://raw.githubusercontent.com/lextudio/snmpsim/master/LICENSE.rst)
+[![GitHub license](https://img.shields.io/badge/license-BSD-blue.svg)](https://raw.githubusercontent.com/lextudio/snmpsim/master/LICENSE.txt)
 
 This is a pure-Python, open source and free implementation of SNMP agents simulator
 distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.html).
+
+> **This is Observium's fork of [lextudio/snmpsim](https://github.com/lextudio/snmpsim).**
+> It carries fixes for recordings that the upstream responder refuses to serve, and adds a
+> lint tool for recording repositories. The badges above track the upstream PyPI release,
+> which does **not** contain these changes - see [Installation](#installation) for how to
+> install this fork. Every code change here is also filed upstream; this README is not.
+
+## What this fork adds
+
+Each item links to the upstream pull request carrying the same change:
+
+* A record whose value cannot be BER-encoded no longer silences the responder. A single-arc
+  OID (`6|0`) is served as `0.0`, which is byte for byte what the device put on the wire;
+  values which cannot be repaired answer `noSuchInstance` on GET and are stepped over on
+  GETNEXT/GETBULK, so one broken line no longer truncates the rest of the walk
+  ([#14](https://github.com/lextudio/snmpsim/pull/14))
+* `snmpsim-lint-records`, which checks a recording file or a whole directory by actually
+  encoding every value, and exits non-zero on errors, so a broken recording is found before
+  it turns into a mystery timeout ([#14](https://github.com/lextudio/snmpsim/pull/14))
+* `--daemonize` works again: the event loop is created after the fork rather than before it
+  ([#15](https://github.com/lextudio/snmpsim/pull/15))
+* `pysmi` and `cryptography` are declared as dependencies - both are imported at runtime, and
+  without them a fresh installation cannot start
+  ([#16](https://github.com/lextudio/snmpsim/pull/16))
+* Trailing spaces are preserved in escaped values, so an `IpAddress` ending in `.32` (the
+  byte `0x20`) is no longer cut short and dropped
+  ([#12](https://github.com/lextudio/snmpsim/pull/12))
 
 ## Features
 
 * SNMPv1/v2c/v3 support
 * SNMPv3 USM supports MD5/SHA/SHA224/SHA256/SHA384/SHA512 auth and
-  DES/3DES/AES128/AES192/AES256 privacy crypto algorithms
+  DES/3DES/AES128/AES192/AES256 privacy crypto algorithms (including the Blumenthal
+  AES192/AES256 variants)
 * Runs over IPv4 and/or IPv6 transports
 * Simulates many EngineID's, each with its own set of simulated objects
 * Varies response based on SNMP Community, Context, source/destination addresses and ports
@@ -28,19 +56,79 @@ distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.
 * Pure-Python, easy to deploy and highly portable
 * Can be extended by loadable Python snippets
 
-## Download
-
-SNMP simulator software is freely available for download from
-[PyPI](https://pypi.org/project/snmpsim/) and
-[project site](https://docs.lextudio.com/snmpsim/quick-start).
-
 ## Installation
 
-Just run:
+Python 3.10 or newer is required.
+
+### From this repository
+
+This fork is not published to PyPI, so install it straight from git. With `pipx`, which keeps
+the simulator in its own environment and puts its commands on your `PATH`:
 
 ```bash
-$ pip install snmpsim
+pipx install "git+https://github.com/observium/snmpsim.git@master"
 ```
+
+With `pip`, into the environment of your choice:
+
+```bash
+pip install "git+https://github.com/observium/snmpsim.git@master"
+```
+
+Replace `@master` with any branch or commit to pin a particular revision, for example
+`@8a244ea`. To upgrade an existing installation, add `--force` (pipx) or
+`--upgrade` (pip); pipx keeps packages added with `pipx inject` across a `--force` reinstall.
+
+If you use `uv`, the same specifier works as a tool install:
+
+```bash
+uv tool install "git+https://github.com/observium/snmpsim.git@master"
+```
+
+### From PyPI
+
+The published package is the upstream release and does **not** include the changes listed
+above:
+
+```bash
+pip install snmpsim
+```
+
+### For development
+
+```bash
+git clone --recurse-submodules https://github.com/observium/snmpsim.git
+```
+
+The `scripts/` directory is a git submodule ([lextudio/pysnmp-scripts](https://github.com/lextudio/pysnmp-scripts));
+in an existing clone fetch it with `git submodule update --init`. Then install the package in
+editable mode along with its test dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
+
+Run the test suite with `pytest tests`. Most of its wall clock is spent waiting: each
+responder test starts a real agent and then waits out `SNMPSIM_TEST_TIMEOUT`, 15 seconds by
+default. Lower it to keep the loop tight:
+
+```bash
+SNMPSIM_TEST_TIMEOUT=3 pytest tests
+```
+
+## Commands
+
+Installing the package puts these commands on your `PATH`:
+
+| Command | Purpose |
+|---|---|
+| `snmpsim-command-responder` | The simulator itself: serves recordings over SNMPv1/v2c/v3 |
+| `snmpsim-command-responder-lite` | Lighter responder: SNMPv1/v2c only, no SNMPv3 |
+| `snmpsim-lint-records` | Checks recordings for values which cannot be served (fork only) |
+| `snmpsim-manage-records` | Converts, sorts, deduplicates, filters and repairs recording files |
+| `snmpsim-record-commands` | Builds a recording by querying a live SNMP agent |
+| `snmpsim-record-mibs` | Builds a recording from MIB files |
+| `snmpsim-record-traffic` | Builds recordings from captured network traffic |
 
 ## How to use SNMP simulator
 
@@ -51,7 +139,7 @@ with simulation data:
 $ snmpsim-command-responder --data-dir=./data --agent-udpv4-endpoint=127.0.0.1:1024
 ```
 
-Simulation data is stored in simple plaint-text files having OID|TYPE|VALUE
+Simulation data is stored in simple plain-text files having OID|TYPE|VALUE
 format:
 
 ``` bash
@@ -67,13 +155,27 @@ $ cat ./data/public.snmprec
 Simulator maps query parameters like SNMP community names, SNMPv3 contexts or
 IP addresses into data files.
 
+Before putting new recordings into service, check that every value in them can actually be
+served:
+
+``` bash
+$ snmpsim-lint-records ./data
+./data/huawei-s2326.snmprec:812: WARNING: short OID value '0' is served as 0.0
+./data/huawei-s2326.snmprec:836: ERROR: value evaluation error for tag '6', value '': empty OID value
+# Checked 3714 record(s) in 12 file(s): 1 error(s), 1 warning(s)
+```
+
+Warnings mark values the simulator repairs on the fly, errors mark records it cannot serve at
+all. The exit status is non-zero when there are errors, so this works as a repository check;
+`--quiet` reports errors only and `--strict` fails on warnings as well.
+
 You can immediately generate simulation data file by querying existing SNMP agent:
 
 ``` bash
 $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
     --output-file=./data/public.snmprec
 SNMP version 2c, Community name: public
-Querying UDP/IPv4 agent at 195.218.195.228:161
+Querying UDP/IPv4 agent at 128.203.82.143:161
 Agent response timeout: 3.00 secs, retries: 3
 Sending initial GETNEXT request for 1.3.6 (stop at <end-of-mib>)....
 OIDs dumped: 182, elapsed: 11.97 sec, rate: 7.00 OIDs/sec, errors: 0
@@ -107,22 +209,15 @@ instances.
 ## Documentation
 
 Detailed information on SNMP simulator usage could be found at
-[snmpsim site](https://www.pysnmp.com/snmpsim/).
-
-## Development
-
-For local development, this repository includes helper scripts in the `scripts/` directory:
-
-* `python scripts/prepare.py [version]` - Set up development environment with specified Python version
-* `python scripts/build.py` - Build the package
-* `python scripts/tests.py [--coverage]` - Run tests with optional coverage reporting
-
-With `uv`, these scripts automatically handle virtual environment creation, dependency installation, and build processes.
+[snmpsim site](https://www.pysnmp.com/snmpsim/). It documents the upstream project; the
+additions listed at the top of this file are covered by their pull requests and by
+`--help` of the commands themselves.
 
 ## Getting help
 
-If something does not work as expected,
-[open an issue](https://github.com/lextudio/pysnmp/issues) at GitHub or
+For anything specific to this fork,
+[open an issue](https://github.com/observium/snmpsim/issues) here. For the simulator in
+general, [open an issue](https://github.com/lextudio/pysnmp/issues) upstream or
 post your question [on Stack Overflow](https://stackoverflow.com/questions/ask).
 
 ## Feedback and collaboration
