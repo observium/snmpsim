@@ -17,7 +17,7 @@ distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.
 
 ## What this fork adds
 
-Each item links to the upstream pull request carrying the same change:
+Items which have been sent upstream link to their pull request:
 
 * A record whose value cannot be BER-encoded no longer silences the responder. A single-arc
   OID (`6|0`) is served as `0.0`, which is byte for byte what the device put on the wire;
@@ -35,6 +35,13 @@ Each item links to the upstream pull request carrying the same change:
 * Trailing spaces are preserved in escaped values, so an `IpAddress` ending in `.32` (the
   byte `0x20`) is no longer cut short and dropped
   ([#12](https://github.com/lextudio/snmpsim/pull/12))
+* `snmpsim-command-responder-lite` runs again. It aborted at startup on pysnmp 7, and behind
+  that crash every request path was broken as well, including the IPv6 endpoint and the
+  index context shared with the full responder
+* Indexes are built with gdbm where the interpreter has it, instead of the `dbm.sqlite3`
+  backend Python 3.13 made the default, which fsyncs every write: 3.2s against 10.9s for the
+  index of a 35 MB recording. On Debian and Ubuntu gdbm comes from the `python3-gdbm`
+  package; without it nothing changes
 
 ## Features
 
