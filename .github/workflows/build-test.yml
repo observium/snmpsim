@@ -5,8 +5,16 @@ on:
     branches:
       - "master"
       # - "develop"
+    paths-ignore: &docs
+      - "**.md"
+      - "**.rst"
+      - "docs/**"
+      - "LICENSE.txt"
+      - "THANKS.txt"
+      - "TODO.txt"
   pull_request:
     branches: [master]
+    paths-ignore: *docs
 
 jobs:
   build:
