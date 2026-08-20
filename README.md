@@ -44,6 +44,10 @@ Every item is also filed upstream; each links to its pull request:
   library which has not been installable for years - capture files are now read directly,
   and that library is needed only for live capture off an interface
   ([#18](https://github.com/lextudio/snmpsim/pull/18))
+* Here the recorder walks agents through pysnmp's `hlapi`, which its maintainer confirmed is
+  now the only supported way to walk one ([pysnmp#251](https://github.com/lextudio/pysnmp/issues/251)) -
+  the pull request above carries the smaller fix, written against the low-level API, so that
+  upstream has less to review
 * A recording filed under the requester's source address is served again. The command
   responders hooked into a pysnmp method which was renamed in 7.x, so the hook - and with it
   address-based selection - had been dead code, and every client got the plain recording

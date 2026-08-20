@@ -29,12 +29,12 @@ upstream project, its pull request is given.
   from the IPv4 class, and the data files index context
   (lextudio/snmpsim#17).
 - Fixed ``snmpsim-record-commands``, which recorded nothing and hung. pysnmp 7
-  delivers var-binds as a flat list, hands over one response per request and
-  no longer continues a walk by itself, and its dispatcher does not return
-  when the last job is done, so the walk and its end are now driven by the
-  command. It also creates an event loop of its own, which Python no longer
-  provides implicitly, and no longer counts every OID twice
-  (lextudio/snmpsim#18).
+  hands over one response per request and no longer continues a walk by
+  itself - deliberately, per lextudio/pysnmp#251 - so the recorder now walks
+  agents through ``hlapi``, the supported way to do it. It also creates an
+  event loop of its own, which Python no longer provides implicitly, and no
+  longer counts every OID twice. The pull request sent upstream
+  (lextudio/snmpsim#18) carries the smaller fix against the low-level API.
 - Fixed ``snmpsim-record-traffic``, which could not start at all: it required
   a capture library which has not been installable for years, and behind that
   parsed packet headers with Python 2 byte semantics, overwrote its own
