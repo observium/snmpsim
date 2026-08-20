@@ -38,6 +38,10 @@ Items which have been sent upstream link to their pull request:
 * `snmpsim-command-responder-lite` runs again. It aborted at startup on pysnmp 7, and behind
   that crash every request path was broken as well, including the IPv6 endpoint and the
   index context shared with the full responder
+* `snmpsim-record-commands` and `snmpsim-record-traffic` work again. The first one used to
+  record nothing and hang; the second could not start at all, since it required a capture
+  library which has not been installable for years - capture files are now read directly,
+  and that library is needed only for live capture off an interface
 * Indexes are built with gdbm where the interpreter has it, instead of the `dbm.sqlite3`
   backend Python 3.13 made the default, which fsyncs every write: 3.2s against 10.9s for the
   index of a 35 MB recording. On Debian and Ubuntu gdbm comes from the `python3-gdbm`
