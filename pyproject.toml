@@ -30,7 +30,12 @@ classifiers = [
     "Topic :: System :: Networking :: Monitoring",
 ]
 dependencies = [
-    "pysnmp>=7.1.26,<8.0.0"
+    "pysnmp>=7.1.26,<8.0.0",
+    # imported by snmpsim.utils, not pulled in by pysnmp
+    "pysmi>=2.0.0,<3.0.0",
+    # pysnmp declares it as a dev extra only, but SNMP-USM-DH-OBJECTS-MIB
+    # imports it unconditionally, so the responder cannot even start without it
+    "cryptography>=44.0.1"
 ]
 
 [project.urls]
