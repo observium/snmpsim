@@ -49,6 +49,7 @@ upstream project, its pull request is given.
   (lextudio/snmpsim#19).
 - Added a test workflow running the suite on every supported Python version,
   without the retries which let a failing test pass in the existing one.
+  Neither workflow runs for changes which touch documentation only.
 
 Revision 1.2.2, released on Apr 26, 2026
 ----------------------------------------
