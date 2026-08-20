@@ -232,12 +232,6 @@ def _parse_sized_string(arg, min_length=8):
 
 
 def main():
-    # Python 3.14+ no longer auto-creates a default event loop.
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop())
-
     parser = argparse.ArgumentParser(add_help=False)
 
     parser.add_argument("-v", "--version", action="version", version=utils.TITLE)
@@ -602,6 +596,14 @@ configured automatically based on simulation data file paths relative to
             sys.stderr.write("ERROR: cant daemonize process: %s\r\n" % exc)
             snmp_helper.print_usage(sys.stderr)
             return 1
+
+    # Python 3.14+ no longer auto-creates a default event loop. Create it only
+    # now: an event loop does not survive the fork() done by --daemonize, the
+    # daemon would inherit descriptors which are already invalid there.
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
     if not os.path.exists(confdir.cache):
         try:
