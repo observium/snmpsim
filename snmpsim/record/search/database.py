@@ -5,22 +5,39 @@
 # License: https://www.pysnmp.com/snmpsim/license.html
 #
 
+import dbm
 import os
 import sys
 
 from snmpsim import confdir
 from snmpsim import error
 from snmpsim import log
-from snmpsim import utils
 from snmpsim.record.search.file import get_record
 
-dbm = utils.try_load("anydbm")
-if dbm:
-    whichdb = utils.try_load("whichdb")
 
-else:
-    dbm = utils.try_load("dbm")
-    whichdb = dbm
+def _select_dbm_backend():
+    """Pick the DBM implementation index files are built with.
+
+    Indexes are written with gdbm's "fast" flag, which skips the fsync per
+    write; without it, indexing a large data file takes minutes. Python 3.13
+    made `dbm.sqlite3` the default backend and it fsyncs every write, so use
+    gdbm whenever the interpreter has it.
+
+    Any other choice is left to the standard library. `dbm.ndbm` builds
+    indexes faster than sqlite3 as well, but `dbm.whichdb()` does not
+    recognise the files it writes, and an unrecognised index is rebuilt on
+    every start - which costs far more than the indexing itself saves.
+    """
+    try:
+        import dbm.gnu as backend
+
+    except ImportError:
+        return dbm
+
+    return backend
+
+
+DBM_BACKEND = _select_dbm_backend()
 
 
 class RecordIndex:
@@ -89,7 +106,7 @@ class RecordIndex:
                     if index_needed:
                         log.info("Forced index rebuild %s" % db_file)
 
-                    elif not whichdb.whichdb(self._db_file):
+                    elif not dbm.whichdb(self._db_file):
                         index_needed = True
                         log.info(
                             "Unsupported index format, rebuilding " "index %s" % db_file
@@ -116,7 +133,7 @@ class RecordIndex:
 
             while open_flags:
                 try:
-                    db = dbm.open(self._db_file, open_flags)
+                    db = DBM_BACKEND.open(self._db_file, open_flags)
 
                 except Exception as exc:
                     log.debug(
@@ -144,8 +161,9 @@ class RecordIndex:
                 )
 
             log.info(
-                "Building index %s for data file %s (open flags "
-                '"%s")...' % (self._db_file, self._text_file, open_flags)
+                "Building index %s for data file %s with %s (open flags "
+                '"%s")...'
+                % (self._db_file, self._text_file, DBM_BACKEND.__name__, open_flags)
             )
 
             sys.stdout.flush()
@@ -225,7 +243,7 @@ class RecordIndex:
 
         self._text_file_time = os.stat(self._text_file)[8]
 
-        self._db_type = whichdb.whichdb(self._db_file)
+        self._db_type = dbm.whichdb(self._db_file)
 
         return self
 
