@@ -26,7 +26,9 @@ class MibInstrumController:
         return str(self._data_file)
 
     def _get_call_context(self, next_flag=False, set_flag=False, **context):
-        if context is None:
+        # the lite responder calls us without an SNMP engine, in which case
+        # **context is empty rather than None
+        if not context:
             return {"nextFlag": next_flag, "setFlag": set_flag}
 
         snmp_engine = context["snmpEngine"]  # we injected snmpEngine object earlier
@@ -126,7 +128,7 @@ class DataIndexInstrumController:
     def __str__(self):
         return "<index> controller"
 
-    def read_variables(self, var_binds, **context):
+    def read_variables(self, *var_binds, **context):
         return [(vb[0], self._db.get(vb[0], exval.noSuchInstance)) for vb in var_binds]
 
     def _get_next_val(self, key, default):
@@ -139,10 +141,10 @@ class DataIndexInstrumController:
         else:
             return key, self._db[key]
 
-    def read_next_variables(self, var_binds, **context):
+    def read_next_variables(self, *var_binds, **context):
         return [self._get_next_val(vb[0], exval.endOfMib) for vb in var_binds]
 
-    def write_variables(self, var_binds, **context):
+    def write_variables(self, *var_binds, **context):
         return [(vb[0], exval.noSuchInstance) for vb in var_binds]
 
     def add_data_file(self, *args):
