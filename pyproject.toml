@@ -30,7 +30,12 @@ classifiers = [
     "Topic :: System :: Networking :: Monitoring",
 ]
 dependencies = [
-    "pysnmp>=7.1.26,<8.0.0"
+    "pysnmp>=7.1.26,<8.0.0",
+    # imported by snmpsim.utils, not pulled in by pysnmp
+    "pysmi>=2.0.0,<3.0.0",
+    # pysnmp declares it as a dev extra only, but SNMP-USM-DH-OBJECTS-MIB
+    # imports it unconditionally, so the responder cannot even start without it
+    "cryptography>=44.0.1"
 ]
 
 [project.urls]
@@ -62,8 +67,6 @@ include = [
 [project.optional-dependencies]
 dev = [
     "codecov>=2.1.12,<3.0.0",
-    "cryptography>=43.0.0,<44.0.0",
-    "pysmi>=2.0.0,<3.0.0",
     "pytest>=7.2.0,<8.0.0",
     "pytest-asyncio>=0.21.1,<0.22.0",
     "pytest-codecov>=0.4.0,<1.0.0",
