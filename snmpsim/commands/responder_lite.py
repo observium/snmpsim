@@ -61,7 +61,7 @@ def main():
 
     parser.add_argument(
         "--debug",
-        choices=pysnmp_debug.flagMap,
+        choices=pysnmp_debug.FLAG_MAP,
         action="append",
         type=str,
         default=[],
@@ -228,7 +228,7 @@ def main():
     args = parser.parse_args()
 
     if args.debug:
-        pysnmp_debug.setLogger(pysnmp_debug.Debug(*args.debug))
+        pysnmp_debug.set_logger(pysnmp_debug.Debug(*args.debug))
 
     if args.debug_asn1:
         pyasn1_debug.setLogger(pyasn1_debug.Debug(*args.debug_asn1))

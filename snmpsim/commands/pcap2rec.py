@@ -46,6 +46,81 @@ from snmpsim.record import walk
 
 pcap = utils.try_load("pcap")
 
+
+class CaptureFile:
+    """Packets out of a classic libpcap file.
+
+    Reading a file needs nothing but the file format, so this covers the
+    common case on its own. Live capture still goes through pylibpcap, which
+    is what puts an interface into promiscuous mode.
+    """
+
+    # magic number -> byte order of everything that follows
+    BYTE_ORDERS = {
+        b"\xa1\xb2\xc3\xd4": ">",
+        b"\xd4\xc3\xb2\xa1": "<",
+        b"\xa1\xb2\x3c\x4d": ">",
+        b"\x4d\x3c\xb2\xa1": "<",
+    }
+
+    # the two magic numbers above which timestamp fractions in nanoseconds
+    NANOSECONDS = (b"\xa1\xb2\x3c\x4d", b"\x4d\x3c\xb2\xa1")
+
+    PCAPNG_MAGIC = b"\x0a\x0d\x0d\x0a"
+
+    def __init__(self, path):
+        self._file = open(path, "rb")
+
+        magic = self._file.read(4)
+
+        try:
+            self._byte_order = self.BYTE_ORDERS[magic]
+
+        except KeyError:
+            self._file.close()
+
+            if magic == self.PCAPNG_MAGIC:
+                raise error.SnmpsimError(
+                    "%s is a pcapng file, convert it first: "
+                    "editcap -F pcap %s <outfile>" % (path, path)
+                )
+
+            raise error.SnmpsimError("%s is not a libpcap capture file" % path)
+
+        self._divisor = 1e9 if magic in self.NANOSECONDS else 1e6
+
+        header = self._file.read(20)
+
+        if len(header) < 20:
+            self._file.close()
+            raise error.SnmpsimError("%s is truncated" % path)
+
+        (self._datalink,) = struct.unpack(self._byte_order + "I", header[16:20])
+
+    def datalink(self):
+        return self._datalink
+
+    def __iter__(self):
+        while True:
+            header = self._file.read(16)
+
+            if len(header) < 16:
+                return
+
+            _, _, captured, _ = struct.unpack(self._byte_order + "IIII", header)
+            seconds, fraction = struct.unpack(self._byte_order + "II", header[:8])
+
+            data = self._file.read(captured)
+
+            if len(data) < captured:
+                return
+
+            yield len(data), data, seconds + fraction / self._divisor
+
+    def close(self):
+        self._file.close()
+
+
 RECORD_TYPES = {
     dump.DumpRecord.ext: dump.DumpRecord(),
     mvc.MvcRecord.ext: mvc.MvcRecord(),
@@ -128,7 +203,7 @@ def main():
 
     parser.add_argument(
         "--debug",
-        choices=pysnmp_debug.flagMap,
+        choices=pysnmp_debug.FLAG_MAP,
         action="append",
         type=str,
         default=[],
@@ -275,13 +350,11 @@ def main():
 
     args = parser.parse_args()
 
-    if not pcap:
+    if args.listen_interface and not pcap:
         sys.stderr.write(
-            "ERROR: pylibpcap package is missing!\r\nGet it by running "
-            "`pip install "
-            "https://downloads.sourceforge.net/project/pylibpcap/pylibpcap"
-            "/0.6.4/pylibpcap-0.6.4.tar.gz`"
-            "\r\n"
+            "ERROR: live capture needs the pylibpcap package, which is "
+            "missing. Capture the traffic with tcpdump instead and pass the "
+            "file with --capture-file.\r\n"
         )
         parser.print_usage(sys.stderr)
         return 1
@@ -387,9 +460,11 @@ def main():
         else:
             log.info('Variation module "%s" initialization OK' % args.variation_module)
 
-    pcap_obj = pcap.pcapObject()
+    capture = None
 
     if args.listen_interface:
+        capture = pcap.pcapObject()
+
         if not args.quiet:
             log.msg(
                 "Listening on interface %s in %spromiscuous "
@@ -398,9 +473,7 @@ def main():
             )
 
         try:
-            pcap_obj.open_live(
-                args.listen_interface, 65536, args.promiscuous_mode, 1000
-            )
+            capture.open_live(args.listen_interface, 65536, args.promiscuous_mode, 1000)
 
         except Exception as exc:
             log.error(
@@ -414,7 +487,7 @@ def main():
             log.info("Opening capture file %s" % args.capture_file)
 
         try:
-            pcap_obj.open_offline(args.capture_file)
+            capture = CaptureFile(args.capture_file)
 
         except Exception as exc:
             log.error(
@@ -428,11 +501,18 @@ def main():
         parser.print_usage(sys.stderr)
         return 1
 
-    if args.packet_filter:
+    if args.packet_filter and args.listen_interface:
         if not args.quiet:
             log.info('Applying packet filter "%s"' % args.packet_filter)
 
-        pcap_obj.setfilter(args.packet_filter, 0, 0)
+        capture.setfilter(args.packet_filter, 0, 0)
+
+    elif args.packet_filter and not args.quiet:
+        log.info(
+            'Ignoring packet filter "%s": it applies to live capture only, '
+            "packets read from a file are sorted out by decoding them"
+            % args.packet_filter
+        )
 
     if not args.quiet:
         log.info(
@@ -450,24 +530,24 @@ def main():
         # http://www.tcpdump.org/linktypes.html
         ll_headers = {0: 4, 1: 14, 108: 4, 228: 0}
 
-        if pcap_obj.datalink() in ll_headers:
-            raw = raw[ll_headers[pcap_obj.datalink()] :]
+        if capture.datalink() in ll_headers:
+            raw = raw[ll_headers[capture.datalink()] :]
 
         else:
             stats["unknown L2 protocol"] += 1
 
-        pkt["version"] = (ord(raw[0]) & 0xF0) >> 4
-        pkt["header_len"] = ord(raw[0]) & 0x0F
-        pkt["tos"] = ord(raw[1])
-        pkt["total_len"] = socket.ntohs(struct.unpack("H", raw[2:4])[0])
-        pkt["id"] = socket.ntohs(struct.unpack("H", raw[4:6])[0])
-        pkt["flags"] = (ord(raw[6]) & 0xE0) >> 5
-        pkt["fragment_offset"] = socket.ntohs(struct.unpack("H", raw[6:8])[0] & 0x1F)
-        pkt["ttl"] = ord(raw[8])
-        pkt["protocol"] = ord(raw[9])
-        pkt["checksum"] = socket.ntohs(struct.unpack("H", raw[10:12])[0])
-        pkt["source_address"] = pcap.ntoa(struct.unpack("i", raw[12:16])[0])
-        pkt["destination_address"] = pcap.ntoa(struct.unpack("i", raw[16:20])[0])
+        pkt["version"] = (raw[0] & 0xF0) >> 4
+        pkt["header_len"] = raw[0] & 0x0F
+        pkt["tos"] = raw[1]
+        (pkt["total_len"],) = struct.unpack("!H", raw[2:4])
+        (pkt["id"],) = struct.unpack("!H", raw[4:6])
+        pkt["flags"] = (raw[6] & 0xE0) >> 5
+        pkt["fragment_offset"] = struct.unpack("!H", raw[6:8])[0] & 0x1FFF
+        pkt["ttl"] = raw[8]
+        pkt["protocol"] = raw[9]
+        (pkt["checksum"],) = struct.unpack("!H", raw[10:12])
+        pkt["source_address"] = socket.inet_ntoa(raw[12:16])
+        pkt["destination_address"] = socket.inet_ntoa(raw[16:20])
 
         if pkt["header_len"] > 5:
             pkt["options"] = raw[20 : 4 * (pkt["header_len"] - 5)]
@@ -478,8 +558,8 @@ def main():
         raw = raw[4 * pkt["header_len"] :]
 
         if pkt["protocol"] == 17:
-            pkt["source_port"] = socket.ntohs(struct.unpack("H", raw[0:2])[0])
-            pkt["destination_port"] = socket.ntohs(struct.unpack("H", raw[2:4])[0])
+            (pkt["source_port"],) = struct.unpack("!H", raw[0:2])
+            (pkt["destination_port"],) = struct.unpack("!H", raw[2:4])
             raw = raw[8:]
             stats["UDP packets"] += 1
 
@@ -491,8 +571,8 @@ def main():
     def handle_snmp_message(d, t, private={}):
         msg_ver = api.decodeMessageVersion(d["data"])
 
-        if msg_ver in api.protoModules:
-            p_mod = api.protoModules[msg_ver]
+        if msg_ver in api.PROTOCOL_MODULES:
+            p_mod = api.PROTOCOL_MODULES[msg_ver]
 
         else:
             stats["bad packets"] += 1
@@ -516,7 +596,7 @@ def main():
                 endpoint = d["source_address"], d["source_port"]
 
                 if endpoint not in endpoints:
-                    endpoints[endpoint] = udp.domainName + (
+                    endpoints[endpoint] = udp.DOMAIN_NAME + (
                         args.transport_id_offset + len(endpoints),
                     )
                     stats["agents seen"] += 1
@@ -574,16 +654,13 @@ def main():
             )
 
             while True:
-                pcap_obj.dispatch(1, handle_packet)
+                capture.dispatch(1, handle_packet)
 
         elif args.capture_file:
             log.info('Processing capture file "%s"....' % args.capture_file)
 
-            args = pcap_obj.next()
-
-            while args:
-                handle_packet(*args)
-                args = pcap_obj.next()
+            for packet in capture:
+                handle_packet(*packet)
 
     except (TypeError, KeyboardInterrupt):
         log.info("Shutting down process...")
@@ -600,11 +677,7 @@ def main():
             if not args.quiet:
                 log.info("Creating simulation context %s at %s" % (context, filename))
 
-            try:
-                os.mkdir(os.path.dirname(filename))
-
-            except OSError:
-                pass
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
 
             record = RECORD_TYPES[args.destination_record_type]
 
@@ -716,15 +789,16 @@ def main():
             else:
                 log.info('Variation module "%s" shutdown OK' % args.variation_module)
 
-        log.info(
-            """\
+        if args.listen_interface:
+            log.info(
+                """\
 PCap statistics:
     packets snooped: %s
     packets dropped: %s
     packets dropped: by interface %s\
     """
-            % pcap_obj.stats()
-        )
+                % capture.stats()
+            )
 
         log.info(
             """\

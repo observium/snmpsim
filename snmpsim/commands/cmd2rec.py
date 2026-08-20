@@ -91,7 +91,7 @@ def main():
 
     parser.add_argument(
         "--debug",
-        choices=pysnmp_debug.flagMap,
+        choices=pysnmp_debug.FLAG_MAP,
         action="append",
         type=str,
         default=[],
@@ -297,7 +297,7 @@ def main():
     args = parser.parse_args()
 
     if args.debug:
-        pysnmp_debug.setLogger(pysnmp_debug.Debug(*args.debug))
+        pysnmp_debug.set_logger(pysnmp_debug.Debug(*args.debug))
 
     if args.debug_asn1:
         pyasn1_debug.setLogger(pyasn1_debug.Debug(*args.debug_asn1))
@@ -471,13 +471,13 @@ def main():
 
     if args.agent_udpv6_endpoint:
         config.addSocketTransport(
-            snmp_engine, udp6.domainName, udp6.Udp6SocketTransport().openClientMode()
+            snmp_engine, udp6.DOMAIN_NAME, udp6.Udp6Transport().open_client_mode()
         )
 
         config.addTargetAddr(
             snmp_engine,
             "tgt",
-            udp6.domainName,
+            udp6.DOMAIN_NAME,
             args.agent_udpv6_endpoint,
             "pms",
             args.timeout * 100,
@@ -488,13 +488,13 @@ def main():
 
     elif args.agent_udpv4_endpoint:
         config.addSocketTransport(
-            snmp_engine, udp.domainName, udp.UdpAsyncioTransport().openClientMode()
+            snmp_engine, udp.DOMAIN_NAME, udp.UdpTransport().open_client_mode()
         )
 
         config.addTargetAddr(
             snmp_engine,
             "tgt",
-            udp.domainName,
+            udp.DOMAIN_NAME,
             args.agent_udpv4_endpoint,
             "pms",
             args.timeout * 100,
@@ -562,19 +562,59 @@ def main():
 
     # SNMP worker
 
+    def send_request(oid):
+        """Ask the agent for whatever comes after `oid`.
+
+        pysnmp used to keep walking on its own for as long as the callback
+        asked for more; since pysnmp 7 it hands over a single response and
+        stops there, so every step of the walk is issued from here.
+        """
+        if args.use_getbulk:
+            cmd_gen.send_varbinds(
+                snmp_engine,
+                "tgt",
+                args.v3_context_engine_id,
+                args.v3_context_name,
+                0,
+                args.getbulk_repetitions,
+                [(oid, None)],
+                cbFun,
+                cb_ctx,
+            )
+
+        else:
+            cmd_gen.send_varbinds(
+                snmp_engine,
+                "tgt",
+                args.v3_context_engine_id,
+                args.v3_context_name,
+                [(oid, None)],
+                cbFun,
+                cb_ctx,
+            )
+
+    def stop_walking():
+        """Leave run_dispatcher().
+
+        The asyncio dispatcher runs its loop until the loop is stopped; it
+        does not return when the last job is done.
+        """
+        snmp_engine.transport_dispatcher.loop.stop()
+
     def cbFun(
         snmp_engine,
         send_request_handle,
         error_indication,
         error_status,
         error_index,
-        var_bind_table,
+        var_binds,
         cb_ctx,
     ):
         if error_indication and not cb_ctx["retries"]:
             cb_ctx["errors"] += 1
             log.error("SNMP Engine error: %s" % error_indication)
-            return
+            stop_walking()
+            return False
 
         # SNMPv1 response may contain noSuchName error *and* SNMPv2c exception,
         # so we ignore noSuchName error here
@@ -586,7 +626,7 @@ def main():
 
             if cb_ctx["retries"]:
                 try:
-                    next_oid = var_bind_table[-1][0][0]
+                    next_oid = var_binds[-1][0]
 
                 except IndexError:
                     next_oid = cb_ctx["lastOID"]
@@ -618,149 +658,117 @@ def main():
                 )
 
                 # initiate another SNMP walk iteration
-                if args.use_getbulk:
-                    cmd_gen.send_varbinds(
-                        snmp_engine,
-                        "tgt",
-                        args.v3_context_engine_id,
-                        args.v3_context_name,
-                        0,
-                        args.getbulk_repetitions,
-                        [(next_oid, None)],
-                        cbFun,
-                        cb_ctx,
-                    )
+                send_request(next_oid)
 
-                else:
-                    cmd_gen.send_varbinds(
-                        snmp_engine,
-                        "tgt",
-                        args.v3_context_engine_id,
-                        args.v3_context_name,
-                        [(next_oid, None)],
-                        cbFun,
-                        cb_ctx,
-                    )
+            else:
+                stop_walking()
 
             cb_ctx["errors"] += 1
 
-            return
+            return False
 
         if args.continue_on_errors != cb_ctx["retries"]:
             cb_ctx["retries"] += 1
 
-        if var_bind_table and var_bind_table[-1] and var_bind_table[-1][0]:
-            cb_ctx["lastOID"] = var_bind_table[-1][0][0]
+        if var_binds and var_binds[-1]:
+            cb_ctx["lastOID"] = var_binds[-1][0]
 
         stop_flag = False
+        restarted = False
 
         # Walk var-binds
-        for var_bind_row in var_bind_table:
-            for oid, value in var_bind_row:
-                # EOM
-                if args.stop_object and oid >= args.stop_object:
-                    stop_flag = True  # stop on out of range condition
+        for oid, value in var_binds:
+            # EOM
+            if args.stop_object and oid >= args.stop_object:
+                stop_flag = True  # stop on out of range condition
 
-                elif value is None or value.tagSet in (
-                    rfc1905.NoSuchObject.tagSet,
-                    rfc1905.NoSuchInstance.tagSet,
-                    rfc1905.EndOfMibView.tagSet,
-                ):
-                    stop_flag = True
+            elif value is None or value.tagSet in (
+                rfc1905.NoSuchObject.tagSet,
+                rfc1905.NoSuchInstance.tagSet,
+                rfc1905.EndOfMibView.tagSet,
+            ):
+                stop_flag = True
 
-                # remove value enumeration
-                if value.tagSet == rfc1902.Integer32.tagSet:
-                    value = rfc1902.Integer32(value)
+            # remove value enumeration
+            if value.tagSet == rfc1902.Integer32.tagSet:
+                value = rfc1902.Integer32(value)
 
-                if value.tagSet == rfc1902.Unsigned32.tagSet:
-                    value = rfc1902.Unsigned32(value)
+            if value.tagSet == rfc1902.Unsigned32.tagSet:
+                value = rfc1902.Unsigned32(value)
 
-                if value.tagSet == rfc1902.Bits.tagSet:
-                    value = rfc1902.OctetString(value)
+            if value.tagSet == rfc1902.Bits.tagSet:
+                value = rfc1902.OctetString(value)
 
-                # Build .snmprec record
+            # Build .snmprec record
 
-                context = {
-                    "origOid": oid,
-                    "origValue": value,
-                    "count": cb_ctx["count"],
-                    "total": cb_ctx["total"],
-                    "iteration": cb_ctx["iteration"],
-                    "reqTime": cb_ctx["reqTime"],
-                    "args.start_object": args.start_object,
-                    "stopOID": args.stop_object,
-                    "stopFlag": stop_flag,
-                    "variationModule": variation_module,
-                }
+            context = {
+                "origOid": oid,
+                "origValue": value,
+                "count": cb_ctx["count"],
+                "total": cb_ctx["total"],
+                "iteration": cb_ctx["iteration"],
+                "reqTime": cb_ctx["reqTime"],
+                "args.start_object": args.start_object,
+                "stopOID": args.stop_object,
+                "stopFlag": stop_flag,
+                "variationModule": variation_module,
+            }
 
-                try:
-                    line = data_file_handler.format(oid, value, **context)
+            try:
+                line = data_file_handler.format(oid, value, **context)
 
-                except error.MoreDataNotification as exc:
-                    cb_ctx["count"] = 0
-                    cb_ctx["iteration"] += 1
+            except error.MoreDataNotification as exc:
+                cb_ctx["count"] = 0
+                cb_ctx["iteration"] += 1
 
-                    more_data_notification = exc
+                more_data_notification = exc
 
-                    if "period" in more_data_notification:
-                        log.info(
-                            "%s OIDs dumped, waiting %.2f sec(s)"
-                            "..." % (cb_ctx["total"], more_data_notification["period"])
-                        )
+                if "period" in more_data_notification:
+                    log.info(
+                        "%s OIDs dumped, waiting %.2f sec(s)"
+                        "..." % (cb_ctx["total"], more_data_notification["period"])
+                    )
 
-                        time.sleep(more_data_notification["period"])
+                    time.sleep(more_data_notification["period"])
 
-                    # initiate another SNMP walk iteration
-                    if args.use_getbulk:
-                        cmd_gen.send_varbinds(
-                            snmp_engine,
-                            "tgt",
-                            args.v3_context_engine_id,
-                            args.v3_context_name,
-                            0,
-                            args.getbulk_repetitions,
-                            [(args.start_object, None)],
-                            cbFun,
-                            cb_ctx,
-                        )
+                # initiate another SNMP walk iteration
+                send_request(args.start_object)
 
-                    else:
-                        cmd_gen.send_varbinds(
-                            snmp_engine,
-                            "tgt",
-                            args.v3_context_engine_id,
-                            args.v3_context_name,
-                            [(args.start_object, None)],
-                            cbFun,
-                            cb_ctx,
-                        )
+                restarted = True
+                stop_flag = True  # stop current iteration
 
-                    stop_flag = True  # stop current iteration
+            except error.NoDataNotification:
+                pass
 
-                except error.NoDataNotification:
-                    pass
+            except error.SnmpsimError as exc:
+                log.error(exc)
+                continue
 
-                except error.SnmpsimError as exc:
-                    log.error(exc)
-                    continue
+            else:
+                args.output_file.write(line)
 
-                else:
-                    args.output_file.write(line)
+                cb_ctx["count"] += 1
+                cb_ctx["total"] += 1
 
-                    cb_ctx["count"] += 1
-                    cb_ctx["total"] += 1
-
-                    if cb_ctx["count"] % 100 == 0:
-                        log.info(
-                            "OIDs dumped: %s/%s"
-                            % (cb_ctx["iteration"], cb_ctx["count"])
-                        )
+                if cb_ctx["count"] % 100 == 0:
+                    log.info(
+                        "OIDs dumped: %s/%s" % (cb_ctx["iteration"], cb_ctx["count"])
+                    )
 
         # Next request time
         cb_ctx["reqTime"] = time.time()
 
+        if restarted:
+            return False  # a fresh walk is already on its way
+
+        if stop_flag or not var_binds:
+            stop_walking()
+            return False
+
         # Continue walking
-        return not stop_flag
+        send_request(cb_ctx["lastOID"])
+
+        return True
 
     cb_ctx = {
         "total": 0,
@@ -775,30 +783,10 @@ def main():
     if args.use_getbulk:
         cmd_gen = cmdgen.BulkCommandGenerator()
 
-        cmd_gen.send_varbinds(
-            snmp_engine,
-            "tgt",
-            args.v3_context_engine_id,
-            args.v3_context_name,
-            0,
-            args.getbulk_repetitions,
-            [(args.start_object, rfc1902.Null(""))],
-            cbFun,
-            cb_ctx,
-        )
-
     else:
         cmd_gen = cmdgen.NextCommandGenerator()
 
-        cmd_gen.send_varbinds(
-            snmp_engine,
-            "tgt",
-            args.v3_context_engine_id,
-            args.v3_context_name,
-            [(args.start_object, rfc1902.Null(""))],
-            cbFun,
-            cb_ctx,
-        )
+    send_request(args.start_object)
 
     log.info(
         "Sending initial %s request for %s (stop at %s)"
@@ -813,7 +801,7 @@ def main():
     started = time.time()
 
     try:
-        snmp_engine.transportDispatcher.runDispatcher()
+        snmp_engine.transport_dispatcher.run_dispatcher()
 
     except KeyboardInterrupt:
         log.info("Shutting down process...")
@@ -840,11 +828,9 @@ def main():
             else:
                 log.info("Variation module %s shutdown OK" % args.variation_module)
 
-        snmp_engine.transportDispatcher.closeDispatcher()
+        snmp_engine.transport_dispatcher.close_dispatcher()
 
         started = time.time() - started
-
-        cb_ctx["total"] += cb_ctx["count"]
 
         log.info(
             "OIDs dumped: %s, elapsed: %.2f sec, rate: %.2f OIDs/sec, errors: "

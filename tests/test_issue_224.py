@@ -21,15 +21,15 @@ def test_cmd2rec_send_varbinds_compat(monkeypatch, tmp_path):
     from pysnmp.entity import engine as pysnmp_engine, config as pysnmp_config
 
     class StubTransportDispatcher:
-        def runDispatcher(self):
+        def run_dispatcher(self):
             return
 
-        def closeDispatcher(self):
+        def close_dispatcher(self):
             return
 
     class StubSnmpEngine:
         def __init__(self):
-            self.transportDispatcher = StubTransportDispatcher()
+            self.transport_dispatcher = StubTransportDispatcher()
 
         def getMibBuilder(self):
             return None

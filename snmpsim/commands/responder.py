@@ -248,7 +248,7 @@ def main():
 
     parser.add_argument(
         "--debug",
-        choices=pysnmp_debug.flagMap,
+        choices=pysnmp_debug.FLAG_MAP,
         action="append",
         type=str,
         default=[],
