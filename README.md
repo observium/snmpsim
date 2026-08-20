@@ -17,7 +17,7 @@ distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.
 
 ## What this fork adds
 
-Items which have been sent upstream link to their pull request:
+Every item is also filed upstream; each links to its pull request:
 
 * A record whose value cannot be BER-encoded no longer silences the responder. A single-arc
   OID (`6|0`) is served as `0.0`, which is byte for byte what the device put on the wire;
