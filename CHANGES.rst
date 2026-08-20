@@ -1,5 +1,40 @@
 .. current-version: 1.2.2 (managed by bump2version)
 
+Revision 1.2.3, unreleased
+--------------------------
+
+Changes carried by the Observium fork. Where a change was also sent to the
+upstream project, its pull request is given.
+
+- Serve OID values made of a single arc, such as ``6|0``, instead of dropping
+  the response. BER has no representation for such an OID, so ``0`` and ``0.0``
+  are the same octets and the missing arc is restored (lextudio/snmpsim#14).
+- Answer ``noSuchInstance`` on GET, and step over the record on GETNEXT and
+  GETBULK, for values which cannot be encoded at all. One broken record no
+  longer truncates the rest of the walk (lextudio/snmpsim#14).
+- Added ``snmpsim-lint-records``, which checks data files, or whole directories
+  of them, by encoding every value, and exits non-zero on errors
+  (lextudio/snmpsim#14).
+- Preserve trailing spaces in escaped values, so an ``IpAddress`` whose last
+  octet is 32 is no longer cut short and dropped (lextudio/snmpsim#12).
+- Fixed ``--daemonize``: the event loop was created before ``fork()`` and did
+  not survive it, so the daemon died moments after opening its socket
+  (lextudio/snmpsim#15).
+- Declared ``pysmi`` and ``cryptography`` as dependencies. Both are imported at
+  run time, and without them a fresh installation cannot start
+  (lextudio/snmpsim#16).
+- Fixed ``snmpsim-command-responder-lite``, which aborted at startup on pysnmp
+  7, along with the request paths behind that crash: the IPv6 endpoint and the
+  data files index context.
+- Fixed ``snmpsim-record-commands``, which recorded nothing and hung: pysnmp 7
+  hands over one response per request and no longer continues a walk by itself.
+- Fixed ``snmpsim-record-traffic``, which could not start at all. Capture files
+  are now read without an extension module; ``pylibpcap`` is needed only for
+  live capture off an interface.
+- Build data file indexes with gdbm where the interpreter has it. Python 3.13
+  made ``dbm.sqlite3`` the default backend, which fsyncs every write and builds
+  indexes twice as slowly; interpreters without gdbm are unaffected.
+
 Revision 1.2.2, released on Apr 26, 2026
 ----------------------------------------
 
