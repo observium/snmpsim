@@ -44,6 +44,10 @@ Every item is also filed upstream; each links to its pull request:
   library which has not been installable for years - capture files are now read directly,
   and that library is needed only for live capture off an interface
   ([#18](https://github.com/lextudio/snmpsim/pull/18))
+* A recording filed under the requester's source address is served again. The command
+  responders hooked into a pysnmp method which was renamed in 7.x, so the hook - and with it
+  address-based selection - had been dead code, and every client got the plain recording
+  ([#20](https://github.com/lextudio/snmpsim/pull/20))
 * Indexes are built with gdbm where the interpreter has it, instead of the `dbm.sqlite3`
   backend Python 3.13 made the default, which fsyncs every write: 5.0s against 10.9s for the
   index of a 35 MB recording, and a smaller index at that. On Debian and Ubuntu gdbm comes

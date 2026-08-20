@@ -43,6 +43,14 @@ upstream project, its pull request is given.
   needed only for live capture off an interface (lextudio/snmpsim#18).
 - Fixed ``--debug`` in the recorder and the lite responder, which died on a
   pysnmp function renamed years ago.
+- Fixed selection of a recording by source address in the full responder. Its
+  four command responder classes hooked into ``handleMgmtOperation``, which
+  pysnmp 7 renamed and no longer calls, so the hooks - and the address probing,
+  the "LCD access denied" guard and the ``NoDataNotification`` handling inside
+  them - had been dead since the pysnmp 7 port (lextudio/snmpsim#20).
+- Moved off the pysnmp names which survive only as deprecated aliases
+  (``udp6.domainName``, ``config.addV1System`` and its neighbours, the
+  ``usm*Protocol`` constants). Their removal is what killed the lite responder.
 - Build data file indexes with gdbm where the interpreter has it. Python 3.13
   made ``dbm.sqlite3`` the default backend, which fsyncs every write and builds
   indexes twice as slowly; interpreters without gdbm are unaffected
