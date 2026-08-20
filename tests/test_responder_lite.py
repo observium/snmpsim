@@ -82,13 +82,13 @@ async def test_lite_responder_serves_v2c(run_app_in_background):
             auth_data,
             transport,
             ContextData(),
-            ObjectType(ObjectIdentity("1.3.6.1.2.1.1.1.0")),
+            ObjectType(ObjectIdentity("1.3.6.1.2.1.2.2.1.2.0")),
         )
 
         assert errorIndication is None, f"Error: {errorIndication}"
         assert errorStatus == 0, f"Error status: {errorStatus}"
-        assert str(varBinds[0][0]) == "1.3.6.1.2.1.1.2.0"
-        assert varBinds[0][1].prettyPrint() == "1.3.6.1.4.1.99999"
+        assert str(varBinds[0][0]) == "1.3.6.1.2.1.2.2.1.2.1"
+        assert varBinds[0][1].prettyPrint() == "GigabitEthernet0/1"
 
         all_results = []
 
