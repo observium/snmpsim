@@ -7,6 +7,7 @@
 # SNMP Snapshot Data Recorder
 #
 import argparse
+import asyncio
 import functools
 import os
 import sys
@@ -411,6 +412,15 @@ def main():
             return 1
 
     # SNMP configuration
+
+    # pysnmp builds its transports around the event loop of the calling
+    # thread, and Python 3.10+ does not hand out one which was never created
+    # (or was closed by someone else)
+    try:
+        asyncio.get_event_loop()
+
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
     snmp_engine = engine.SnmpEngine()
 
