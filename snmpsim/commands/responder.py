@@ -72,7 +72,9 @@ V3_OPTIONS = "SNMPv3 options"
 
 def probe_hash_context(responder, snmp_engine):
     """v3arch SNMP context name searcher"""
-    execCtx = snmp_engine.observer.getExecutionContext("rfc3412.receiveMessage:request")
+    execCtx = snmp_engine.observer.get_execution_context(
+        "rfc3412.receiveMessage:request"
+    )
 
     (transport_domain, transport_address, context_engine_id, context_name) = (
         execCtx["transportDomain"],
@@ -97,7 +99,7 @@ def probe_hash_context(responder, snmp_engine):
             probed_context_name = candidate
 
         try:
-            mib_instrum = responder.snmpContext.getMibInstrum(probed_context_name)
+            mib_instrum = responder.snmpContext.get_mib_instrum(probed_context_name)
 
         except error.PySnmpError:
             pass
@@ -120,7 +122,7 @@ def probe_hash_context(responder, snmp_engine):
             context_name = probed_context_name
             break
     else:
-        mib_instrum = responder.snmpContext.getMibInstrum(context_name)
+        mib_instrum = responder.snmpContext.get_mib_instrum(context_name)
         log.info(
             'Using %s selected by contextName "%s", transport ID %s, '
             "source address %s"
@@ -145,81 +147,77 @@ def probe_hash_context(responder, snmp_engine):
 class GetCommandResponder(cmdrsp.GetCommandResponder):
     """v3arch GET command handler"""
 
-    def handleMgmtOperation(
-        self, snmp_engine, state_reference, context_name, pdu, ac_info
+    def handle_management_operation(
+        self, snmp_engine, state_reference, context_name, pdu
     ):
         try:
-            cmdrsp.GetCommandResponder.handleMgmtOperation(
+            cmdrsp.GetCommandResponder.handle_management_operation(
                 self,
                 snmp_engine,
                 state_reference,
                 probe_hash_context(self, snmp_engine),
                 pdu,
-                (None, snmp_engine),  # custom acInfo
             )
 
         except NoDataNotification:
-            self.releaseStateInformation(state_reference)
+            self.release_state_information(state_reference)
 
 
 class SetCommandResponder(cmdrsp.SetCommandResponder):
     """v3arch SET command handler"""
 
-    def handleMgmtOperation(
-        self, snmp_engine, state_reference, context_name, pdu, ac_info
+    def handle_management_operation(
+        self, snmp_engine, state_reference, context_name, pdu
     ):
         try:
-            cmdrsp.SetCommandResponder.handleMgmtOperation(
+            cmdrsp.SetCommandResponder.handle_management_operation(
                 self,
                 snmp_engine,
                 state_reference,
                 probe_hash_context(self, snmp_engine),
                 pdu,
-                (None, snmp_engine),  # custom acInfo
             )
 
         except NoDataNotification:
-            self.releaseStateInformation(state_reference)
+            self.release_state_information(state_reference)
 
 
 class NextCommandResponder(cmdrsp.NextCommandResponder):
     """v3arch GETNEXT command handler"""
 
-    def handleMgmtOperation(
-        self, snmp_engine, state_reference, context_name, pdu, ac_info
+    def handle_management_operation(
+        self, snmp_engine, state_reference, context_name, pdu
     ):
         try:
-            cmdrsp.NextCommandResponder.handleMgmtOperation(
+            cmdrsp.NextCommandResponder.handle_management_operation(
                 self,
                 snmp_engine,
                 state_reference,
                 probe_hash_context(self, snmp_engine),
                 pdu,
-                (None, snmp_engine),  # custom acInfo
             )
 
         except NoDataNotification:
-            self.releaseStateInformation(state_reference)
+            self.release_state_information(state_reference)
 
 
 class BulkCommandResponder(cmdrsp.BulkCommandResponder):
     """v3arch GETBULK command handler"""
 
-    def handleMgmtOperation(
-        self, snmp_engine, state_reference, context_name, pdu, ac_info
+    def handle_management_operation(
+        self, snmp_engine, state_reference, context_name, pdu
     ):
         try:
-            cmdrsp.BulkCommandResponder.handleMgmtOperation(
+            cmdrsp.BulkCommandResponder.handle_management_operation(
                 self,
                 snmp_engine,
                 state_reference,
                 probe_hash_context(self, snmp_engine),
                 pdu,
-                (None, snmp_engine),  # custom acInfo
             )
 
         except NoDataNotification:
-            self.releaseStateInformation(state_reference)
+            self.release_state_information(state_reference)
 
 
 def _parse_sized_string(arg, min_length=8):
@@ -924,7 +922,7 @@ configured automatically based on simulation data file paths relative to
                     )
 
                 for agent_udpv6_endpoint in agent_udpv6_endpoints:
-                    transport_domain = udp6.domainName + (transport_index["udpv6"],)
+                    transport_domain = udp6.DOMAIN_NAME + (transport_index["udpv6"],)
                     transport_index["udpv6"] += 1
 
                     snmp_engine.register_transport_dispatcher(

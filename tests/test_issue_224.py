@@ -37,11 +37,11 @@ def test_cmd2rec_send_varbinds_compat(monkeypatch, tmp_path):
     monkeypatch.setattr(pysnmp_engine, "SnmpEngine", StubSnmpEngine)
 
     # Make pysnmp config helpers no-ops so they don't touch engine internals
-    monkeypatch.setattr(pysnmp_config, "addV1System", lambda *a, **k: None)
-    monkeypatch.setattr(pysnmp_config, "addTargetParams", lambda *a, **k: None)
-    monkeypatch.setattr(pysnmp_config, "addSocketTransport", lambda *a, **k: None)
-    monkeypatch.setattr(pysnmp_config, "addTargetAddr", lambda *a, **k: None)
-    monkeypatch.setattr(pysnmp_config, "addV3User", lambda *a, **k: None)
+    monkeypatch.setattr(pysnmp_config, "add_v1_system", lambda *a, **k: None)
+    monkeypatch.setattr(pysnmp_config, "add_target_parameters", lambda *a, **k: None)
+    monkeypatch.setattr(pysnmp_config, "add_transport", lambda *a, **k: None)
+    monkeypatch.setattr(pysnmp_config, "add_target_address", lambda *a, **k: None)
+    monkeypatch.setattr(pysnmp_config, "add_v3_user", lambda *a, **k: None)
 
     # Provide minimal CLI args: agent endpoint and output file
     args = [

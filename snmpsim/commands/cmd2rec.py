@@ -36,25 +36,25 @@ from snmpsim import variation
 from snmpsim import endpoints
 
 AUTH_PROTOCOLS = {
-    "MD5": config.usmHMACMD5AuthProtocol,
-    "SHA": config.usmHMACSHAAuthProtocol,
-    "SHA224": config.usmHMAC128SHA224AuthProtocol,
-    "SHA256": config.usmHMAC192SHA256AuthProtocol,
-    "SHA384": config.usmHMAC256SHA384AuthProtocol,
-    "SHA512": config.usmHMAC384SHA512AuthProtocol,
-    "NONE": config.usmNoAuthProtocol,
+    "MD5": config.USM_AUTH_HMAC96_MD5,
+    "SHA": config.USM_AUTH_HMAC96_SHA,
+    "SHA224": config.USM_AUTH_HMAC128_SHA224,
+    "SHA256": config.USM_AUTH_HMAC192_SHA256,
+    "SHA384": config.USM_AUTH_HMAC256_SHA384,
+    "SHA512": config.USM_AUTH_HMAC384_SHA512,
+    "NONE": config.USM_AUTH_NONE,
 }
 
 PRIV_PROTOCOLS = {
-    "DES": config.usmDESPrivProtocol,
-    "3DES": config.usm3DESEDEPrivProtocol,
-    "AES": config.usmAesCfb128Protocol,
-    "AES128": config.usmAesCfb128Protocol,
-    "AES192": config.usmAesCfb192Protocol,
-    "AES192BLMT": config.usmAesBlumenthalCfb192Protocol,
-    "AES256": config.usmAesCfb256Protocol,
-    "AES256BLMT": config.usmAesBlumenthalCfb256Protocol,
-    "NONE": config.usmNoPrivProtocol,
+    "DES": config.USM_PRIV_CBC56_DES,
+    "3DES": config.USM_PRIV_CBC168_3DES,
+    "AES": config.USM_PRIV_CFB128_AES,
+    "AES128": config.USM_PRIV_CFB128_AES,
+    "AES192": config.USM_PRIV_CFB192_AES,
+    "AES192BLMT": config.USM_PRIV_CFB192_AES_BLUMENTHAL,
+    "AES256": config.USM_PRIV_CFB256_AES,
+    "AES256BLMT": config.USM_PRIV_CFB256_AES_BLUMENTHAL,
+    "NONE": config.USM_PRIV_NONE,
 }
 
 VERSION_MAP = {"1": 0, "2c": 1, "3": 3}
@@ -338,7 +338,7 @@ def main():
             parser.print_usage(sys.stderr)
             return 1
 
-        if AUTH_PROTOCOLS[args.v3_auth_proto] == config.usmNoAuthProtocol:
+        if AUTH_PROTOCOLS[args.v3_auth_proto] == config.USM_AUTH_NONE:
             if args.v3_auth_key:
                 args.v3_auth_proto = "MD5"
 
@@ -348,7 +348,7 @@ def main():
                 parser.print_usage(sys.stderr)
                 return 1
 
-        if PRIV_PROTOCOLS[args.v3_priv_proto] == config.usmNoPrivProtocol:
+        if PRIV_PROTOCOLS[args.v3_priv_proto] == config.USM_PRIV_NONE:
             if args.v3_priv_key:
                 args.v3_priv_proto = "DES"
 
@@ -434,7 +434,7 @@ def main():
         else:
             secLevel = "authPriv"
 
-        config.addV3User(
+        config.add_v3_user(
             snmp_engine,
             args.v3_user,
             AUTH_PROTOCOLS[args.v3_auth_proto],
@@ -468,23 +468,23 @@ def main():
         args.v3_user = "agt"
         secLevel = "noAuthNoPriv"
 
-        config.addV1System(snmp_engine, args.v3_user, args.community)
+        config.add_v1_system(snmp_engine, args.v3_user, args.community)
 
         log.info(
             "SNMP version %s, Community name: "
             "%s" % (args.protocol_version, args.community)
         )
 
-    config.addTargetParams(
+    config.add_target_parameters(
         snmp_engine, "pms", args.v3_user, secLevel, VERSION_MAP[args.protocol_version]
     )
 
     if args.agent_udpv6_endpoint:
-        config.addSocketTransport(
+        config.add_transport(
             snmp_engine, udp6.DOMAIN_NAME, udp6.Udp6Transport().open_client_mode()
         )
 
-        config.addTargetAddr(
+        config.add_target_address(
             snmp_engine,
             "tgt",
             udp6.DOMAIN_NAME,
@@ -497,11 +497,11 @@ def main():
         log.info("Querying UDP/IPv6 agent at [%s]:%s" % args.agent_udpv6_endpoint)
 
     elif args.agent_udpv4_endpoint:
-        config.addSocketTransport(
+        config.add_transport(
             snmp_engine, udp.DOMAIN_NAME, udp.UdpTransport().open_client_mode()
         )
 
-        config.addTargetAddr(
+        config.add_target_address(
             snmp_engine,
             "tgt",
             udp.DOMAIN_NAME,
