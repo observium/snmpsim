@@ -38,14 +38,17 @@ Items which have been sent upstream link to their pull request:
 * `snmpsim-command-responder-lite` runs again. It aborted at startup on pysnmp 7, and behind
   that crash every request path was broken as well, including the IPv6 endpoint and the
   index context shared with the full responder
+  ([#17](https://github.com/lextudio/snmpsim/pull/17))
 * `snmpsim-record-commands` and `snmpsim-record-traffic` work again. The first one used to
   record nothing and hang; the second could not start at all, since it required a capture
   library which has not been installable for years - capture files are now read directly,
   and that library is needed only for live capture off an interface
+  ([#18](https://github.com/lextudio/snmpsim/pull/18))
 * Indexes are built with gdbm where the interpreter has it, instead of the `dbm.sqlite3`
-  backend Python 3.13 made the default, which fsyncs every write: 3.2s against 10.9s for the
-  index of a 35 MB recording. On Debian and Ubuntu gdbm comes from the `python3-gdbm`
-  package; without it nothing changes
+  backend Python 3.13 made the default, which fsyncs every write: 5.0s against 10.9s for the
+  index of a 35 MB recording, and a smaller index at that. On Debian and Ubuntu gdbm comes
+  from the `python3-gdbm` package; without it nothing changes
+  ([#19](https://github.com/lextudio/snmpsim/pull/19))
 
 ## Features
 
@@ -126,6 +129,11 @@ default. Lower it to keep the loop tight:
 ```bash
 SNMPSIM_TEST_TIMEOUT=3 pytest tests
 ```
+
+Two workflows run on every push. `build-test.yml`, inherited from upstream, builds the
+package and runs the suite on Linux, macOS and Windows across all supported Python versions.
+`tests.yml` runs the same suite on Linux only, but plainly - no coverage and, more to the
+point, no retries, which is how it catches failures the retrying workflow lets through.
 
 ## Commands
 

@@ -24,16 +24,31 @@ upstream project, its pull request is given.
   run time, and without them a fresh installation cannot start
   (lextudio/snmpsim#16).
 - Fixed ``snmpsim-command-responder-lite``, which aborted at startup on pysnmp
-  7, along with the request paths behind that crash: the IPv6 endpoint and the
-  data files index context.
-- Fixed ``snmpsim-record-commands``, which recorded nothing and hung: pysnmp 7
-  hands over one response per request and no longer continues a walk by itself.
-- Fixed ``snmpsim-record-traffic``, which could not start at all. Capture files
-  are now read without an extension module; ``pylibpcap`` is needed only for
-  live capture off an interface.
+  7, along with the request paths behind that crash: var-binds passed to the
+  MIB controllers as a list rather than positionally, the IPv6 endpoint built
+  from the IPv4 class, and the data files index context
+  (lextudio/snmpsim#17).
+- Fixed ``snmpsim-record-commands``, which recorded nothing and hung. pysnmp 7
+  delivers var-binds as a flat list, hands over one response per request and
+  no longer continues a walk by itself, and its dispatcher does not return
+  when the last job is done, so the walk and its end are now driven by the
+  command. It also creates an event loop of its own, which Python no longer
+  provides implicitly, and no longer counts every OID twice
+  (lextudio/snmpsim#18).
+- Fixed ``snmpsim-record-traffic``, which could not start at all: it required
+  a capture library which has not been installable for years, and behind that
+  parsed packet headers with Python 2 byte semantics, overwrote its own
+  arguments with a packet mid-loop and could not create its output directory.
+  Capture files are now read without an extension module; ``pylibpcap`` is
+  needed only for live capture off an interface (lextudio/snmpsim#18).
+- Fixed ``--debug`` in the recorder and the lite responder, which died on a
+  pysnmp function renamed years ago.
 - Build data file indexes with gdbm where the interpreter has it. Python 3.13
   made ``dbm.sqlite3`` the default backend, which fsyncs every write and builds
-  indexes twice as slowly; interpreters without gdbm are unaffected.
+  indexes twice as slowly; interpreters without gdbm are unaffected
+  (lextudio/snmpsim#19).
+- Added a test workflow running the suite on every supported Python version,
+  without the retries which let a failing test pass in the existing one.
 
 Revision 1.2.2, released on Apr 26, 2026
 ----------------------------------------
