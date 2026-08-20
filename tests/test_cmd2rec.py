@@ -13,7 +13,7 @@ TIME_OUT = int(os.getenv("SNMPSIM_TEST_TIMEOUT", "15"))
 PORT_NUMBER = 1618  # Using a unique port to avoid conflicts with other tests
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data", "short-oid")
+DATA_DIR = os.path.join(BASE_DIR, "data", "agent")
 
 
 @pytest.fixture
@@ -78,13 +78,10 @@ def test_recording_an_agent(run_app_in_background, monkeypatch, tmp_path, mode):
         oid, tag, value = record.split("|", 2)
         served[oid] = bytes.fromhex(value).decode() if tag.endswith("x") else value
 
-    # everything in the data file except the record which cannot be encoded
     assert served == {
-        "1.3.6.1.2.1.1.1.0": "Short OID test device",
+        "1.3.6.1.2.1.1.1.0": "Test device",
         "1.3.6.1.2.1.1.2.0": "1.3.6.1.4.1.99999",
         "1.3.6.1.2.1.1.3.0": "123456",
-        "1.3.6.1.2.1.47.1.1.1.1.3.1": "1.3.6.1.4.1.2011.20021210.11.536627",
-        "1.3.6.1.2.1.47.1.1.1.1.3.2": "0.0",
-        "1.3.6.1.2.1.47.1.1.1.1.3.4": "0.0",
-        "1.3.6.1.2.1.47.1.1.1.1.7.1": "Slot 1",
+        "1.3.6.1.2.1.2.2.1.2.1": "GigabitEthernet0/1",
+        "1.3.6.1.2.1.2.2.1.5.1": "1000000000",
     }

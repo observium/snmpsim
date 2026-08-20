@@ -17,7 +17,7 @@ PORT_NUMBER = 1617  # Using a unique port to avoid conflicts with other tests
 def setup_args():
     original_argv = sys.argv
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base_dir, "data", "short-oid")
+    data_dir = os.path.join(base_dir, "data", "agent")
     test_args = [
         "responder_lite.py",
         f"--data-dir={data_dir}",
@@ -75,20 +75,20 @@ async def test_lite_responder_serves_v2c(run_app_in_background):
 
         assert errorIndication is None, f"Error: {errorIndication}"
         assert errorStatus == 0, f"Error status: {errorStatus}"
-        assert varBinds[0][1].prettyPrint() == "Short OID test device"
+        assert varBinds[0][1].prettyPrint() == "Test device"
 
         errorIndication, errorStatus, errorIndex, varBinds = await next_cmd(
             snmpEngine,
             auth_data,
             transport,
             ContextData(),
-            ObjectType(ObjectIdentity("1.3.6.1.2.1.47.1.1.1.1.3.1")),
+            ObjectType(ObjectIdentity("1.3.6.1.2.1.1.1.0")),
         )
 
         assert errorIndication is None, f"Error: {errorIndication}"
         assert errorStatus == 0, f"Error status: {errorStatus}"
-        assert str(varBinds[0][0]) == "1.3.6.1.2.1.47.1.1.1.1.3.2"
-        assert varBinds[0][1].prettyPrint() == "0.0"
+        assert str(varBinds[0][0]) == "1.3.6.1.2.1.1.2.0"
+        assert varBinds[0][1].prettyPrint() == "1.3.6.1.4.1.99999"
 
         all_results = []
 
@@ -99,7 +99,7 @@ async def test_lite_responder_serves_v2c(run_app_in_background):
             ContextData(),
             0,
             10,  # Non-repeaters, Max-repetitions
-            ObjectType(ObjectIdentity("1.3.6.1.2.1.47")),
+            ObjectType(ObjectIdentity("1.3.6.1.2.1.2")),
             lexicographicMode=False,
         ):
             assert errorIndication is None, f"Error: {errorIndication}"
@@ -110,10 +110,8 @@ async def test_lite_responder_serves_v2c(run_app_in_background):
         served = {str(oid): val.prettyPrint() for oid, val in all_results}
 
         assert served == {
-            "1.3.6.1.2.1.47.1.1.1.1.3.1": "1.3.6.1.4.1.2011.20021210.11.536627",
-            "1.3.6.1.2.1.47.1.1.1.1.3.2": "0.0",
-            "1.3.6.1.2.1.47.1.1.1.1.3.4": "0.0",
-            "1.3.6.1.2.1.47.1.1.1.1.7.1": "Slot 1",
+            "1.3.6.1.2.1.2.2.1.2.1": "GigabitEthernet0/1",
+            "1.3.6.1.2.1.2.2.1.5.1": "1000000000",
         }
 
     finally:
