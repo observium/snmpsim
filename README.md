@@ -233,6 +233,10 @@ Sending initial GETNEXT request for 1.3.6 (stop at <end-of-mib>)....
 OIDs dumped: 182, elapsed: 11.97 sec, rate: 7.00 OIDs/sec, errors: 0
 ```
 
+If you are recording a device so that Observium can support it, follow
+[Requesting device support](https://snmpdump.observium.cloud/) — it describes which parts of
+the tree to capture and where to send the result.
+
 Alternatively, you could build simulation data from a MIB file:
 
 ``` bash
@@ -277,7 +281,11 @@ So questions about this fork, about `.snmprec` recordings, or about simulating a
 are trying to monitor are welcome:
 
 * [open an issue](https://github.com/observium/snmpsim/issues) in this repository
-* reach the team through the [Observium community channels](https://docs.observium.org/community/)
+* ask on [Discord](https://discord.observium.cloud/), or through the other
+  [Observium community channels](https://docs.observium.org/community/)
+* capturing a device so that it can be supported:
+  [Requesting device support](https://snmpdump.observium.cloud/) walks through what to
+  record and where to send it
 * [Observium documentation](https://docs.observium.org/) and [website](https://www.observium.org/)
 
 ## Getting help with the simulator itself
