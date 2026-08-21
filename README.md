@@ -98,8 +98,7 @@ pip install "git+https://github.com/observium/snmpsim.git@master"
 ```
 
 Replace `@master` with any branch or commit to pin a particular revision, for example
-`@8a244ea`. To upgrade an existing installation, add `--force` (pipx) or
-`--upgrade` (pip); pipx keeps packages added with `pipx inject` across a `--force` reinstall.
+`@8a244ea`.
 
 If you use `uv`, the same specifier works as a tool install:
 
@@ -107,14 +106,30 @@ If you use `uv`, the same specifier works as a tool install:
 uv tool install "git+https://github.com/observium/snmpsim.git@master"
 ```
 
-### From PyPI
+### Updating
 
-The published package is the upstream release and does **not** include the changes listed
-above:
+git is not a package index, so an installation from it has no version to compare against and
+nothing upgrades by itself. Install over the top instead — the same command, with the flag
+which says "yes, replace what is there":
 
 ```bash
-pip install snmpsim
+pipx install --force "git+https://github.com/observium/snmpsim.git@master"
 ```
+
+```bash
+pip install --upgrade --force-reinstall "git+https://github.com/observium/snmpsim.git@master"
+```
+
+```bash
+uv tool install --force "git+https://github.com/observium/snmpsim.git@master"
+```
+
+`pipx` keeps packages added with `pipx inject` across a `--force` reinstall, and dependencies
+are re-resolved, so a newer pysnmp arrives with it.
+
+A responder already running keeps serving the code it started with: restart it afterwards.
+The same goes for changed recordings — the running process holds byte offsets into the files
+it indexed at startup.
 
 ### For development
 
@@ -142,6 +157,16 @@ Two workflows run on every push. `build-test.yml`, inherited from upstream, buil
 package and runs the suite on Linux, macOS and Windows across all supported Python versions.
 `tests.yml` runs the same suite on Linux only, but plainly - no coverage and, more to the
 point, no retries, which is how it catches failures the retrying workflow lets through.
+
+<details>
+<summary>Installing the upstream release from PyPI instead</summary>
+
+`pip install snmpsim` fetches the package LeXtudio publishes, which is **not** this fork: it
+contains none of the fixes listed at the top of this file, so recordings which trip over any
+of them behave there as they did before. Use it only if you specifically want the upstream
+release.
+
+</details>
 
 ## Commands
 
@@ -240,12 +265,26 @@ Detailed information on SNMP simulator usage could be found at
 additions listed at the top of this file are covered by their pull requests and by
 `--help` of the commands themselves.
 
-## Getting help
+## Who maintains this
 
-For anything specific to this fork,
-[open an issue](https://github.com/observium/snmpsim/issues) here. For the simulator in
-general, [open an issue](https://github.com/lextudio/pysnmp/issues) upstream or
-post your question [on Stack Overflow](https://stackoverflow.com/questions/ask).
+This fork is maintained by the developers of [Observium](https://www.observium.org/), the
+network monitoring platform, who run it in production: a public simulator serving a
+repository of about 1300 device recordings, which Observium is tested against. Fixes here
+come from that use — every one of them was something a real recording of a real device ran
+into.
+
+So questions about this fork, about `.snmprec` recordings, or about simulating a device you
+are trying to monitor are welcome:
+
+* [open an issue](https://github.com/observium/snmpsim/issues) in this repository
+* reach the team through the [Observium community channels](https://docs.observium.org/community/)
+* [Observium documentation](https://docs.observium.org/) and [website](https://www.observium.org/)
+
+## Getting help with the simulator itself
+
+For the simulator in general, rather than this fork, the upstream project is
+[lextudio/snmpsim](https://github.com/lextudio/snmpsim), and it asks for bug reports at
+[lextudio/pysnmp](https://github.com/lextudio/pysnmp/issues).
 
 ## Feedback and collaboration
 
