@@ -58,6 +58,21 @@ Every item is also filed upstream; each links to its pull request:
   from the `python3-gdbm` package; without it nothing changes
   ([#19](https://github.com/lextudio/snmpsim/pull/19))
 
+## The original author
+
+snmpsim was created by **Ilya Etingof**. He released the first version in December 2010 and
+carried it, together with the whole Python SNMP stack it stands on — pysnmp, pysmi and
+pyasn1 — through eight years and twenty-odd releases, the last of them in February 2019. The
+original project is [etingof/snmpsim](https://github.com/etingof/snmpsim).
+
+Everything this simulator is remains his design: the `.snmprec` format, recording a live
+agent and replaying it, the variation modules, serving thousands of agents out of one
+process. What came after him — LeXtudio's releases upstream, and the fixes in this fork — is
+maintenance on top of that.
+
+Ilya died in 2022. Thank you, Ilya, for a tool that a great many people still test their
+monitoring against, years later.
+
 ## Features
 
 * SNMPv1/v2c/v3 support
