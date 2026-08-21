@@ -52,6 +52,12 @@ Every item is also filed upstream; each links to its pull request:
   responders hooked into a pysnmp method which was renamed in 7.x, so the hook - and with it
   address-based selection - had been dead code, and every client got the plain recording
   ([#20](https://github.com/lextudio/snmpsim/pull/20))
+* A GETBULK response is cut short to fit into a single, unfragmented UDP datagram, the way
+  real agents behave. Recordings with long values answered with several kilobytes at once -
+  3171 octets for `-Cr64` on an EndRun Tempus LX - and where a fragment of that reply did not
+  reach the manager, the walk stalled with a timeout at the same OID every time. The limit is
+  `--max-message-size`, 1472 octets by default; the same change makes `--max-var-binds` work
+  again ([#21](https://github.com/lextudio/snmpsim/pull/21))
 * Indexes are built with gdbm where the interpreter has it, instead of the `dbm.sqlite3`
   backend Python 3.13 made the default, which fsyncs every write: 5.0s against 10.9s for the
   index of a 35 MB recording, and a smaller index at that. On Debian and Ubuntu gdbm comes

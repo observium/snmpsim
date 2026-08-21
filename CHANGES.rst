@@ -6,6 +6,13 @@ Revision 1.2.3, unreleased
 Changes carried by the Observium fork. Where a change was also sent to the
 upstream project, its pull request is given.
 
+- Cut GETBULK responses short so they fit into a single, unfragmented UDP
+  datagram, as real agents do. Recordings holding long values could otherwise
+  answer with several kilobytes at once, and managers which never received the
+  fragmented reply whole saw the walk stall with a timeout. The limit is
+  ``--max-message-size``, 1472 octets by default. The same change makes
+  ``--max-var-binds`` work again: it was assigned to an attribute pysnmp 7 no
+  longer reads (lextudio/snmpsim#21).
 - Serve OID values made of a single arc, such as ``6|0``, instead of dropping
   the response. BER has no representation for such an OID, so ``0`` and ``0.0``
   are the same octets and the missing arc is restored (lextudio/snmpsim#14).
