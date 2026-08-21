@@ -26,6 +26,8 @@ from pysnmp.entity import config
 from pysnmp.entity import engine
 from pysnmp.entity.rfc3413 import cmdrsp
 from pysnmp.entity.rfc3413 import context
+from pysnmp.proto.api import v2c
+from pysnmp.smi import error as smi_error
 
 from snmpsim import confdir
 from snmpsim import controller
@@ -38,6 +40,9 @@ from snmpsim import variation
 from snmpsim.error import NoDataNotification
 from snmpsim.error import SnmpsimError
 from snmpsim.reporting.manager import ReportingManager
+
+# securityModel of the User-based Security Model, RFC 3411 section 5
+USM_SECURITY_MODEL = 3
 
 AUTH_PROTOCOLS = {
     "MD5": config.USM_AUTH_HMAC96_MD5,
@@ -202,22 +207,64 @@ class NextCommandResponder(cmdrsp.NextCommandResponder):
 
 
 class BulkCommandResponder(cmdrsp.BulkCommandResponder):
-    """v3arch GETBULK command handler"""
+    """v3arch GETBULK command handler.
+
+    Unlike the pysnmp responder it derives from, this one keeps the response
+    within `max_message_size` octets, dropping the repetitions which would not
+    fit. An oversized response leaves the simulator as a fragmented datagram
+    which the manager often never sees whole, so the walk stalls with a
+    timeout on the very recordings which hold the longest values.
+    """
+
+    max_message_size = utils.MAX_MESSAGE_SIZE
 
     def handle_management_operation(
         self, snmp_engine, state_reference, context_name, pdu
     ):
         try:
-            cmdrsp.BulkCommandResponder.handle_management_operation(
-                self,
-                snmp_engine,
-                state_reference,
-                probe_hash_context(self, snmp_engine),
-                pdu,
-            )
+            context_name = probe_hash_context(self, snmp_engine)
 
         except NoDataNotification:
             self.release_state_information(state_reference)
+            return
+
+        mib_instrum = self.snmpContext.get_mib_instrum(context_name)
+
+        read_next_vars = functools.partial(
+            mib_instrum.read_next_variables,
+            snmpEngine=snmp_engine,
+            acFun=self.verify_access,
+            cbCtx=self.cbCtx,
+        )
+
+        exec_ctx = snmp_engine.observer.get_execution_context(
+            "rfc3412.receiveMessage:request"
+        )
+
+        if exec_ctx["securityModel"] == USM_SECURITY_MODEL:
+            envelope_size = utils.USM_MESSAGE_ENVELOPE_SIZE
+
+        else:
+            envelope_size = utils.MESSAGE_ENVELOPE_SIZE
+
+        # the context name travels back in the response as well: as the
+        # community name for SNMPv1/v2c, as contextName for SNMPv3
+        max_response_size = self.max_message_size - envelope_size - len(context_name)
+
+        rsp_var_binds = utils.get_bulk_var_binds(
+            read_next_vars,
+            v2c.apiPDU.get_varbinds(pdu),
+            v2c.apiBulkPDU.get_non_repeaters(pdu),
+            v2c.apiBulkPDU.get_max_repetitions(pdu),
+            self.max_varbinds,
+            max_response_size,
+        )
+
+        if not rsp_var_binds:
+            raise smi_error.SmiError()
+
+        self.send_varbinds(snmp_engine, state_reference, 0, 0, rsp_var_binds)
+        self.release_state_information(state_reference)
 
 
 def _parse_sized_string(arg, min_length=8):
@@ -371,6 +418,16 @@ def main():
         type=int,
         default=64,
         help="Maximum number of variable bindings to include in a single " "response",
+    )
+
+    parser.add_argument(
+        "--max-message-size",
+        type=int,
+        default=utils.MAX_MESSAGE_SIZE,
+        help="Maximum size (in octets) of an SNMP response message. GETBULK "
+        "responses are cut short to stay within it, so that they are not sent "
+        "as fragmented datagrams which managers may never receive whole. "
+        "Raise it towards 65507 to let responses fill a whole datagram",
     )
 
     parser.add_argument(
@@ -891,6 +948,11 @@ configured automatically based on simulation data file paths relative to
                     "%s" % local_max_var_binds
                 )
 
+                log.info(
+                    "Maximum size of SNMP response message: %s octets"
+                    % local_max_message_size
+                )
+
                 log.info("--- Transport configuration")
 
                 if not agent_udpv4_endpoints and not agent_udpv6_endpoints:
@@ -946,9 +1008,9 @@ configured automatically based on simulation data file paths relative to
                 GetCommandResponder(snmp_engine, snmp_context)
                 SetCommandResponder(snmp_engine, snmp_context)
                 NextCommandResponder(snmp_engine, snmp_context)
-                BulkCommandResponder(
-                    snmp_engine, snmp_context
-                ).maxVarBinds = local_max_var_binds
+                bulk_command_responder = BulkCommandResponder(snmp_engine, snmp_context)
+                bulk_command_responder.max_varbinds = local_max_var_binds
+                bulk_command_responder.max_message_size = local_max_message_size
 
                 log.msg.dec_ident()
 
@@ -964,6 +1026,7 @@ configured automatically based on simulation data file paths relative to
             v3_context_engine_ids = []
             data_dirs = []
             local_max_var_binds = args.max_var_binds
+            local_max_message_size = args.max_message_size
             v3_users = []
             v3_auth_keys = {}
             v3_auth_protos = {}
@@ -1003,7 +1066,10 @@ configured automatically based on simulation data file paths relative to
                 data_dirs.append(opt[1])
 
         elif opt[0] == "--max-varbinds":
-            local_max_var_binds = opt[1]
+            local_max_var_binds = int(opt[1])
+
+        elif opt[0] == "--max-message-size":
+            local_max_message_size = int(opt[1])
 
         elif opt[0] == "--v3-user":
             v3_users.append(opt[1])

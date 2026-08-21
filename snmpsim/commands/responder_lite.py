@@ -195,6 +195,16 @@ def main():
     )
 
     parser.add_argument(
+        "--max-message-size",
+        type=int,
+        default=utils.MAX_MESSAGE_SIZE,
+        help="Maximum size (in octets) of an SNMP response message. GETBULK "
+        "responses are cut short to stay within it, so that they are not sent "
+        "as fragmented datagrams which managers may never receive whole. "
+        "Raise it towards 65507 to let responses fill a whole datagram",
+    )
+
+    parser.add_argument(
         "--data-dir",
         type=str,
         action="append",
@@ -372,29 +382,29 @@ def main():
         del _mib_instrums
         del _data_files
 
-    def get_bulk_handler(req_var_binds, non_repeaters, max_repetitions, read_next_vars):
-        """Only v2c arch GETBULK handler"""
-        N = min(int(non_repeaters), len(req_var_binds))
-        M = int(max_repetitions)
-        R = max(len(req_var_binds) - N, 0)
+    def get_bulk_handler(
+        req_var_binds, non_repeaters, max_repetitions, read_next_vars, community_name
+    ):
+        """Only v2c arch GETBULK handler.
 
-        if R:
-            M = min(M, int(args.max_var_binds / R))
+        The response is cut short once it no longer fits into
+        `--max-message-size` octets: an oversized response goes out as a
+        fragmented datagram which the manager often never receives whole,
+        turning the walk into a timeout.
+        """
+        # the community name travels back in the response as well
+        max_response_size = (
+            args.max_message_size - utils.MESSAGE_ENVELOPE_SIZE - len(community_name)
+        )
 
-        if N:
-            rsp_var_binds = read_next_vars(*req_var_binds[:N])
-
-        else:
-            rsp_var_binds = []
-
-        var_binds = req_var_binds[-R:]
-
-        while M and R:
-            rsp_var_binds.extend(read_next_vars(*var_binds))
-            var_binds = rsp_var_binds[-R:]
-            M -= 1
-
-        return rsp_var_binds
+        return utils.get_bulk_var_binds(
+            read_next_vars,
+            req_var_binds,
+            non_repeaters,
+            max_repetitions,
+            args.max_var_binds,
+            max_response_size,
+        )
 
     def commandResponderCbFun(
         transport_dispatcher, transport_domain, transport_address, whole_msg
@@ -479,6 +489,7 @@ def main():
                         p_mod.apiBulkPDU.get_non_repeaters(req_pdu),
                         p_mod.apiBulkPDU.get_max_repetitions(req_pdu),
                         contexts[community_name].read_next_variables,
+                        community_name,
                     )
 
             else:
@@ -526,6 +537,8 @@ def main():
     log.info(
         "Maximum number of variable bindings in SNMP response: %s" % args.max_var_binds
     )
+
+    log.info("Maximum size of SNMP response message: %s octets" % args.max_message_size)
 
     data_index_instrum_controller = controller.DataIndexInstrumController()
 

@@ -286,6 +286,18 @@ per each requested variable-binding.
 
 The default is *64*.
 
+**--max-message-size**
+++++++++++++++++++++++
+
+Maximum size, in octets, of an SNMP response message. A *GETBULK* response is
+served with fewer repetitions than asked for, rather than growing past this
+limit, the way a real agent behaves. Beyond it a response no longer fits into
+a single UDP datagram, and once the reply is fragmented at the IP layer, a
+manager which does not receive every fragment sees the request time out.
+
+The default is *1472* - the Ethernet MTU less the IP and UDP headers. Raise it
+towards *65507* to let responses fill a whole datagram.
+
 **--transport-id-offset**
 +++++++++++++++++++++++++
 
