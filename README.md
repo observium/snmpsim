@@ -1,19 +1,15 @@
 # SNMP Simulator
 
-[![Become a Sponsor](https://img.shields.io/badge/Become%20a%20Sponsor-lextudio-orange.svg?style=for-readme)](https://github.com/sponsors/lextudio)
-[![PyPI](https://img.shields.io/pypi/v/snmpsim.svg)](https://pypi.python.org/pypi/snmpsim)
-[![PyPI Downloads](https://img.shields.io/pypi/dd/snmpsim)](https://pypi.python.org/pypi/snmpsim/)
-[![Python Versions](https://img.shields.io/pypi/pyversions/snmpsim.svg)](https://pypi.python.org/pypi/snmpsim/)
-[![GitHub license](https://img.shields.io/badge/license-BSD-blue.svg)](https://raw.githubusercontent.com/lextudio/snmpsim/master/LICENSE.txt)
+[![GitHub license](https://img.shields.io/badge/license-BSD-blue.svg)](https://raw.githubusercontent.com/observium/snmpsim/master/LICENSE.txt)
 
 This is a pure-Python, open source and free implementation of SNMP agents simulator
 distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.html).
 
 > **This is Observium's fork of [lextudio/snmpsim](https://github.com/lextudio/snmpsim).**
 > It carries fixes for recordings that the upstream responder refuses to serve, and adds a
-> lint tool for recording repositories. The badges above track the upstream PyPI release,
-> which does **not** contain these changes - see [Installation](#installation) for how to
-> install this fork. Every code change here is also filed upstream; this README is not.
+> lint tool for recording repositories. The package published on PyPI is the upstream
+> release, which does **not** contain these changes - see [Installation](#installation) for
+> how to install this fork. Every code change here is also filed upstream; this README is not.
 
 ## What this fork adds
 
