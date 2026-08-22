@@ -13,7 +13,7 @@ distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.
 
 ## What this fork adds
 
-Every item is also filed upstream; each links to its pull request:
+Most items were also filed upstream; those link to their pull request:
 
 * A record whose value cannot be BER-encoded no longer silences the responder. A single-arc
   OID (`6|0`) is served as `0.0`, which is byte for byte what the device put on the wire;
@@ -54,6 +54,19 @@ Every item is also filed upstream; each links to its pull request:
   reach the manager, the walk stalled with a timeout at the same OID every time. The limit is
   `--max-message-size`, 1472 octets by default; the same change makes `--max-var-binds` work
   again ([#21](https://github.com/lextudio/snmpsim/pull/21))
+* Activity reporting (`--reporting-method=fulljson:<dir>`) produces something at all. Three
+  faults sat on top of each other: the dump was built in a temporary file under `/tmp` and
+  renamed into the reports directory, which fails wherever `/tmp` is a filesystem of its own;
+  the endpoint the counters are indexed by had been commented out in the pysnmp 7 port, so
+  every update died on a `KeyError` and left dumps carrying nothing but a header; and the
+  transport protocol was read off the class of the peer address, which pysnmp 7 hands over as
+  a plain tuple, so every request was filed under `unknown` - and that tuple could not be a
+  JSON key either. Counters now also survive a dump that could not be written, instead of
+  being cleared along with it
+* `--reporting-method` accepts a Windows path. Splitting the argument on every colon cut the
+  reports directory in half at its drive letter and left the responder reading the rest of
+  the path as its dumping period, so it refused to start; only a trailing run of digits is
+  taken for the period now
 * Indexes are built with gdbm where the interpreter has it, instead of the `dbm.sqlite3`
   backend Python 3.13 made the default, which fsyncs every write: 5.0s against 10.9s for the
   index of a 35 MB recording, and a smaller index at that. On Debian and Ubuntu gdbm comes
