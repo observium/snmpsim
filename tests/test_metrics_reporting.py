@@ -23,7 +23,7 @@ def test_metrics_are_dumped_next_to_their_directory(tmp_path):
 
     reporter.update_metrics(
         transport_protocol="udpv4",
-        transport_endpoint=("127.0.0.1", 1161),
+        transport_endpoint="127.0.0.1:1161",
         transport_domain="1.3.6.1.6.1.1.0",
         transport_address="192.0.2.10",
         transport_call_count=1,
@@ -72,7 +72,7 @@ def test_counters_survive_a_failed_dump(tmp_path):
 
     reporter.update_metrics(
         transport_protocol="udpv4",
-        transport_endpoint=("127.0.0.1", 1161),
+        transport_endpoint="127.0.0.1:1161",
         transport_domain="1.3.6.1.6.1.1.0",
         transport_address="192.0.2.10",
         transport_call_count=1,

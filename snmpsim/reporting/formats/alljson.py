@@ -50,6 +50,11 @@ def ensure_base_types(f):
         if isinstance(item, (udp.UdpTransportAddress, udp6.Udp6TransportAddress)):
             return str(item[0])
 
+        # pysnmp 7 hands over the peer address as a plain (host, port) tuple,
+        # and a tuple cannot be a key in a JSON document
+        if isinstance(item, tuple) and len(item) == 2:
+            return str(item[0])
+
         return item
 
     def to_dct(dct):
@@ -310,7 +315,7 @@ class FullJsonReporter(BaseJsonReporter):
         'first_update': '{timestamp}',
         'last_update': '{timestamp}',
         '{transport_protocol}': {
-            '{transport_endpoint}': {  # local address
+            '{transport_endpoint}': {  # local address, "host:port"
                 'transport_domain': '{transport_domain}',  # endpoint ID
                 '{transport_address}', { # peer address
                     'packets': 0,
@@ -374,7 +379,7 @@ class FullJsonReporter(BaseJsonReporter):
 
         try:
             metrics = metrics[kwargs["transport_protocol"]]
-            metrics = metrics["%s:%s" % kwargs["transport_endpoint"]]
+            metrics = metrics[kwargs["transport_endpoint"]]
             metrics["transport_domain"] = kwargs["transport_domain"]
             metrics = metrics[kwargs["transport_address"]]
             metrics["packets"] = metrics.get("packets", 0) + kwargs.get(

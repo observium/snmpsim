@@ -6,6 +6,16 @@ Revision 1.2.3, unreleased
 Changes carried by the Observium fork. Where a change was also sent to the
 upstream project, its pull request is given.
 
+- Made ``fulljson`` activity reporting work at all. Its counters are indexed
+  by the endpoint which received the request, and the pysnmp 7 port had
+  commented that endpoint out - ``getLocalAddress()`` was renamed, and pysnmp
+  never sets a local address on an incoming datagram anyway - so every counter
+  update was dropped on a ``KeyError`` and the dumps carried nothing but their
+  header. The responder now remembers what each transport domain listens on.
+  In the same path, the transport protocol was decided by the class of the
+  peer address, which pysnmp 7 passes as a plain tuple, so every request was
+  filed under ``unknown``; it now comes from the transport domain, and a plain
+  address tuple no longer ends up as a JSON key it cannot be.
 - Fixed the JSON activity reporting (``--reporting-method``), which wrote no
   file at all wherever ``/tmp`` is a filesystem of its own: the document went
   into a temporary file there and was then renamed into the reports directory,

@@ -13,6 +13,34 @@ from pysnmp.carrier.asyncio.dgram import udp6
 
 from snmpsim.error import SnmpsimError
 
+LOCAL_ADDRESSES = {}
+"""Local address every transport domain listens on.
+
+pysnmp 7 does not attach the local address to an incoming datagram, and the
+activity reporters index their counters by the endpoint which received the
+request, so the responder records here what it opened.
+"""
+
+
+def remember_local_address(transport_domain, address):
+    LOCAL_ADDRESSES[tuple(transport_domain)] = tuple(address)
+
+
+def local_address(transport_domain):
+    """Printable "host:port" the given transport domain listens on."""
+    address = LOCAL_ADDRESSES.get(tuple(transport_domain))
+
+    if not address:
+        return "unknown"
+
+    host, port = address
+
+    # IPv6 literals carry colons of their own
+    if ":" in str(host):
+        return "[%s]:%s" % (host, port)
+
+    return "%s:%s" % (host, port)
+
 
 class TransportEndpointsBase:
     def __init__(self):
@@ -42,7 +70,7 @@ class IPv4TransportEndpoints(TransportEndpointsBase):
         except Exception:
             raise SnmpsimError("improper IPv4/UDP endpoint %s" % addr)
 
-        return udp.UdpTransport().open_server_mode((h, p)), addr
+        return udp.UdpTransport().open_server_mode((h, p)), addr, (h, p)
 
 
 class IPv6TransportEndpoints(TransportEndpointsBase):
@@ -65,7 +93,7 @@ class IPv6TransportEndpoints(TransportEndpointsBase):
         else:
             h, p = addr, 161
 
-        return udp6.Udp6Transport().open_server_mode((h, p)), addr
+        return udp6.Udp6Transport().open_server_mode((h, p)), addr, (h, p)
 
 
 def parse_endpoint(arg, ipv6=False):

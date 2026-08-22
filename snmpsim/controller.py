@@ -13,6 +13,7 @@ from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.carrier.asyncio.dgram import udp6
 
 from snmpsim import datafile
+from snmpsim import endpoints
 from snmpsim import log
 
 
@@ -58,10 +59,14 @@ class MibInstrumController:
             execCtx["pdu"].__class__.__name__,
         )
 
-        if isinstance(transport_address, udp.UdpTransportAddress):
+        # the domain says which endpoint took the request. pysnmp 7 passes the
+        # peer address as a plain tuple, so its class no longer tells us
+        domain = tuple(transport_domain)
+
+        if domain[: len(udp.DOMAIN_NAME)] == tuple(udp.DOMAIN_NAME):
             transport_protocol = "udpv4"
 
-        elif isinstance(transport_address, udp6.Udp6TransportAddress):
+        elif domain[: len(udp6.DOMAIN_NAME)] == tuple(udp6.DOMAIN_NAME):
             transport_protocol = "udpv6"
 
         else:
@@ -87,7 +92,9 @@ class MibInstrumController:
             "snmpEngine": snmp_engine,
             "transportDomain": rfc1902.ObjectIdentifier(transport_domain),
             "transportAddress": transport_address,
-            # "transportEndpoint": transport_address.getLocalAddress(),
+            # the address the request arrived at. pysnmp never sets it on an
+            # incoming datagram, so it comes from what the responder opened
+            "transportEndpoint": endpoints.local_address(transport_domain),
             "transportProtocol": transport_protocol,
             "securityModel": security_model,
             "securityName": security_name,

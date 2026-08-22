@@ -974,6 +974,10 @@ configured automatically based on simulation data file paths relative to
                         snmp_engine, transport_domain, agent_udpv4_endpoint[0]
                     )
 
+                    endpoints.remember_local_address(
+                        transport_domain, agent_udpv4_endpoint[2]
+                    )
+
                     log.msg(
                         "Listening at UDP/IPv4 endpoint %s, transport ID "
                         "%s"
@@ -993,6 +997,10 @@ configured automatically based on simulation data file paths relative to
 
                     config.add_transport(
                         snmp_engine, transport_domain, agent_udpv6_endpoint[0]
+                    )
+
+                    endpoints.remember_local_address(
+                        transport_domain, agent_udpv6_endpoint[2]
                     )
 
                     log.msg(
