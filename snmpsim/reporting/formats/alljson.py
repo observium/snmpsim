@@ -161,16 +161,32 @@ class BaseJsonReporter(base.BaseReporter):
 
         log.debug("Dumping JSON metrics to %s" % dump_path)
 
+        tmp_path = None
+
         try:
             json_doc = json.dumps(self._metrics, indent=2)
 
-            with tempfile.NamedTemporaryFile(delete=False) as fl:
+            # the temporary file has to sit next to its destination: a rename
+            # cannot cross filesystems, and being atomic is the whole reason
+            # for writing the document aside first
+            with tempfile.NamedTemporaryFile(dir=self._reports_dir, delete=False) as fl:
+                tmp_path = fl.name
                 fl.write(json_doc.encode("utf-8"))
 
-            os.rename(fl.name, dump_path)
+            os.rename(tmp_path, dump_path)
 
         except Exception as exc:
             log.error("Failure while dumping metrics into " "%s: %s" % (dump_path, exc))
+
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+
+                except OSError:
+                    pass
+
+            # hold on to the counters, the next period dumps them instead
+            return
 
         self._metrics.clear()
 

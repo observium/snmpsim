@@ -6,6 +6,13 @@ Revision 1.2.3, unreleased
 Changes carried by the Observium fork. Where a change was also sent to the
 upstream project, its pull request is given.
 
+- Fixed the JSON activity reporting (``--reporting-method``), which wrote no
+  file at all wherever ``/tmp`` is a filesystem of its own: the document went
+  into a temporary file there and was then renamed into the reports directory,
+  which fails with ``EXDEV``. The temporary file is now created beside its
+  destination, which is what makes the rename atomic in the first place, and a
+  failed dump keeps its counters for the next period instead of discarding
+  them.
 - Cut GETBULK responses short so they fit into a single, unfragmented UDP
   datagram, as real agents do. Recordings holding long values could otherwise
   answer with several kilobytes at once, and managers which never received the
