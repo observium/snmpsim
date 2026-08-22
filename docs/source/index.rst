@@ -37,10 +37,6 @@ SNMP Simulator Suite
 Detailed documentation explaining the entire work flow and SNMP simulator tool
 set.
 
-For larger-scale, automated deployments REST API based
-`control plane <https://www.pysnmp.com/snmpsim-control-plane/>`_ can be used for
-centralized management and monitoring purposes.
-
 .. toctree::
    :maxdepth: 2
 

@@ -54,6 +54,9 @@ Most items were also filed upstream; those link to their pull request:
   reach the manager, the walk stalled with a timeout at the same OID every time. The limit is
   `--max-message-size`, 1472 octets by default; the same change makes `--max-var-binds` work
   again ([#21](https://github.com/lextudio/snmpsim/pull/21))
+* No submodule to check out: the CI helper scripts lived in a third-party repository, and the
+  workflow now runs `uv` and `pytest` directly, so a plain `git clone` is all it takes to
+  build and test this
 * Activity reporting (`--reporting-method=fulljson:<dir>`) produces something at all. Three
   faults sat on top of each other: the dump was built in a temporary file under `/tmp` and
   renamed into the reports directory, which fails wherever `/tmp` is a filesystem of its own;
@@ -103,7 +106,6 @@ monitoring against, years later.
 * Can gather simulation data from external program invocation or a SQL database
 * Can trigger SNMP TRAP/INFORMs on SET operations
 * Capable to simultaneously simulate tens of thousands of Agents
-* Offers REST API based [control plane](https://www.pysnmp.com/snmpsim-control-plane/)
 * Gathers and reports extensive activity metrics
 * Pure-Python, easy to deploy and highly portable
 * Can be extended by loadable Python snippets
@@ -164,12 +166,10 @@ it indexed at startup.
 ### For development
 
 ```bash
-git clone --recurse-submodules https://github.com/observium/snmpsim.git
+git clone https://github.com/observium/snmpsim.git
 ```
 
-The `scripts/` directory is a git submodule ([lextudio/pysnmp-scripts](https://github.com/lextudio/pysnmp-scripts));
-in an existing clone fetch it with `git submodule update --init`. Then install the package in
-editable mode along with its test dependencies:
+Install the package in editable mode along with its test dependencies:
 
 ```bash
 pip install -e ".[dev]"
@@ -286,11 +286,6 @@ data from it.
 Besides static files, SNMP simulator can be configured to call its plugin modules
 for simulation data. We ship plugins to interface SQL and noSQL databases, file-based
 key-value stores and other sources of information.
-
-Besides stand-alone deployment described above, third-party
-[SNMP Simulator control plane](https://github.com/lextudio/snmpsim-control-plane)
-project offers REST API managed mass deployment of multiple `snmpsim-command-responder`
-instances.
 
 ## Documentation
 

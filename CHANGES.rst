@@ -6,6 +6,12 @@ Revision 1.2.3, unreleased
 Changes carried by the Observium fork. Where a change was also sent to the
 upstream project, its pull request is given.
 
+- Dropped the ``scripts`` git submodule, which came from a third-party repository
+  and was used only to invoke ``uv`` and ``pytest`` from CI. The workflow calls
+  them directly, so a plain clone is enough to build and test.
+- Removed the references to the third-party control plane from the documentation.
+  That project's last functional commit was in April 2020 and its dependencies no
+  longer import on a current Python.
 - Fixed ``--reporting-method`` on Windows, where splitting the argument on
   every colon cut the reports directory in half at its drive letter and left
   the responder trying to read a path as the dumping period. Only a trailing
