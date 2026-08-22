@@ -66,6 +66,25 @@ def split(val, sep):
     return [val]
 
 
+def parse_reporting_method(arg):
+    """Split ``<method>[:<reports dir>[:<period>]]`` into its parts.
+
+    Splitting on every colon would cut a Windows path in half at its drive
+    letter, so only a trailing run of digits is taken for the period.
+    """
+    method, separator, rest = arg.partition(":")
+
+    if not separator or not rest:
+        return [method]
+
+    head, separator, tail = rest.rpartition(":")
+
+    if separator and head and tail.isdigit():
+        return [method, head, tail]
+
+    return [method, rest]
+
+
 def run_in_new_loop(coroutine):
     """Run a coroutine in a new event loop and return its result"""
     result = None

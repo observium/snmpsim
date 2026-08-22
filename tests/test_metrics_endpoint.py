@@ -89,14 +89,15 @@ async def test_activity_is_reported_per_recording(run_app_in_background, reports
     """
     await _get()
 
-    time.sleep(1.5)
+    # the reporter writes from within a request, so a later one flushes what
+    # the first left behind
+    deadline = time.time() + TIME_OUT
+    dumps = []
 
-    # the reporter writes from within a request, so the second one flushes
-    await _get()
-
-    time.sleep(0.5)
-
-    dumps = glob.glob(os.path.join(str(reports_dir), "fulljson", "*.json"))
+    while not dumps and time.time() < deadline:
+        time.sleep(1.5)
+        await _get()
+        dumps = glob.glob(os.path.join(str(reports_dir), "fulljson", "*.json"))
 
     assert dumps, "no metrics dump was written at all"
 

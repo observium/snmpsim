@@ -95,7 +95,7 @@ def main():
 
     parser.add_argument(
         "--reporting-method",
-        type=lambda x: x.split(":"),
+        type=utils.parse_reporting_method,
         metavar="=<%s[:args]>]" % "|".join(ReportingManager.REPORTERS),
         default="null",
         help="Activity metrics reporting method.",

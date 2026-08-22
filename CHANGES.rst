@@ -6,6 +6,10 @@ Revision 1.2.3, unreleased
 Changes carried by the Observium fork. Where a change was also sent to the
 upstream project, its pull request is given.
 
+- Fixed ``--reporting-method`` on Windows, where splitting the argument on
+  every colon cut the reports directory in half at its drive letter and left
+  the responder trying to read a path as the dumping period. Only a trailing
+  run of digits is taken for the period now.
 - Made ``fulljson`` activity reporting work at all. Its counters are indexed
   by the endpoint which received the request, and the pysnmp 7 port had
   commented that endpoint out - ``getLocalAddress()`` was renamed, and pysnmp
