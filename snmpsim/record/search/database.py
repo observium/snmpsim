@@ -255,6 +255,13 @@ class RecordIndex:
         self._db = dbm.open(self._db_file)
 
     def close(self):
-        self._text.close()
-        self._db.close()
+        # an index can be built without ever being opened - create() does
+        # exactly that - and closing one twice is easier to arrange than it
+        # looks, so neither is an error here
+        if self._text is not None:
+            self._text.close()
+
+        if self._db is not None:
+            self._db.close()
+
         self._db = self._text = None

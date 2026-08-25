@@ -57,6 +57,10 @@ Most items were also filed upstream; those link to their pull request:
 * No submodule to check out: the CI helper scripts lived in a third-party repository, and the
   workflow now runs `uv` and `pytest` directly, so a plain `git clone` is all it takes to
   build and test this
+* An index can be closed whether or not it was ever opened. `RecordIndex.create()` builds
+  an index without opening it, and closing one then died on a file handle that was never
+  there - which is what the `multiplex` variation module does between files, and what
+  anything building indexes ahead of a restart does
 * Activity reporting (`--reporting-method=fulljson:<dir>`) produces something at all. Three
   faults sat on top of each other: the dump was built in a temporary file under `/tmp` and
   renamed into the reports directory, which fails wherever `/tmp` is a filesystem of its own;
