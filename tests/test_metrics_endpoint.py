@@ -13,7 +13,7 @@ from pysnmp.hlapi.asyncio import *
 from snmpsim.commands.responder import main as responder_main
 
 TIME_OUT = int(os.getenv("SNMPSIM_TEST_TIMEOUT", "15"))
-PORT_NUMBER = 1620  # Using a unique port to avoid conflicts with other tests
+PORT_NUMBER = 1621  # Using a unique port to avoid conflicts with other tests
 
 
 @pytest.fixture
