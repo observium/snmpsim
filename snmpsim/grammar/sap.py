@@ -9,19 +9,20 @@ from pysnmp.proto import rfc1902
 
 from snmpsim import error
 from snmpsim.grammar import abstract
+from snmpsim.grammar import unconstrained
 
 
 class SapGrammar(abstract.AbstractGrammar):
     TAG_MAP = {
-        "Counter": rfc1902.Counter32,
-        "Gauge": rfc1902.Gauge32,
-        "Integer": rfc1902.Integer32,
+        "Counter": unconstrained.Counter32,
+        "Gauge": unconstrained.Gauge32,
+        "Integer": unconstrained.Integer32,
         "IpAddress": rfc1902.IpAddress,
         #        '<not implemented?>': univ.Null,
         "ObjectID": univ.ObjectIdentifier,
         "OctetString": rfc1902.OctetString,
-        "TimeTicks": rfc1902.TimeTicks,
-        "Counter64": rfc1902.Counter64,
+        "TimeTicks": unconstrained.TimeTicks,
+        "Counter64": unconstrained.Counter64,
     }
 
     @staticmethod

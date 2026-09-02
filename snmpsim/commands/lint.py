@@ -14,6 +14,7 @@ from pyasn1.codec.ber import encoder
 from pyasn1.type import univ
 
 from snmpsim import utils
+from snmpsim.grammar import unconstrained
 from snmpsim.record import dump
 from snmpsim.record import mvc
 from snmpsim.record import sap
@@ -78,6 +79,17 @@ def check_record(parser, line):
 
     except Exception as exc:
         return [(ERROR, "value %r can not be encoded: %s" % (value, exc))]
+
+    limits = unconstrained.out_of_range(val)
+
+    if limits:
+        return [
+            (
+                WARNING,
+                "value %s is outside the %s range %d..%d, served as recorded"
+                % (val.prettyPrint(), val.__class__.__name__, limits[0], limits[1]),
+            )
+        ]
 
     if isinstance(val, univ.ObjectIdentifier):
         served = val.prettyPrint()

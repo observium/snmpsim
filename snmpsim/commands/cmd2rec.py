@@ -40,6 +40,7 @@ from snmpsim import log
 from snmpsim import utils
 from snmpsim import variation
 from snmpsim import endpoints
+from snmpsim.grammar import unconstrained
 
 AUTH_PROTOCOLS = {
     "MD5": config.USM_AUTH_HMAC96_MD5,
@@ -609,10 +610,10 @@ def main():
 
             # remove value enumeration
             if value.tagSet == rfc1902.Integer32.tagSet:
-                value = rfc1902.Integer32(value)
+                value = unconstrained.Integer32(value)
 
             if value.tagSet == rfc1902.Unsigned32.tagSet:
-                value = rfc1902.Unsigned32(value)
+                value = unconstrained.Unsigned32(value)
 
             if value.tagSet == rfc1902.Bits.tagSet:
                 value = rfc1902.OctetString(value)

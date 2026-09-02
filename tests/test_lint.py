@@ -52,3 +52,17 @@ def test_lint_skips_variation_records(monkeypatch, capsys):
 
     assert rc == 0
     assert "ERROR" not in capsys.readouterr().out
+
+
+def test_lint_reports_out_of_range_values(monkeypatch, capsys):
+    data_dir = os.path.join(BASE_DIR, "data", "out-of-range")
+
+    rc = run_lint(monkeypatch, data_dir)
+
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert (
+        "public.snmprec:3: WARNING: value 4294967295 is outside the Integer32 "
+        "range -2147483648..2147483647, served as recorded" in out
+    )

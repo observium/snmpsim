@@ -38,6 +38,7 @@ from snmpsim import confdir
 from snmpsim import error
 from snmpsim import log
 from snmpsim import utils
+from snmpsim.grammar import unconstrained
 from snmpsim.record import dump
 from snmpsim.record import mvc
 from snmpsim.record import sap
@@ -714,10 +715,10 @@ def main():
                     # remove value enumeration
 
                     if value.tagSet == Integer32.tagSet:
-                        value = Integer32(value)
+                        value = unconstrained.Integer32(value)
 
                     if value.tagSet == Unsigned32.tagSet:
-                        value = Unsigned32(value)
+                        value = unconstrained.Unsigned32(value)
 
                     if value.tagSet == Bits.tagSet:
                         value = OctetString(value)

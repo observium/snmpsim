@@ -6,6 +6,15 @@ Revision 1.2.3, unreleased
 Changes carried by the Observium fork. Where a change was also sent to the
 upstream project, its pull request is given.
 
+- Kept the integers a device sent outside the range of their type, instead of
+  dropping the record over them. ``.1.3.6.1.2.1.6.4.0 = INTEGER: 4294967295`` -
+  a ``tcpMaxConn`` of ``-1`` put on the wire unsigned - failed to convert and
+  could not be served, as pyasn1 refuses to build an ``Integer32`` above
+  2147483647. Such a value is now recorded and answered with the very octets
+  the device sent, ``02 05 00 ff ff ff ff``, and ``snmpsim-lint-records``
+  reports it as a warning. ``Counter32``, ``Gauge32``, ``Unsigned32``,
+  ``TimeTicks`` and ``Counter64`` values above their maximum are kept the same
+  way.
 - Dropped the ``scripts`` git submodule, which came from a third-party repository
   and was used only to invoke ``uv`` and ``pytest`` from CI. The workflow calls
   them directly, so a plain clone is enough to build and test.

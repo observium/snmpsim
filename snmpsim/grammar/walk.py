@@ -12,6 +12,7 @@ from pysnmp.proto import rfc1902
 
 from snmpsim import error
 from snmpsim.grammar import abstract
+from snmpsim.grammar import unconstrained
 
 
 class WalkGrammar(abstract.AbstractGrammar):
@@ -19,17 +20,17 @@ class WalkGrammar(abstract.AbstractGrammar):
     TAG_MAP = {
         "OID:": rfc1902.ObjectName,
         "NULL:": univ.Null,
-        "INTEGER:": rfc1902.Integer,
+        "INTEGER:": unconstrained.Integer32,
         "STRING:": rfc1902.OctetString,
         "BITS:": rfc1902.Bits,
         "HEX-STRING:": rfc1902.OctetString,
-        "GAUGE32:": rfc1902.Gauge32,
-        "COUNTER32:": rfc1902.Counter32,
-        "COUNTER64:": rfc1902.Counter64,
+        "GAUGE32:": unconstrained.Gauge32,
+        "COUNTER32:": unconstrained.Counter32,
+        "COUNTER64:": unconstrained.Counter64,
         "IPADDRESS:": rfc1902.IpAddress,
         "OPAQUE:": rfc1902.Opaque,
-        "UNSIGNED32:": rfc1902.Unsigned32,  # this is not needed
-        "TIMETICKS:": rfc1902.TimeTicks,  # this is made up
+        "UNSIGNED32:": unconstrained.Unsigned32,  # this is not needed
+        "TIMETICKS:": unconstrained.TimeTicks,  # this is made up
     }
 
     @staticmethod

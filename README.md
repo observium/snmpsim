@@ -15,6 +15,14 @@ distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.
 
 Most items were also filed upstream; those link to their pull request:
 
+* An integer a device sent outside the range of its type is recorded and served as it came
+  off the wire. `.1.3.6.1.2.1.6.4.0 = INTEGER: 4294967295` - a `tcpMaxConn` of `-1` put on
+  the wire unsigned - could not be converted at all (`value evaluation error ... at
+  Integer`) and could not be answered either, since pyasn1 refuses to build an `Integer32`
+  above 2147483647. The record now keeps the value and the responder puts back the very
+  octets the device sent, `02 05 00 ff ff ff ff`; `snmpsim-lint-records` reports it as a
+  warning. `Counter32`, `Gauge32`, `Unsigned32`, `TimeTicks` and `Counter64` values above
+  their maximum are kept the same way
 * A record whose value cannot be BER-encoded no longer silences the responder. A single-arc
   OID (`6|0`) is served as `0.0`, which is byte for byte what the device put on the wire;
   values which cannot be repaired answer `noSuchInstance` on GET and are stepped over on

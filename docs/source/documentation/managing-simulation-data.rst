@@ -175,6 +175,15 @@ representation for such an OID - the first two arcs always share the first
 encoded sub-identifier - so the device must have sent *0.0* (the common
 *zeroDotZero*), and that is what Simulator serves.
 
+A warning also covers an integer the device sent outside of the range its
+type allows: an INTEGER of *4294967295* is *-1* put on the wire unsigned,
+five octets where an *Integer32* stops at four. Simulator records such a
+value and serves the octets the device sent, rather than dropping the
+record and hiding what the device does - the same goes for *Counter32*,
+*Gauge32*, *Unsigned32*, *TimeTicks* and *Counter64* values above their
+maximum. Note that a manager built on pyasn1, pysnmp among them, refuses to
+decode such a value, while net-snmp reads it back as the device sent it.
+
 Records reported as errors cannot be served at all. Such a record is
 answered with *noSuchInstance* on GET, and is stepped over on GETNEXT and
 GETBULK, so that a single broken record does not truncate the walk of

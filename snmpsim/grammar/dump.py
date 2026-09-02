@@ -9,20 +9,21 @@ from pysnmp.proto import rfc1902
 
 from snmpsim import error
 from snmpsim.grammar import abstract
+from snmpsim.grammar import unconstrained
 
 
 class DumpGrammar(abstract.AbstractGrammar):
     TAG_MAP = {
-        "0": rfc1902.Counter32,
-        "1": rfc1902.Gauge32,
-        "2": rfc1902.Integer32,
+        "0": unconstrained.Counter32,
+        "1": unconstrained.Gauge32,
+        "2": unconstrained.Integer32,
         "3": rfc1902.IpAddress,
         "4": univ.Null,
         "5": univ.ObjectIdentifier,
         "6": rfc1902.OctetString,
-        "7": rfc1902.TimeTicks,
-        "8": rfc1902.Counter32,  # an alias
-        "9": rfc1902.Counter64,
+        "7": unconstrained.TimeTicks,
+        "8": unconstrained.Counter32,  # an alias
+        "9": unconstrained.Counter64,
     }
 
     @staticmethod

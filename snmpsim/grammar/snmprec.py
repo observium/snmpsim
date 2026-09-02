@@ -11,6 +11,7 @@ from pyasn1.type import univ
 from pysnmp.proto import rfc1902, rfc1905
 
 from snmpsim import error
+from snmpsim.grammar import unconstrained
 from snmpsim.grammar.abstract import AbstractGrammar
 
 
@@ -20,16 +21,16 @@ class SnmprecGrammar(AbstractGrammar):
     TAG_MAP = {}
 
     SNMP_TYPES = (
-        rfc1902.Gauge32,
-        rfc1902.Integer32,
+        unconstrained.Gauge32,
+        unconstrained.Integer32,
         rfc1902.IpAddress,
         univ.Null,
         univ.ObjectIdentifier,
         rfc1902.OctetString,
-        rfc1902.TimeTicks,
+        unconstrained.TimeTicks,
         rfc1902.Opaque,
-        rfc1902.Counter32,
-        rfc1902.Counter64,
+        unconstrained.Counter32,
+        unconstrained.Counter64,
         rfc1905.NoSuchObject,
         rfc1905.NoSuchInstance,
         rfc1905.EndOfMibView,
