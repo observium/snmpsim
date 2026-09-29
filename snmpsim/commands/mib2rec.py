@@ -76,7 +76,7 @@ def main():
 
     parser.add_argument(
         "--debug",
-        choices=debug.flagMap,
+        choices=debug.FLAG_MAP,
         action="append",
         type=str,
         default=[],
@@ -386,20 +386,20 @@ def main():
     mib_builder = builder.MibBuilder()
 
     # Load MIB tree foundation classes
-    (MibScalar, MibTable, MibTableRow, MibTableColumn) = mib_builder.importSymbols(
+    (MibScalar, MibTable, MibTableRow, MibTableColumn) = mib_builder.import_symbols(
         "SNMPv2-SMI", "MibScalar", "MibTable", "MibTableRow", "MibTableColumn"
     )
 
     mib_view_controller = view.MibViewController(mib_builder)
 
-    compiler.addMibCompiler(mib_builder, sources=args.mib_sources)
+    compiler.add_mib_compiler(mib_builder, sources=args.mib_sources)
 
     try:
         if isinstance(args.start_object, ObjectIdentity):
-            args.start_object.resolveWithMib(mib_view_controller)
+            args.start_object.resolve_with_mib(mib_view_controller)
 
         if isinstance(args.stop_object, ObjectIdentity):
-            args.stop_object.resolveWithMib(mib_view_controller)
+            args.stop_object.resolve_with_mib(mib_view_controller)
 
     except error.PySnmpError as exc:
         sys.stderr.write("ERROR: %s\r\n" % exc)
@@ -421,7 +421,7 @@ def main():
             )
 
         try:
-            oid = ObjectIdentity(modName).resolveWithMib(mib_view_controller)
+            oid = ObjectIdentity(modName).resolve_with_mib(mib_view_controller)
 
         except error.PySnmpError as exc:
             sys.stderr.write("ERROR: failed on MIB %s: " "%s\r\n" % (modName, exc))
@@ -434,7 +434,7 @@ def main():
 
         while True:
             try:
-                oid, label, _ = mib_view_controller.getNextNodeName(oid)
+                oid, label, _ = mib_view_controller.get_next_node_name(oid)
 
             except error.NoSuchObjectError:
                 break
@@ -489,8 +489,8 @@ def main():
             if args.stop_object and oid > args.stop_object:
                 break  # stop on out of range condition
 
-            mib_name, sym_name, _ = mib_view_controller.getNodeLocation(oid)
-            (node,) = mib_builder.importSymbols(mib_name, sym_name)
+            mib_name, sym_name, _ = mib_view_controller.get_node_location(oid)
+            (node,) = mib_builder.import_symbols(mib_name, sym_name)
 
             if isinstance(node, MibTable):
                 hint = f"# Table {mib_name}::{sym_name}\r\n"
@@ -507,7 +507,7 @@ def main():
                 row_hint = hint + f"# Row {mib_name}::{sym_name}\r\n"
 
                 for implied_flag, idx_mod_name, idx_sym_name in node.getIndexNames():
-                    (idxNode,) = mib_builder.importSymbols(idx_mod_name, idx_sym_name)
+                    (idxNode,) = mib_builder.import_symbols(idx_mod_name, idx_sym_name)
 
                     row_hint += "# Index {}::{} (type {})\r\n".format(
                         idx_mod_name,

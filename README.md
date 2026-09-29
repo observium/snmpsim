@@ -15,6 +15,10 @@ distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.
 
 Most items were also filed upstream; those link to their pull request:
 
+* Only pysnmp 7's own names are called. `snmpsim-record-mibs`, `snmpsim-manage-records`,
+  `snmpsim-record-traffic` and the index context of both responders still went through its
+  pre-7 camelCase aliases (`importSymbols`, `resolveWithMib`, `nextKey` and others), which
+  pysnmp keeps only as deprecated wrappers that warn on every call
 * An integer a device sent outside the range of its type is recorded and served as it came
   off the wire. `.1.3.6.1.2.1.6.4.0 = INTEGER: 4294967295` - a `tcpMaxConn` of `-1` put on
   the wire unsigned - could not be converted at all (`value evaluation error ... at

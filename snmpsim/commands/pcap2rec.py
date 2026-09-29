@@ -380,14 +380,14 @@ def main():
 
         mib_view_controller = view.MibViewController(mib_builder)
 
-        compiler.addMibCompiler(mib_builder, sources=args.mib_sources)
+        compiler.add_mib_compiler(mib_builder, sources=args.mib_sources)
 
         try:
             if isinstance(args.start_object, rfc1902.ObjectIdentity):
-                args.start_object.resolveWithMib(mib_view_controller)
+                args.start_object.resolve_with_mib(mib_view_controller)
 
             if isinstance(args.stop_object, rfc1902.ObjectIdentity):
-                args.stop_object.resolveWithMib(mib_view_controller)
+                args.stop_object.resolve_with_mib(mib_view_controller)
 
         except PySnmpError as exc:
             sys.stderr.write("ERROR: %s\r\n" % exc)

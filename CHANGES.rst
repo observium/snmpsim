@@ -6,6 +6,11 @@ Revision 1.2.3, unreleased
 Changes carried by the Observium fork. Where a change was also sent to the
 upstream project, its pull request is given.
 
+- Switched the remaining calls to pysnmp's pre-7 camelCase names -
+  ``importSymbols``, ``resolveWithMib``, ``addMibCompiler``,
+  ``getNextNodeName``, ``getNodeLocation``, ``flagMap`` and the index context's
+  ``nextKey`` - to their current spelling. pysnmp keeps the old names only as
+  deprecated aliases, which warn on every call and go away once it drops them.
 - Kept the integers a device sent outside the range of their type, instead of
   dropping the record over them. ``.1.3.6.1.2.1.6.4.0 = INTEGER: 4294967295`` -
   a ``tcpMaxConn`` of ``-1`` put on the wire unsigned - failed to convert and

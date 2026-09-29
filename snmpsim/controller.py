@@ -140,7 +140,7 @@ class DataIndexInstrumController:
 
     def _get_next_val(self, key, default):
         try:
-            key = self._db.nextKey(key)
+            key = self._db.next_key(key)
 
         except KeyError:
             return key, default
