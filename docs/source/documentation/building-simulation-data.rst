@@ -38,7 +38,7 @@ The donor SNMP agent recording session would look like this:
     Community name: public
     Querying UDP/IPv4 agent at 192.168.1.1:161
     Sending initial GETNEXT request....
-    OIDs dumped: 304, elapsed: 1.94 sec, rate: 157.00 OIDs/sec
+    OIDs dumped: 304, elapsed: 1.94 sec, rate: 156.70 OIDs/sec
     $
     $ ls -l data/recorded/linksys-system.snmprec
     -rw-r--r-- 1 root users 16252 Oct 26 14:49 data/recorded/linksys-system.snmprec
@@ -80,7 +80,7 @@ use our publicly available
     ...
     1.3.6.1.2.1.11.31.0|65|0
     1.3.6.1.2.1.11.32.0|65|0
-    OIDs dumped: 86, elapsed: 2.00 sec, rate: 42.00 OIDs/sec
+    OIDs dumped: 86, elapsed: 2.00 sec, rate: 43.00 OIDs/sec
 
 .. note::
 

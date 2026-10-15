@@ -127,7 +127,7 @@ as a donor device:
    Querying UDP/IPv4 agent at 195.218.195.228:161
    Agent response timeout: 3.00 secs, retries: 3
    Sending initial GETNEXT request for 1.3.6 (stop at <end-of-mib>)....
-   OIDs dumped: 182, elapsed: 11.97 sec, rate: 7.00 OIDs/sec, errors: 0
+   OIDs dumped: 182, elapsed: 11.97 sec, rate: 15.20 OIDs/sec, errors: 0
 
 .. note::
 

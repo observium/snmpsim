@@ -86,6 +86,23 @@ def _parse_sized_string(arg, min_length=8):
     return arg
 
 
+def _progress_message(total, iteration):
+    # the pass only means something to variation modules that walk repeatedly
+    if iteration:
+        return f"OIDs dumped: {total}, iteration {iteration}"
+
+    return f"OIDs dumped: {total}"
+
+
+def _summary_message(total, elapsed, errors):
+    rate = elapsed and total / elapsed or 0
+
+    return (
+        f"OIDs dumped: {total}, elapsed: {elapsed:.2f} sec, "
+        f"rate: {rate:.2f} OIDs/sec, errors: {errors}"
+    )
+
+
 def main():
     variation_module = None
 
@@ -668,9 +685,7 @@ def main():
                 state["total"] += 1
 
                 if state["count"] % 100 == 0:
-                    log.info(
-                        "OIDs dumped: %s/%s" % (state["iteration"], state["count"])
-                    )
+                    log.info(_progress_message(state["total"], state["iteration"]))
 
         # Next request time
         state["reqTime"] = time.time()
@@ -818,16 +833,7 @@ def main():
 
         started = time.time() - started
 
-        log.info(
-            "OIDs dumped: %s, elapsed: %.2f sec, rate: %.2f OIDs/sec, errors: "
-            "%d"
-            % (
-                state["total"],
-                started,
-                started and state["count"] // started or 0,
-                state["errors"],
-            )
-        )
+        log.info(_summary_message(state["total"], started, state["errors"]))
 
         args.output_file.flush()
         args.output_file.close()

@@ -96,7 +96,7 @@ tool will be used.
     ...
     Shutting down variation modules:
         numeric...OK
-    OIDs dumped: 224, elapsed: 15.53 sec, rate: 20.00 OIDs/sec
+    OIDs dumped: 224, elapsed: 15.53 sec, rate: 14.42 OIDs/sec
 
 In the above example we have run two iterations against a subset of
 Managed Objects at an Agent requesting numeric module to configure
@@ -134,7 +134,7 @@ Examples
     ...
     Shutting down variation modules:
         delay...OK
-    OIDs dumped: 224, elapsed: 15.53 sec, rate: 20.00 OIDs/sec
+    OIDs dumped: 224, elapsed: 15.53 sec, rate: 14.42 OIDs/sec
 
 Produced *.snmprec* file could be used for Simulation as-is or edited
 by hand to change delay variation.
@@ -235,7 +235,7 @@ Running with SQLite DB backend:
         sql...OK
     Shutting down variation modules:
         sql...OK
-    OIDs dumped: 45, elapsed: 0.21 sec, rate: 213.00 OIDs/sec
+    OIDs dumped: 45, elapsed: 0.21 sec, rate: 214.29 OIDs/sec
 
 By this point you'd get the *data/sql.snmprec* file where *sql* module
 is configured for OID subtree (taken from *--start-oid* parameter):
@@ -400,7 +400,7 @@ SNMP Agent:
     redis: 0 iterations remaining
     Shutting down variation module redis...
     Variation module redis shutdown OK
-    OIDs dumped: 603, elapsed: 329.22 sec, rate: 0.00 OIDs/sec
+    OIDs dumped: 603, elapsed: 329.22 sec, rate: 1.83 OIDs/sec
 
 By this point you'd get the *data/redis.snmprec* file where *redis* module
 is configured for OID subtree (taken from the *--start-oid* parameter):

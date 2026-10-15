@@ -15,6 +15,11 @@ distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.
 
 Most items were also filed upstream; those link to their pull request:
 
+* `snmpsim-record-commands` reports its progress as the number of OIDs recorded so far,
+  `OIDs dumped: 300`, rather than `0/300` - the `0` was the pass of a variation module
+  that walks repeatedly, and it is now shown only for one. The closing rate is every OID
+  over the elapsed time: it used to floor-divide the count of the last pass only, so 362
+  OIDs in 71.18 sec read as `5.00 OIDs/sec` and a multi-pass recording as `0.00`
 * Only pysnmp 7's own names are called. `snmpsim-record-mibs`, `snmpsim-manage-records`,
   `snmpsim-record-traffic` and the index context of both responders still went through its
   pre-7 camelCase aliases (`importSymbols`, `resolveWithMib`, `nextKey` and others), which
@@ -276,7 +281,7 @@ SNMP version 2c, Community name: public
 Querying UDP/IPv4 agent at 128.203.82.143:161
 Agent response timeout: 3.00 secs, retries: 3
 Sending initial GETNEXT request for 1.3.6 (stop at <end-of-mib>)....
-OIDs dumped: 182, elapsed: 11.97 sec, rate: 7.00 OIDs/sec, errors: 0
+OIDs dumped: 182, elapsed: 11.97 sec, rate: 15.20 OIDs/sec, errors: 0
 ```
 
 If you are recording a device so that Observium can support it, follow
