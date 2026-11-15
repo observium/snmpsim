@@ -86,6 +86,23 @@ def _parse_sized_string(arg, min_length=8):
     return arg
 
 
+def _resolve_protocol_version(protocol_version, v3_user):
+    """Tell which SNMP version to speak when the command line leaves it open
+
+    A USM user means SNMPv3, and can not go with a community-based version.
+    """
+    if protocol_version is None:
+        return "3" if v3_user else "2c"
+
+    if v3_user and protocol_version != "3":
+        raise error.SnmpsimError(
+            "--v3-user can not be used with --protocol-version %s: "
+            "drop one of them, or ask for --protocol-version 3" % protocol_version
+        )
+
+    return protocol_version
+
+
 def _progress_message(total, iteration):
     # the pass only means something to variation modules that walk repeatedly
     if iteration:
@@ -148,14 +165,14 @@ def main():
         help="Logging level.",
     )
 
-    v1arch_group = parser.add_argument_group("SNMPv1/v2c parameters")
-
-    v1arch_group.add_argument(
+    parser.add_argument(
         "--protocol-version",
-        choices=["1", "2c"],
-        default="2c",
-        help="SNMPv1/v2c protocol version",
+        choices=["1", "2c", "3"],
+        help="SNMP protocol version. Defaults to 3 when --v3-user is given, "
+        "to 2c otherwise",
     )
+
+    v1arch_group = parser.add_argument_group("SNMPv1/v2c parameters")
 
     v1arch_group.add_argument(
         "--community", type=str, default="public", help="SNMP community name"
@@ -205,7 +222,10 @@ def main():
     )
 
     v3arch_group.add_argument(
-        "--v3-context-name", type=str, default="", help="SNMPv3 context engine ID"
+        "--v3-context-name",
+        type=univ.OctetString,
+        default=univ.OctetString(""),
+        help="SNMPv3 context name",
     )
 
     parser.add_argument(
@@ -327,29 +347,17 @@ def main():
     if args.debug_asn1:
         pyasn1_debug.setLogger(pyasn1_debug.Debug(*args.debug_asn1))
 
-    if args.output_file:
-        ext = os.path.extsep
-        ext += variation.RECORD_TYPES[args.destination_record_type].ext
+    # Catch missing params, before the output file is opened and emptied
 
-        if not args.output_file.endswith(ext):
-            args.output_file += ext
+    try:
+        args.protocol_version = _resolve_protocol_version(
+            args.protocol_version, args.v3_user
+        )
 
-        record = variation.RECORD_TYPES[args.destination_record_type]
-        args.output_file = record.open(args.output_file, "wb")
-
-    else:
-        args.output_file = sys.stdout
-
-        if sys.version_info >= (3, 0, 0):
-            # binary mode write
-            args.output_file = sys.stdout.buffer
-
-        elif sys.platform == "win32":
-            import msvcrt
-
-            msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
-
-    # Catch missing params
+    except error.SnmpsimError as exc:
+        sys.stderr.write("ERROR: %s\r\n" % exc)
+        parser.print_usage(sys.stderr)
+        return 1
 
     if args.protocol_version == "3":
         if not args.v3_user:
@@ -381,6 +389,28 @@ def main():
                 sys.stderr.write("ERROR: --v3-priv-key is missing\r\n")
                 parser.print_usage(sys.stderr)
                 return 1
+
+    if args.output_file:
+        ext = os.path.extsep
+        ext += variation.RECORD_TYPES[args.destination_record_type].ext
+
+        if not args.output_file.endswith(ext):
+            args.output_file += ext
+
+        record = variation.RECORD_TYPES[args.destination_record_type]
+        args.output_file = record.open(args.output_file, "wb")
+
+    else:
+        args.output_file = sys.stdout
+
+        if sys.version_info >= (3, 0, 0):
+            # binary mode write
+            args.output_file = sys.stdout.buffer
+
+        elif sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
 
     proc_name = os.path.basename(sys.argv[0])
 
@@ -644,7 +674,7 @@ def main():
                 "total": state["total"],
                 "iteration": state["iteration"],
                 "reqTime": state["reqTime"],
-                "args.start_object": args.start_object,
+                "startOID": args.start_object,
                 "stopOID": args.stop_object,
                 "stopFlag": stop_flag,
                 "variationModule": variation_module,

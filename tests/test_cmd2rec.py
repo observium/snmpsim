@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -112,3 +114,222 @@ def test_summary_rate_is_over_all_oids():
     assert cmd2rec._summary_message(total=0, elapsed=0, errors=1) == (
         "OIDs dumped: 0, elapsed: 0.00 sec, rate: 0.00 OIDs/sec, errors: 1"
     )
+
+
+def test_recording_with_multiplex_dumps_oids(run_app_in_background, tmp_path):
+    """A variation module is told which OID the recording starts at.
+
+    The recorder handed that over under a name no module reads, so the
+    multiplex, sql and redis modules failed on the first OID and the
+    recording came out empty.
+    """
+    output_file = tmp_path / "recorded.snmprec"
+    snapshots_dir = tmp_path / "snapshots"
+
+    # multiplex leaves its snapshot to be flushed when the recorder exits,
+    # so the recorder gets a process of its own
+    recorder = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "snmpsim.commands.cmd2rec",
+            f"--agent-udpv4-endpoint=127.0.0.1:{PORT_NUMBER}",
+            "--community=public",
+            "--start-object=1.3.6.1.2.1",
+            f"--output-file={output_file}",
+            "--variation-module=multiplex",
+            # two colons, so a drive letter stays part of the path on Windows
+            f"--variation-module-options=dir::{snapshots_dir.as_posix()}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert recorder.returncode == 0, recorder.stderr
+
+    # the recording itself is one record sending the responder to the snapshots
+    with open(output_file, "rb") as recording:
+        records = recording.read().decode("iso-8859-1").splitlines()
+
+    assert records == [
+        f"1.3.6.1.2.1|:multiplex|dir={snapshots_dir.as_posix()},period=10.00"
+    ]
+
+    # ...and the snapshot holds everything the agent serves
+    snapshots = sorted(snapshots_dir.iterdir())
+
+    assert len(snapshots) == 1
+
+    with open(snapshots[0], "rb") as snapshot:
+        dumped = [line.split("|")[0] for line in snapshot.read().decode().splitlines()]
+
+    assert dumped == [
+        "1.3.6.1.2.1.1.1.0",
+        "1.3.6.1.2.1.1.2.0",
+        "1.3.6.1.2.1.1.3.0",
+        "1.3.6.1.2.1.2.2.1.2.1",
+        "1.3.6.1.2.1.2.2.1.5.1",
+    ]
+
+    summary = [line for line in recorder.stderr.splitlines() if "elapsed:" in line]
+
+    assert len(summary) == 1
+    assert summary[0].startswith("OIDs dumped: 1, ")
+
+
+V3_PORT_NUMBER = 1630
+
+V3_USERS = {
+    "authNoPriv": [
+        "--v3-user=recauth",
+        "--v3-auth-key=authkey12345",
+        "--v3-auth-proto=SHA",
+    ],
+    "authPriv": [
+        "--v3-user=recpriv",
+        "--v3-auth-key=authkey12345",
+        "--v3-auth-proto=SHA",
+        "--v3-priv-key=privkey12345",
+        "--v3-priv-proto=AES",
+    ],
+}
+
+
+@pytest.fixture(scope="module")
+def v3_agent():
+    """A responder of its own, knowing one USM user per security level"""
+    responder = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "snmpsim.commands.responder",
+            f"--data-dir={DATA_DIR}",
+            f"--agent-udpv4-endpoint=127.0.0.1:{V3_PORT_NUMBER}",
+        ]
+        + [option for options in V3_USERS.values() for option in options],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    # Allow some time for the responder to come up; the recorder retries
+    time.sleep(1)
+
+    try:
+        assert responder.poll() is None, "the responder did not start"
+
+        yield f"127.0.0.1:{V3_PORT_NUMBER}"
+
+    finally:
+        responder.terminate()
+        responder.wait(timeout=30)
+
+
+def _record(monkeypatch, output_file, endpoint, *options):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "snmpsim-record-commands",
+            f"--agent-udpv4-endpoint={endpoint}",
+            f"--output-file={output_file}",
+        ]
+        + list(options),
+    )
+
+    assert cmd2rec_main() == 0
+
+    with open(output_file, "rb") as recording:
+        return recording.read()
+
+
+@pytest.mark.parametrize("sec_level", list(V3_USERS))
+@pytest.mark.parametrize("mode", ["getnext", "getbulk"])
+def test_recording_an_agent_over_v3(v3_agent, monkeypatch, tmp_path, sec_level, mode):
+    """An agent that only answers SNMPv3 can be recorded.
+
+    The recorder took all the --v3-* options, but --protocol-version knew
+    only 1 and 2c, so none of them was ever used: with --v3-user it went on
+    asking over v2c with the "public" community.
+    """
+    walk = ["--use-getbulk"] if mode == "getbulk" else []
+
+    over_v2c = _record(
+        monkeypatch, tmp_path / "v2c.snmprec", v3_agent, "--community=public", *walk
+    )
+
+    over_v3 = _record(
+        monkeypatch,
+        tmp_path / "v3.snmprec",
+        v3_agent,
+        "--v3-context-name=public",
+        *V3_USERS[sec_level],
+        *walk,
+    )
+
+    assert len(over_v2c.splitlines()) == 5
+    assert over_v3 == over_v2c
+
+
+def test_recording_over_v3_names_the_context(v3_agent, monkeypatch, tmp_path, caplog):
+    """The context name is sent as given and shows up in the log.
+
+    It was kept as a plain string, which the line logging the SNMPv3
+    settings could not print.
+    """
+    caplog.set_level(logging.DEBUG)
+
+    _record(
+        monkeypatch,
+        tmp_path / "v3.snmprec",
+        v3_agent,
+        "--protocol-version=3",
+        "--v3-context-name=public",
+        *V3_USERS["authPriv"],
+    )
+
+    assert "Context name: public, SecurityName: recpriv" in caplog.text
+
+
+def test_v3_user_implies_protocol_3():
+    """The protocol follows from the credentials unless it is spelled out."""
+    resolve = cmd2rec._resolve_protocol_version
+
+    assert resolve(None, "recauth") == "3"
+    assert resolve("3", "recauth") == "3"
+    assert resolve(None, None) == "2c"
+    assert resolve("2c", None) == "2c"
+    assert resolve("1", None) == "1"
+    # asking for v3 without a user is reported where the user is looked for
+    assert resolve("3", None) == "3"
+
+
+@pytest.mark.parametrize("version", ["1", "2c"])
+def test_v3_user_with_v2c_is_rejected(monkeypatch, tmp_path, capsys, version):
+    """A USM user can not go with a community-based protocol version.
+
+    Nothing is written either: an existing recording is not truncated by a
+    command line that is going to be turned down.
+    """
+    output_file = tmp_path / "recorded.snmprec"
+    output_file.write_bytes(b"1.3.6.1.2.1.1.1.0|4|kept\n")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "snmpsim-record-commands",
+            f"--agent-udpv4-endpoint=127.0.0.1:{V3_PORT_NUMBER + 1}",
+            f"--output-file={output_file}",
+            f"--protocol-version={version}",
+            "--v3-user=recauth",
+        ],
+    )
+
+    assert cmd2rec_main() == 1
+
+    assert (
+        f"ERROR: --v3-user can not be used with --protocol-version {version}"
+        in capsys.readouterr().err
+    )
+    assert output_file.read_bytes() == b"1.3.6.1.2.1.1.1.0|4|kept\n"
