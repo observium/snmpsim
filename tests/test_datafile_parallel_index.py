@@ -582,3 +582,42 @@ def test_responder_indexes_in_parallel_before_it_configures(
     # the second start found seven indexes in the cache and built none
     assert "Indexing" not in said
     assert "Building index" not in said
+
+
+def test_a_forced_rebuild_is_done_once_at_start_and_again_on_a_rescan(
+    tmp_path, cache, monkeypatch
+):
+    from snmpsim.commands import responder
+
+    recording = _make_recordings(tmp_path / "data", count=1)[0]
+
+    forced = []
+
+    def index_text(self, force_index_build=False, validate_data=False):
+        forced.append(bool(force_index_build))
+        self._record_index.create(False, validate_data)
+        return self
+
+    monkeypatch.setattr(datafile.DataFile, "index_text", index_text)
+
+    # what the processes have just built, as the responder is handed it
+    indexed = {recording: None}
+
+    recordings = responder.Recordings(
+        [str(tmp_path / "data")],
+        {},
+        None,
+        None,
+        None,
+        force_index_rebuild=True,
+        indexed=indexed,
+    )
+
+    recordings.load(recording, PARSER).close()
+
+    # the start is over: a recording a rescan finds is indexed by force
+    indexed.clear()
+
+    recordings.load(recording, PARSER).close()
+
+    assert forced == [False, True]
