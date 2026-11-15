@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import socket
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,10 @@ from pysnmp.hlapi.asyncio import (
 
 # how long a responder may take to answer its first request
 STARTUP_DEADLINE = 30
+
+# no test run takes that long: a responder whose pytest was killed, so that
+# nobody is left to terminate it, goes away by itself
+LIFETIME = 600
 
 
 def snmp_get(port, oid, community="public", timeout=2):
@@ -60,9 +65,21 @@ def running_responder(*options, port, oid, community="public"):
 
     The block is entered once the responder has answered a GET of `oid`, not
     after a guessed delay, and the responder lives until the block is left:
-    it gets no --timeout, which is its whole lifetime and so has to be longer
-    than everything the tests are going to do with it.
+    its --timeout, which is its whole lifetime, is far longer than anything
+    the tests are going to do with it.
+
+    The port has to be free. Were somebody else answering on it, the probe
+    would be answered by them and the tests would run against their data; a
+    responder does not even have to fail on a taken port, where the system
+    lets two processes share one.
     """
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+
+        except OSError as exc:
+            pytest.fail(f"port {port} is in use, no responder started: {exc}")
+
     with tempfile.TemporaryFile() as stderr:
         responder = subprocess.Popen(
             [
@@ -70,6 +87,7 @@ def running_responder(*options, port, oid, community="public"):
                 "-m",
                 "snmpsim.commands.responder",
                 f"--agent-udpv4-endpoint=127.0.0.1:{port}",
+                f"--timeout={LIFETIME}",
             ]
             + list(options),
             stdout=subprocess.DEVNULL,
@@ -80,15 +98,18 @@ def running_responder(*options, port, oid, community="public"):
             stderr.seek(0)
             return stderr.read().decode(errors="replace")
 
+        def alive():
+            if responder.poll() is not None:
+                pytest.fail(
+                    f"the responder on port {port} exited with "
+                    f"{responder.returncode}:\n{said()}"
+                )
+
         try:
             deadline = time.monotonic() + STARTUP_DEADLINE
 
             while True:
-                if responder.poll() is not None:
-                    pytest.fail(
-                        f"the responder on port {port} exited with "
-                        f"{responder.returncode}:\n{said()}"
-                    )
+                alive()
 
                 error_indication, _, _ = snmp_get(port, oid, community, timeout=0.5)
 
@@ -100,6 +121,14 @@ def running_responder(*options, port, oid, community="public"):
                         f"the responder on port {port} did not answer in "
                         f"{STARTUP_DEADLINE} sec ({error_indication}):\n{said()}"
                     )
+
+                # a GET which fails at once must not turn this into a busy loop
+                time.sleep(0.1)
+
+            # the answer has to be from the responder started here: one which
+            # lost the port to somebody else in the meantime is on its way out
+            time.sleep(0.2)
+            alive()
 
             yield f"127.0.0.1:{port}"
 
