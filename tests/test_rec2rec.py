@@ -1,3 +1,4 @@
+import os
 import sys
 
 from snmpsim.commands import rec2rec
@@ -40,5 +41,43 @@ def test_walk_values_wrapped_onto_several_lines_are_converted(
         f"{SYSNAME}|4x|{text.hex()}".encode(),
         f"{IF_DESCR}|4|eth0".encode(),
         f"{IF_PHYS}|4x|{octets.hex()}".encode(),
+    ]
+    assert "broken 0" in capsys.readouterr().err
+
+
+def test_walk_is_converted_from_a_pipe(tmp_path, monkeypatch, capsys):
+    # --input-file=/dev/stdin, or a shell's <(...), is a file that cannot seek
+    text = b"first\nsecond"
+    reader, writer = os.pipe()
+
+    with os.fdopen(writer, "wb") as sink:
+        sink.write(
+            (
+                f".{IF_PHYS} = Hex-STRING: 00 01 02 03 \n04 05 \n"
+                f'.{SYSNAME} = STRING: "first\nsecond"\n'
+                f".{IF_DESCR} = STRING: eth0\n"
+            ).encode()
+        )
+
+    monkeypatch.setattr(
+        rec2rec.RECORD_TYPES["snmpwalk"],
+        "open",
+        lambda name: os.fdopen(reader, "rb"),
+        raising=False,
+    )
+    target = tmp_path / "switch.snmprec"
+
+    status = manage_records(
+        monkeypatch,
+        "--source-record-type=snmpwalk",
+        "--input-file=walk-from-a-pipe",
+        f"--output-file={target}",
+    )
+
+    assert not status
+    assert target.read_bytes().splitlines() == [
+        f"{IF_PHYS}|4x|000102030405".encode(),
+        f"{SYSNAME}|4x|{text.hex()}".encode(),
+        f"{IF_DESCR}|4|eth0".encode(),
     ]
     assert "broken 0" in capsys.readouterr().err

@@ -1,6 +1,10 @@
 import io
+import os
+import time
 
 import pytest
+
+from snmpsim.error import SnmpsimError
 
 from snmpsim.record.sap import SapRecord
 from snmpsim.record.snmprec import SnmprecRecord
@@ -166,6 +170,7 @@ def read_walk(text):
 
 
 IF_DESCR = "1.3.6.1.2.1.2.2.1.2.1"
+IF_PHYS = "1.3.6.1.2.1.2.2.1.6.1"
 
 
 def test_walk_hex_string_wrapped_onto_several_lines_is_one_record():
@@ -222,7 +227,29 @@ def test_walk_quoted_string_keeps_the_carriage_returns_inside():
 def test_walk_escaped_quote_at_the_end_of_a_line_does_not_close_the_string():
     text = b'.%s = STRING: "say \\"\nhello\\""\n' % SYSNAME.encode()
 
-    assert read_walk(text) == [(SYSNAME, b'say \\"\nhello\\"')]
+    assert read_walk(text) == [(SYSNAME, b'say "\nhello"')]
+
+
+def test_walk_quoted_string_loses_the_backslashes_snmpwalk_escaped_with():
+    # the device sent C:\Temp "x"; snmpwalk escapes quotes and backslashes
+    text = b'.%s = STRING: "C:\\\\Temp \\"x\\""\n' % SYSNAME.encode()
+
+    assert read_walk(text) == [(SYSNAME, b'C:\\Temp "x"')]
+
+
+def test_walk_backslash_before_other_characters_is_kept():
+    text = b'.%s = STRING: "C:\\Temp"\n' % SYSNAME.encode()
+
+    assert read_walk(text) == [(SYSNAME, b"C:\\Temp")]
+
+
+def test_walk_escaped_backslash_at_the_end_closes_the_string():
+    text = b'.%s = STRING: "C:\\\\"\n.%s = STRING: "eth0"\n' % (
+        SYSNAME.encode(),
+        IF_DESCR.encode(),
+    )
+
+    assert read_walk(text) == [(SYSNAME, b"C:\\"), (IF_DESCR, b"eth0")]
 
 
 def test_walk_string_that_never_closes_ends_at_the_next_record():
@@ -272,3 +299,113 @@ def test_snmprec_reader_does_not_join_lines():
     line, _, _ = SnmprecRecord().read_record(io.BytesIO(text))
 
     assert line == b'%s|4|"first\n' % SYSNAME.encode()
+
+
+@pytest.mark.parametrize(
+    "start",
+    [
+        b"sysName.0 = STRING: x",  # snmpwalk -Os
+        b".iso.org.dod.internet.mgmt.mib-2.system.sysName.0 = STRING: x",  # -Of
+        b"SNMPv2-MIB::sysName.0 = STRING: x",
+        b"iso.3.6.1.2.1.1.5.0 = STRING: x",
+        b'.1.3.6.1.2.1.1.5.0 = ""',
+        b".1.3.6.1.2.1.1.3.0 = 12345",  # snmpwalk -Ot
+        b".1.3.6.1.2.1.1.5.0 = No Such Instance currently exists at this OID",
+        b".1.3.6.1.2.1.1.5.0 = STRING:",
+    ],
+)
+def test_walk_string_that_never_closes_ends_at_a_record_of_any_spelling(start):
+    text = b'.%s = STRING: "cut short\n%s\n' % (SYSNAME.encode(), start)
+    source = io.BytesIO(text)
+
+    first, _, _ = WalkRecord().read_record(source)
+    second, _, _ = WalkRecord().read_record(source)
+
+    assert first == b'.%s = STRING: "cut short\n' % SYSNAME.encode()
+    assert second == start + b"\n"
+
+
+@pytest.mark.parametrize(
+    "inside", [b"1.2 = 3 volts", b"x = INTEGER: 5", b"load.avg = high", b"a.b = "]
+)
+def test_walk_text_with_an_equals_sign_stays_inside_the_string(inside):
+    text = b'.%s = STRING: "first\n%s\nlast"\n' % (SYSNAME.encode(), inside)
+
+    assert read_walk(text) == [(SYSNAME, b"first\n" + inside + b"\nlast")]
+
+
+def test_walk_line_after_a_string_closed_on_a_later_line_is_not_joined():
+    text = b'.%s = STRING: "first\nsecond"\nTimeout: No Response\n' % (SYSNAME.encode())
+    source = io.BytesIO(text)
+
+    first, _, _ = WalkRecord().read_record(source)
+    second, _, _ = WalkRecord().read_record(source)
+
+    assert first == b'.%s = STRING: "first\nsecond"\n' % SYSNAME.encode()
+    assert second == b"Timeout: No Response\n"
+
+
+def test_walk_hex_row_with_tabs_between_the_octets_is_read_as_it_was_joined():
+    # the line is taken in as hex octets, so it has to decode as those
+    text = b".%s = Hex-STRING: 00 01 \n02\t03 \n" % SYSNAME.encode()
+
+    assert read_walk(text) == [(SYSNAME, bytes([0, 1, 2, 3]))]
+
+
+def test_walk_hex_row_with_the_text_column_glued_on_is_read_as_it_was_joined():
+    text = b".%s = Hex-STRING: 41 42[AB]\n43 44[CD]\n" % SYSNAME.encode()
+
+    assert read_walk(text) == [(SYSNAME, b"ABCD")]
+
+
+def test_walk_hex_string_without_spaces_is_still_read():
+    text = b".%s = HEX-STRING: 00029929AE3C\n" % SYSNAME.encode()
+
+    assert read_walk(text) == [(SYSNAME, bytes.fromhex("00029929AE3C"))]
+
+
+def test_walk_hex_string_of_anything_but_hex_is_a_broken_record():
+    record = WalkRecord()
+
+    with pytest.raises(SnmpsimError):
+        record.evaluate(b".%s = Hex-STRING: 02\t0G" % SYSNAME.encode())
+
+
+def test_walk_is_read_from_a_pipe():
+    # a pipe cannot be moved back to the line read past the record
+    octets = bytes(range(20))
+    text = b'.%s = Hex-STRING: %s \n%s \n.%s = STRING: "first\nsecond"\n' % (
+        IF_PHYS.encode(),
+        octets[:16].hex(" ").upper().encode(),
+        octets[16:].hex(" ").upper().encode(),
+        SYSNAME.encode(),
+    )
+    reader, writer = os.pipe()
+
+    with os.fdopen(writer, "wb") as sink:
+        sink.write(text + b".%s = INTEGER: 6\n" % IF_DESCR.encode())
+
+    with os.fdopen(reader, "rb") as source:
+        assert not source.seekable()
+        record = WalkRecord()
+        lines = [record.read_record(source)[0] for _ in range(4)]
+
+    assert [record.evaluate(line)[1] for line in lines[:3]] == [
+        octets,
+        b"first\nsecond",
+        6,
+    ]
+    assert lines[3] == b""
+
+
+def test_walk_string_of_many_lines_is_read_in_one_pass():
+    # joining used to search the whole record again for every line
+    lines = 20000
+    text = b'.%s = STRING: "%s"\n' % (SYSNAME.encode(), b"x\n" * lines)
+    source = io.BytesIO(text)
+
+    started = time.monotonic()
+    record, _, _ = WalkRecord().read_record(source)
+
+    assert record == text
+    assert time.monotonic() - started < 5

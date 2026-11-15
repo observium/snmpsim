@@ -67,7 +67,9 @@ class WalkGrammar(abstract.AbstractGrammar):
             return value
 
         elif value[0] == value[-1] == '"':
-            return value[1:-1]
+            # snmpwalk puts a backslash before every quote and backslash
+            # of a quoted string, the device did not send those
+            return re.sub(r'\\(["\\])', r"\1", value[1:-1])
 
         # .1.3.6.1.2.1.2.2.1.6.201752832 = STRING: 60:9c:9f:ec:a3:38
         elif re.match(r"^[0-9a-fA-F]{1,2}(\:[0-9a-fA-F]{1,2})+$", value):
@@ -148,6 +150,12 @@ class WalkGrammar(abstract.AbstractGrammar):
 
         return bytes(int(y, 16) for y in value.split(" "))
 
+    # a line of a Hex-STRING: octets in pairs, then the text column of -OT
+    HEX_ROW = re.compile(
+        r"([0-9a-fA-F]{2}(?:[ \t]+[0-9a-fA-F]{2})*)[ \t]*(?:\[.*)?",
+        re.ASCII | re.DOTALL,
+    )
+
     @classmethod
     def _hex_string_filter(cls, value):
         octets = []
@@ -157,17 +165,20 @@ class WalkGrammar(abstract.AbstractGrammar):
             row = row.strip(cls.WHITESPACE)
 
             # .1.3.6.1.2.1.3.1.1.2.2.1.172.30.1.30 = Hex-STRING: 00 C0 FF 43 CE 45   [...C.E]
-            match = re.match(r"^([0-9a-fA-F]{2}(\s+[0-9a-fA-F]{2})*)\s+\[", row)
+            match = cls.HEX_ROW.fullmatch(row)
             if match:
-                row = match.group(1)
+                octets.extend(int(y, 16) for y in match.group(1).split())
 
-            if " " in row:
+            elif " " in row:
                 octets.extend(int(y, 16) for y in row.split(" ") if y)
 
-            else:
+            elif re.fullmatch(r"[0-9a-fA-F]*", row):
                 # This could be the format returned by some unknown windows snmpwalk tool:
                 # .1.3.6.1.2.1.2.2.1.6.1 = HEX-STRING: 00029929AE3C
                 octets.extend(int(row[i : i + 2], 16) for i in range(0, len(row), 2))
+
+            else:
+                raise error.SnmpsimError("broken hex string <%s>" % row)
 
         return octets
 
@@ -198,9 +209,13 @@ class WalkGrammar(abstract.AbstractGrammar):
 
         return value
 
-    # what a record of a walk starts with: an OID, in numbers or by name
+    # what a record of a walk starts with: an OID in numbers or by name,
+    # with at least one dot in it, and a value the way snmpwalk prints it
     RECORD_START = re.compile(
-        r"(?:\.?[0-9]+(?:\.[0-9]+)+|\.?iso(?:\.[0-9]+)+|[\w\-]+::\S+) = ", re.ASCII
+        r"\.?[\w\-]+(?:::[\w\-]+)?\.\S+ = "
+        r"(?:[A-Za-z][\w\-]*(?: [A-Za-z]+)?:(?: |$)|\"|NULL$|[0-9]+$"
+        r"|No Such |No more variables |Wrong Type )",
+        re.ASCII,
     )
 
     # the type of a value that may go on for more lines, and its beginning
@@ -210,37 +225,61 @@ class WalkGrammar(abstract.AbstractGrammar):
         re.ASCII | re.DOTALL | re.IGNORECASE,
     )
 
-    HEX_ROW = re.compile(
-        r"[0-9a-fA-F]{2}(?:[ \t]+[0-9a-fA-F]{2})*[ \t]*(?:\[.*)?", re.ASCII | re.DOTALL
-    )
+    # the inside of a quoted string up to the quote that closes it;
+    # snmpwalk puts a backslash before the quotes that do not
+    STRING_BODY = re.compile(r'(?:[^"\\]+|\\.)*', re.DOTALL)
 
-    QUOTED_STRING = re.compile(r'"(?:[^"\\]|\\.)*"', re.DOTALL)
+    def continuation(self, record):
+        """Return what tells if a line carries on with the value of `record`.
 
-    def continues(self, record, line):
-        """Tell if `line` carries on with the value `record` ends in.
-
-        That takes a record that is still open: a quoted STRING whose
-        closing quote has not come yet, or a Hex-STRING followed by a
-        line of nothing but hex octets. A line that starts a record of
-        its own never continues the one before it, so a string cut short
-        costs that one value and not the rest of the walk.
+        That is None for a record that is complete on its one line, and
+        otherwise a function to call with each line that follows, in
+        order, till it says no. A record is still open when it is a
+        quoted STRING whose closing quote has not come yet, or a
+        Hex-STRING, which takes the lines of nothing but hex octets. A
+        line that starts a record of its own never continues the one
+        before it, so a string cut short costs that one value and not
+        the rest of the walk.
         """
         match = self.WRAPPING_VALUE.match(record.decode("iso-8859-1"))
         if not match:
-            return False
+            return None
 
         tag, value = match.groups()
-        value = value.strip(self.WHITESPACE)
-        line = line.decode("iso-8859-1")
 
         if tag.upper() == "HEX-STRING":
-            return bool(self.HEX_ROW.fullmatch(line.strip(self.WHITESPACE)))
+            return self._is_hex_row
 
-        # snmpwalk puts a backslash before the quotes inside the string
-        if not value.startswith('"') or self.QUOTED_STRING.fullmatch(value):
-            return False
+        value = value.lstrip(self.WHITESPACE)
+        if not value.startswith('"'):
+            return None
 
-        return not self.RECORD_START.match(line)
+        # only the text not seen yet is searched for the closing quote,
+        # so a string of many lines is read in one pass
+        state = {"closed": False, "escaped": False}
+
+        def read(text):
+            body = self.STRING_BODY.match(text, 1 if state["escaped"] else 0)
+            rest = text[body.end() :]
+            state["closed"] = rest.startswith('"')
+            state["escaped"] = rest == "\\"
+
+        def continues(line):
+            line = line.decode("iso-8859-1")
+
+            if state["closed"] or self.RECORD_START.match(line.rstrip(self.WHITESPACE)):
+                return False
+
+            read(line)
+            return True
+
+        read(value[1:])
+
+        return None if state["closed"] else continues
+
+    def _is_hex_row(self, line):
+        row = line.decode("iso-8859-1").strip(self.WHITESPACE)
+        return bool(self.HEX_ROW.fullmatch(row))
 
     def parse(self, line):
         filters = {
