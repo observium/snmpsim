@@ -137,7 +137,8 @@ def test_recording_with_multiplex_dumps_oids(run_app_in_background, tmp_path):
             "--start-object=1.3.6.1.2.1",
             f"--output-file={output_file}",
             "--variation-module=multiplex",
-            f"--variation-module-options=dir:{snapshots_dir.as_posix()}",
+            # two colons, so a drive letter stays part of the path on Windows
+            f"--variation-module-options=dir::{snapshots_dir.as_posix()}",
         ],
         capture_output=True,
         text=True,
