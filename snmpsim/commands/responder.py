@@ -881,6 +881,43 @@ configured automatically based on simulation data file paths relative to
         snmp_helper.print_usage(sys.stderr)
         return 1
 
+    if args.args_from_file:
+        try:
+            with open(args.args_from_file) as fl:
+                snmp_args.extend(
+                    [handler.split("=", 1) for handler in fl.read().split()]
+                )
+
+        except Exception as exc:
+            sys.stderr.write(
+                "ERROR: file %s opening failure: " "%s\r\n" % (args.args_from_file, exc)
+            )
+            snmp_helper.print_usage(sys.stderr)
+            return 1
+
+    if args.daemonize:
+        # The daemon changes into "/". Whatever was given relative to the
+        # directory we are started from has to be found from there as well.
+        args.pid_file = os.path.abspath(args.pid_file)
+
+        if args.cache_dir:
+            args.cache_dir = os.path.abspath(args.cache_dir)
+
+        args.variation_modules_dir = [
+            os.path.abspath(path) for path in args.variation_modules_dir
+        ]
+
+        if args.logging_method[0] == "file" and len(args.logging_method) > 1:
+            args.logging_method[1] = os.path.abspath(args.logging_method[1])
+
+        if len(args.reporting_method) > 1:
+            args.reporting_method[1] = os.path.abspath(args.reporting_method[1])
+
+        snmp_args = [
+            (opt[0], os.path.abspath(opt[1])) if opt[0] == "--data-dir" else opt
+            for opt in snmp_args
+        ]
+
     if args.debug:
         pysnmp_debug.set_logger(pysnmp_debug.Debug(*args.debug))
 
@@ -896,20 +933,6 @@ configured automatically based on simulation data file paths relative to
     variation_modules_options = variation.parse_modules_options(
         args.variation_module_options
     )
-
-    if args.args_from_file:
-        try:
-            with open(args.args_from_file) as fl:
-                snmp_args.extend(
-                    [handler.split("=", 1) for handler in fl.read().split()]
-                )
-
-        except Exception as exc:
-            sys.stderr.write(
-                "ERROR: file %s opening failure: " "%s\r\n" % (args.args_from_file, exc)
-            )
-            snmp_helper.print_usage(sys.stderr)
-            return 1
 
     with daemon.PrivilegesOf(args.process_user, args.process_group):
         proc_name = os.path.basename(sys.argv[0])
@@ -933,9 +956,11 @@ configured automatically based on simulation data file paths relative to
             snmp_helper.print_usage(sys.stderr)
             return 1
 
+    startup = None
+
     if args.daemonize:
         try:
-            daemon.daemonize(args.pid_file)
+            startup = daemon.daemonize(args.pid_file)
 
         except Exception as exc:
             sys.stderr.write("ERROR: cant daemonize process: %s\r\n" % exc)
@@ -1564,6 +1589,11 @@ configured automatically based on simulation data file paths relative to
 
     with daemon.PrivilegesOf(args.process_user, args.process_group, final=True):
         try:
+            if startup:
+                # indexes are built and endpoints are bound: whoever started
+                # the daemon may go on and talk to it
+                startup.ready()
+
             transport_dispatcher.run_dispatcher(float(timeout))
 
         except KeyboardInterrupt:
