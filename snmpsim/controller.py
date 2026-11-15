@@ -26,6 +26,10 @@ class MibInstrumController:
     def __str__(self):
         return str(self._data_file)
 
+    def close(self):
+        """Close the files of a recording which is not served any more."""
+        self._data_file.close()
+
     def _get_call_context(self, next_flag=False, set_flag=False, **context):
         # the lite responder calls us without an SNMP engine, in which case
         # **context is empty rather than None
@@ -155,11 +159,20 @@ class DataIndexInstrumController:
         return [(vb[0], exval.noSuchInstance) for vb in var_binds]
 
     def add_data_file(self, *args):
+        """Add a row of the given columns, return what removes it."""
+        row = self._idx
+
         for idx in range(len(args)):
-            self._db[self._index_oid + (idx + 1, self._idx)] = rfc1902.OctetString(
-                args[idx]
-            )
+            self._db[self._index_oid + (idx + 1, row)] = rfc1902.OctetString(args[idx])
+
         self._idx += 1
+
+        return row
+
+    def remove_data_file(self, row):
+        """Remove a row `add_data_file()` returned."""
+        for oid in [oid for oid in self._db.keys() if oid[-1] == row]:
+            del self._db[oid]
 
 
 MIB_CONTROLLERS = {datafile.DataFile.layout: MibInstrumController}

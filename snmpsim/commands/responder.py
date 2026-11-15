@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import functools
 import os
+import signal
 import sys
 import traceback
 from hashlib import md5
@@ -44,6 +45,10 @@ from snmpsim.reporting.manager import ReportingManager
 # securityModel of the User-based Security Model, RFC 3411 section 5
 USM_SECURITY_MODEL = 3
 
+# msgVersion on the wire, which is also the ID of the message processing
+# model handling it, to the name the version goes by
+SNMP_VERSIONS = {0: "1", 1: "2c", 3: "3"}
+
 AUTH_PROTOCOLS = {
     "MD5": config.USM_AUTH_HMAC96_MD5,
     "SHA": config.USM_AUTH_HMAC96_SHA,
@@ -64,6 +69,23 @@ PRIV_PROTOCOLS = {
     "AES256": config.USM_PRIV_CFB256_AES,
     "AES256BLMT": config.USM_PRIV_CFB256_AES_BLUMENTHAL,
     "NONE": config.USM_PRIV_NONE,
+}
+
+USM_KEY_TYPES = {
+    "passphrase": config.USM_KEY_TYPE_PASSPHRASE,
+    "master": config.USM_KEY_TYPE_MASTER,
+    "localized": config.USM_KEY_TYPE_LOCALIZED,
+}
+
+# What the hash of an authentication protocol gives out, in octets: the size
+# of a master key and of a localized authentication key.
+USM_HASH_SIZES = {
+    "MD5": 16,
+    "SHA": 20,
+    "SHA224": 28,
+    "SHA256": 32,
+    "SHA384": 48,
+    "SHA512": 64,
 }
 
 DESCRIPTION = (
@@ -149,7 +171,49 @@ def probe_hash_context(responder, snmp_engine):
     return context_name
 
 
-class GetCommandResponder(cmdrsp.GetCommandResponder):
+class ErrorReporter:
+    """Report a failed variable by its own place in the request.
+
+    pysnmp's command responder answers an error raised for a variable with
+    error-index 1 unless the variable is the last one of the request, so a
+    manager which asked for three variables and got the second one refused
+    blames the first. The responders below catch the error before pysnmp
+    does and send the error response themselves.
+    """
+
+    def report_error(self, snmp_engine, state_reference, pdu, exc, offset=0):
+        """Send the error response for `exc`, or raise `exc` for pysnmp.
+
+        `exc` goes back to pysnmp when it does not name the variable, or
+        when it asks for a REPORT, which only pysnmp is able to produce.
+        `offset` is added to the place the error names: what read the
+        variables may have been given a part of the request.
+        """
+        var_binds = v2c.apiPDU.get_varbinds(pdu)
+
+        try:
+            error_index = exc["idx"] + offset + 1
+
+        except (KeyError, TypeError):
+            raise exc
+
+        if "oid" in exc or not 0 < error_index <= len(var_binds):
+            raise exc
+
+        error_status = self.SMI_ERROR_MAP.get(exc.__class__, "genErr")
+
+        # RFC 3416, 4.2.1: tooBig comes with no index and no variables
+        if error_status == "tooBig":
+            error_index = 0
+            var_binds = []
+
+        self.send_varbinds(
+            snmp_engine, state_reference, error_status, error_index, var_binds
+        )
+        self.release_state_information(state_reference)
+
+
+class GetCommandResponder(ErrorReporter, cmdrsp.GetCommandResponder):
     """v3arch GET command handler"""
 
     def handle_management_operation(
@@ -167,8 +231,11 @@ class GetCommandResponder(cmdrsp.GetCommandResponder):
         except NoDataNotification:
             self.release_state_information(state_reference)
 
+        except smi_error.SmiError as exc:
+            self.report_error(snmp_engine, state_reference, pdu, exc)
 
-class SetCommandResponder(cmdrsp.SetCommandResponder):
+
+class SetCommandResponder(ErrorReporter, cmdrsp.SetCommandResponder):
     """v3arch SET command handler"""
 
     def handle_management_operation(
@@ -186,8 +253,11 @@ class SetCommandResponder(cmdrsp.SetCommandResponder):
         except NoDataNotification:
             self.release_state_information(state_reference)
 
+        except smi_error.SmiError as exc:
+            self.report_error(snmp_engine, state_reference, pdu, exc)
 
-class NextCommandResponder(cmdrsp.NextCommandResponder):
+
+class NextCommandResponder(ErrorReporter, cmdrsp.NextCommandResponder):
     """v3arch GETNEXT command handler"""
 
     def handle_management_operation(
@@ -205,8 +275,11 @@ class NextCommandResponder(cmdrsp.NextCommandResponder):
         except NoDataNotification:
             self.release_state_information(state_reference)
 
+        except smi_error.SmiError as exc:
+            self.report_error(snmp_engine, state_reference, pdu, exc)
 
-class BulkCommandResponder(cmdrsp.BulkCommandResponder):
+
+class BulkCommandResponder(ErrorReporter, cmdrsp.BulkCommandResponder):
     """v3arch GETBULK command handler.
 
     Unlike the pysnmp responder it derives from, this one keeps the response
@@ -214,9 +287,63 @@ class BulkCommandResponder(cmdrsp.BulkCommandResponder):
     fit. An oversized response leaves the simulator as a fragmented datagram
     which the manager often never sees whole, so the walk stalls with a
     timeout on the very recordings which hold the longest values.
+
+    A manager may ask for less than that: every SNMPv3 message carries
+    msgMaxSize, the largest message its sender is able to receive. pysnmp
+    refuses to send a response past it and drops the response without a word,
+    so the repetitions are cut to what the manager takes as well.
     """
 
     max_message_size = utils.MAX_MESSAGE_SIZE
+
+    # Octets held back for what wraps the var-bind list inside a scopedPDU:
+    # the scopedPDU header, contextEngineID (32 octets at most), the header
+    # of contextName, the PDU header, request-id, error-status, error-index
+    # and the var-bind list header.
+    scoped_pdu_envelope_size = 64
+
+    # the largest scopedPDU the manager takes in response to the request
+    # being handled, as the message processing model made it out of the
+    # request: msgMaxSize less the message header and the security
+    # parameters for SNMPv3, the engine's own limit for SNMPv1/v2c
+    _max_size_response_scoped_pdu = None
+
+    def process_pdu(
+        self,
+        snmp_engine,
+        message_processing_model,
+        security_model,
+        security_name,
+        security_level,
+        context_engine_id,
+        context_name,
+        pdu_version,
+        pdu,
+        max_size_response_scoped_pdu,
+        state_reference,
+    ):
+        # pysnmp keeps this to itself, handle_management_operation() below
+        # is not told
+        self._max_size_response_scoped_pdu = max_size_response_scoped_pdu
+
+        try:
+            cmdrsp.BulkCommandResponder.process_pdu(
+                self,
+                snmp_engine,
+                message_processing_model,
+                security_model,
+                security_name,
+                security_level,
+                context_engine_id,
+                context_name,
+                pdu_version,
+                pdu,
+                max_size_response_scoped_pdu,
+                state_reference,
+            )
+
+        finally:
+            self._max_size_response_scoped_pdu = None
 
     def handle_management_operation(
         self, snmp_engine, state_reference, context_name, pdu
@@ -249,16 +376,47 @@ class BulkCommandResponder(cmdrsp.BulkCommandResponder):
 
         # the context name travels back in the response as well: as the
         # community name for SNMPv1/v2c, as contextName for SNMPv3
-        max_response_size = self.max_message_size - envelope_size - len(context_name)
+        max_response_size = self.max_message_size - envelope_size
 
-        rsp_var_binds = utils.get_bulk_var_binds(
-            read_next_vars,
-            v2c.apiPDU.get_varbinds(pdu),
-            v2c.apiBulkPDU.get_non_repeaters(pdu),
-            v2c.apiBulkPDU.get_max_repetitions(pdu),
-            self.max_varbinds,
-            max_response_size,
-        )
+        if self._max_size_response_scoped_pdu is not None:
+            max_response_size = min(
+                max_response_size,
+                int(self._max_size_response_scoped_pdu) - self.scoped_pdu_envelope_size,
+            )
+
+        max_response_size -= len(context_name)
+
+        req_var_binds = v2c.apiPDU.get_varbinds(pdu)
+        non_repeaters = v2c.apiBulkPDU.get_non_repeaters(pdu)
+
+        # how many times the variables have been read
+        takes = []
+
+        try:
+            rsp_var_binds = utils.get_bulk_var_binds(
+                lambda *var_binds: takes.append(None) or read_next_vars(*var_binds),
+                req_var_binds,
+                non_repeaters,
+                v2c.apiBulkPDU.get_max_repetitions(pdu),
+                self.max_varbinds,
+                max_response_size,
+            )
+
+        except smi_error.SmiError as exc:
+            # The non-repeaters are read in one take, the repeaters in the
+            # takes which follow, and an error counts the variables of its
+            # take, while error-index is a place in the request (RFC 3416,
+            # 4.2.3).
+            non_repeaters = min(max(int(non_repeaters), 0), len(req_var_binds))
+
+            self.report_error(
+                snmp_engine,
+                state_reference,
+                pdu,
+                exc,
+                offset=non_repeaters if len(takes) > 1 else 0,
+            )
+            return
 
         if not rsp_var_binds:
             raise smi_error.SmiError()
@@ -274,6 +432,444 @@ def _parse_sized_string(arg, min_length=8):
         )
 
     return arg
+
+
+def parse_usm_key(key, key_type, auth_proto, priv_proto=None):
+    """Turn a USM key off the command line into what pysnmp is to be given.
+
+    A passphrase is passed as it is. A master key (the hashed passphrase) and
+    a localized key (the master key hashed with the engine ID) are octets
+    written in hex, with or without the leading 0x, and come back as bytes.
+
+    `auth_proto` and `priv_proto` are our names of the protocols; the latter
+    is given for a privacy key, which is made by the hash of the
+    authentication protocol as well.
+
+    Raises ValueError saying what is wrong with a key that cannot be one: a
+    key of a wrong size would be taken at start-up and then fail every
+    request of that user.
+    """
+    if key_type == "passphrase":
+        return key
+
+    digits = key[2:] if key[:2].lower() == "0x" else key
+
+    try:
+        octets = bytes.fromhex(digits)
+
+    except ValueError:
+        octets = b""
+
+    # bytes.fromhex() lets white space through
+    if not octets or len(octets) * 2 != len(digits):
+        raise ValueError(
+            f'{key_type} key "{key}" is not hexadecimal (an even number of '
+            f"hex digits, with or without the leading 0x)"
+        )
+
+    hash_size = USM_HASH_SIZES[auth_proto]
+
+    if priv_proto and key_type == "localized":
+        # the cipher takes the leading octets of the key and agents differ
+        # in how many of the rest they show
+        proto, takes = (
+            priv_proto,
+            config.PRIV_SERVICES[PRIV_PROTOCOLS[priv_proto]].KEY_SIZE,
+        )
+        fits = len(octets) >= takes
+
+    else:
+        proto, takes = auth_proto, hash_size
+        fits = len(octets) == takes
+
+    if not fits:
+        raise ValueError(
+            f'{key_type} key "{key}" is {len(octets)} octets long, '
+            f"{proto} takes {takes}"
+        )
+
+    return octets
+
+
+class Recordings:
+    """The recordings of one SNMP context engine, as they are served.
+
+    A recording is served under a community name, and under SNMPv3 context
+    names made of it. `rescan()` looks into the data directories and brings
+    what is served in line with what is found there: a recording which
+    appeared is indexed and registered, one which is gone is unregistered and
+    its files are closed. A recording which is still there is not touched,
+    not even when its contents changed: that is noticed by the data file
+    itself when it is asked next.
+    """
+
+    def __init__(
+        self,
+        data_dirs,
+        variation_modules,
+        snmp_engine,
+        snmp_context,
+        data_index,
+        communities=True,
+        force_index_rebuild=False,
+        validate_data=False,
+    ):
+        self.data_dirs = list(data_dirs)
+        self.snmp_engine = snmp_engine
+        self.snmp_context = snmp_context
+        self.data_index = data_index
+
+        self._variation_modules = variation_modules
+        self._communities = communities
+        self._force_index_rebuild = force_index_rebuild
+        self._validate_data = validate_data
+
+        # community name to what was registered for it
+        self._served = {}
+
+        # path of a data file to its controller and the number of community
+        # names it is served under
+        self._mib_instrums = {}
+
+    def scan(self):
+        """Return what the data directories hold now.
+
+        Community names to the data files which claim them, each a path and
+        a parser, in the order they are found. Nothing is changed, so this
+        may run aside from the event loop.
+        """
+        found = {}
+
+        for data_dir in self.data_dirs:
+            log.info(
+                'Scanning "%s" directory for %s data '
+                "files..."
+                % (
+                    data_dir,
+                    ",".join(
+                        [
+                            f" *{os.path.extsep}{x.ext}"
+                            for x in variation.RECORD_TYPES.values()
+                        ]
+                    ),
+                )
+            )
+
+            if not os.path.exists(data_dir):
+                log.info('Directory "%s" does not exist' % data_dir)
+                continue
+
+            for full_path, text_parser, community_name in datafile.get_data_files(
+                data_dir
+            ):
+                candidates = found.setdefault(community_name, [])
+
+                if full_path not in [candidate[0] for candidate in candidates]:
+                    candidates.append((full_path, text_parser))
+
+        return found
+
+    def changes(self, found):
+        """Return the community names to drop and the recordings to add.
+
+        Of several data files claiming a community name the one which is
+        served stays, otherwise the first one found is taken.
+        """
+        wanted = {}
+
+        for community_name, candidates in found.items():
+            chosen = candidates[0]
+
+            if community_name in self._served:
+                for candidate in candidates:
+                    if candidate[0] == self._served[community_name][0]:
+                        chosen = candidate
+
+            for full_path, _ in candidates:
+                if full_path != chosen[0]:
+                    log.error(
+                        'ignoring duplicate Community/ContextName "%s" for data '
+                        "file %s (%s already loaded)"
+                        % (community_name, full_path, chosen[0])
+                    )
+
+            wanted[community_name] = chosen
+
+        removed = [
+            community_name
+            for community_name, served in self._served.items()
+            if community_name not in wanted or wanted[community_name][0] != served[0]
+        ]
+
+        added = [
+            (community_name, full_path, text_parser)
+            for community_name, (full_path, text_parser) in wanted.items()
+            if community_name not in self._served
+            or self._served[community_name][0] != full_path
+        ]
+
+        return removed, added
+
+    def load(self, full_path, text_parser):
+        """Index a data file, return its controller.
+
+        Nothing is registered, so this may run aside from the event loop.
+        """
+        data_file = datafile.DataFile(full_path, text_parser, self._variation_modules)
+        data_file.index_text(self._force_index_rebuild, self._validate_data)
+
+        return controller.MIB_CONTROLLERS[data_file.layout](data_file)
+
+    def loaded(self, full_path):
+        """Return the controller of a data file which is served, or None."""
+        if full_path in self._mib_instrums:
+            return self._mib_instrums[full_path][0]
+
+    def add(self, community_name, full_path, mib_instrum):
+        """Serve a data file under a community name."""
+        if full_path in self._mib_instrums:
+            mib_instrum = self._mib_instrums[full_path][0]
+            log.info(f"Configuring *shared* {mib_instrum}")
+
+        else:
+            log.info(f"Configuring {mib_instrum}")
+
+        log.info(f"SNMPv1/2c community name: {community_name}")
+
+        agent_name = md5(univ.OctetString(community_name).asOctets()).hexdigest()
+
+        context_name = agent_name
+        context_names = []
+
+        try:
+            self.snmp_context.register_context_name(context_name, mib_instrum)
+            context_names.append(context_name)
+
+            if len(community_name) <= 32:
+                self.snmp_context.register_context_name(community_name, mib_instrum)
+                context_names.append(community_name)
+
+            # snmpCommunityTable::snmpCommunityIndex can't be > 32
+            if self._communities and self.snmp_engine:
+                config.add_v1_system(
+                    self.snmp_engine,
+                    agent_name,
+                    community_name,
+                    contextName=context_name,
+                )
+
+        except Exception:
+            # nothing half-registered is left behind
+            for name in context_names:
+                self.snmp_context.unregister_context_name(name)
+
+            raise
+
+        row = self.data_index.add_data_file(full_path, community_name, context_name)
+
+        self._mib_instrums.setdefault(full_path, [mib_instrum, 0])[1] += 1
+        self._served[community_name] = full_path, agent_name, context_names, row
+
+        log.info(
+            "SNMPv3 Context Name: %s"
+            "%s"
+            % (
+                context_name,
+                len(community_name) <= 32 and " or %s" % community_name or "",
+            )
+        )
+
+    def remove(self, community_name):
+        """Stop serving a community name, close the data file nobody uses."""
+        full_path, agent_name, context_names, row = self._served.pop(community_name)
+
+        log.info(f"Removing community name {community_name}, data file {full_path}")
+
+        if self._communities and self.snmp_engine:
+            config.delete_v1_system(self.snmp_engine, agent_name)
+
+        for context_name in context_names:
+            self.snmp_context.unregister_context_name(context_name)
+
+        self.data_index.remove_data_file(row)
+
+        usage = self._mib_instrums[full_path]
+        usage[1] -= 1
+
+        if not usage[1]:
+            del self._mib_instrums[full_path]
+
+            log.info(f"Closing {usage[0]}")
+
+            usage[0].close()
+
+    def rescan(self, strict=False):
+        """Serve what the data directories hold now.
+
+        Returns how many community names were added, removed and left as
+        they were. A data directory which cannot be read fails the rescan
+        before anything is changed. A recording which cannot be indexed or
+        registered is reported and left out, unless `strict` is set.
+        """
+        removed, added = self.changes(self.scan())
+
+        log.msg.inc_ident()
+
+        try:
+            for community_name in removed:
+                self.remove(community_name)
+
+            unchanged = len(self._served)
+            failed = 0
+
+            for community_name, full_path, text_parser in added:
+                try:
+                    self.add(
+                        community_name,
+                        full_path,
+                        self.loaded(full_path) or self.load(full_path, text_parser),
+                    )
+
+                except Exception as exc:
+                    if strict:
+                        raise
+
+                    failed += 1
+                    self.report_failure(community_name, full_path, exc)
+
+        finally:
+            log.msg.dec_ident()
+
+        return len(added) - failed, len(removed), unchanged
+
+    async def rescan_aside(self, loop):
+        """Do what `rescan()` does while requests are being served.
+
+        Directories are read and data files are indexed in a thread, so the
+        event loop is held up only for registering a recording, which takes
+        no time. Recordings are served or dropped one by one as the rescan
+        goes on.
+        """
+        removed, added = self.changes(await loop.run_in_executor(None, self.scan))
+
+        for community_name in removed:
+            self.remove(community_name)
+
+        unchanged = len(self._served)
+        failed = 0
+
+        for community_name, full_path, text_parser in added:
+            try:
+                mib_instrum = self.loaded(full_path)
+
+                if mib_instrum is None:
+                    mib_instrum = await loop.run_in_executor(
+                        None, self.load, full_path, text_parser
+                    )
+
+                self.add(community_name, full_path, mib_instrum)
+
+            except Exception as exc:
+                failed += 1
+                self.report_failure(community_name, full_path, exc)
+
+        return len(added) - failed, len(removed), unchanged
+
+    @staticmethod
+    def report_failure(community_name, full_path, exc):
+        log.error(
+            f"data file {full_path} is not served, community name "
+            f"{community_name}: {exc}"
+        )
+
+
+class Rescanner:
+    """Rescans the data directories when asked to, one rescan at a time.
+
+    Asked while a rescan is running, it rescans once more when that one is
+    over: what was changed in a directory already read would be missed.
+    """
+
+    def __init__(self, loop):
+        self.recordings = []
+
+        self._loop = loop
+        self._task = None
+        self._asked_again = False
+
+    def request(self):
+        if self._task is not None:
+            self._asked_again = True
+            return
+
+        self._task = self._loop.create_task(self._rescan())
+
+    async def _rescan(self):
+        try:
+            while True:
+                self._asked_again = False
+
+                log.info("Rescanning data directories...")
+
+                for recordings in list(self.recordings):
+                    try:
+                        counts = await recordings.rescan_aside(self._loop)
+
+                    except Exception as exc:
+                        log.error(
+                            "rescan failed, recordings of %s are served as "
+                            "before: %s" % (", ".join(recordings.data_dirs), exc)
+                        )
+
+                    else:
+                        log.info(
+                            "Rescan finished: %d added, %d removed, "
+                            "%d unchanged" % counts
+                        )
+
+                if not self._asked_again:
+                    break
+
+        finally:
+            self._task = None
+
+
+def wait_for_endpoints(bound_endpoints):
+    """Wait until every endpoint is bound, return those which are not.
+
+    pysnmp 7 binds a UDP endpoint in a task of the event loop, which has not
+    run yet when `open_server_mode()` returns, and nobody looks at how that
+    task ended: a port in use, or an address the host does not have, left a
+    responder which logged "Listening" and served nothing.
+
+    Takes (name, transport) pairs, returns a (name, error) pair for every
+    endpoint that could not be bound.
+    """
+    failed = []
+
+    for name, transport in bound_endpoints:
+        # the task pysnmp keeps for its own use; a transport without one has
+        # nothing to wait for
+        bind = getattr(transport, "_lport", None)
+
+        if bind is None:
+            continue
+
+        if not bind.done():
+            try:
+                bind.get_loop().run_until_complete(asyncio.wait([bind]))
+
+            except Exception as exc:
+                failed.append((name, exc))
+                continue
+
+        if bind.cancelled():
+            failed.append((name, "binding was cancelled"))
+
+        elif bind.exception() is not None:
+            failed.append((name, bind.exception()))
+
+    return failed
 
 
 def main():
@@ -398,11 +994,28 @@ def main():
         help="Options for a specific variation module",
     )
 
-    parser.add_argument(
+    # at most one of these: each of them leaves a single way to be asked
+    version_group = parser.add_mutually_exclusive_group()
+
+    version_group.add_argument(
         "--v3-only",
         action="store_true",
         help="Trip legacy SNMP v1/v2c support to gain a little lesser memory "
         "footprint",
+    )
+
+    version_group.add_argument(
+        "--v1-only",
+        action="store_true",
+        help="Answer SNMPv1 requests only. SNMPv2c and SNMPv3 requests get no "
+        "response, as from an agent configured for SNMPv1 alone",
+    )
+
+    version_group.add_argument(
+        "--v2c-only",
+        action="store_true",
+        help="Answer SNMPv2c requests only. SNMPv1 and SNMPv3 requests get no "
+        "response, as from an agent configured for SNMPv2c alone",
     )
 
     parser.add_argument(
@@ -499,9 +1112,30 @@ configured automatically based on simulation data file paths relative to
     )
 
     v3_group.add_argument(
+        "--v3-auth-key-type",
+        choices=USM_KEY_TYPES,
+        type=lambda x: x.lower(),
+        default="passphrase",
+        help="What --v3-auth-key holds: a passphrase, or the master key made "
+        "of it (the hashed passphrase), or that key localized to the SNMP "
+        "engine ID. Master and localized keys are given in hex, with or "
+        "without the leading 0x; a localized key only fits the "
+        "--v3-engine-id it was made for",
+    )
+
+    v3_group.add_argument(
         "--v3-priv-key",
         type=_parse_sized_string,
         help="SNMPv3 USM privacy (encryption) key (must be > 8 chars)",
+    )
+
+    v3_group.add_argument(
+        "--v3-priv-key-type",
+        choices=USM_KEY_TYPES,
+        type=lambda x: x.lower(),
+        default="passphrase",
+        help="What --v3-priv-key holds: a passphrase, a master key or a "
+        "localized key, as with --v3-auth-key-type",
     )
 
     v3_group.add_argument(
@@ -591,6 +1225,43 @@ configured automatically based on simulation data file paths relative to
         snmp_helper.print_usage(sys.stderr)
         return 1
 
+    if args.args_from_file:
+        try:
+            with open(args.args_from_file) as fl:
+                snmp_args.extend(
+                    [handler.split("=", 1) for handler in fl.read().split()]
+                )
+
+        except Exception as exc:
+            sys.stderr.write(
+                "ERROR: file %s opening failure: " "%s\r\n" % (args.args_from_file, exc)
+            )
+            snmp_helper.print_usage(sys.stderr)
+            return 1
+
+    if args.daemonize:
+        # The daemon changes into "/". Whatever was given relative to the
+        # directory we are started from has to be found from there as well.
+        # No pid file is written for an empty name, which has to stay empty.
+        if args.pid_file:
+            args.pid_file = os.path.abspath(args.pid_file)
+
+        if args.cache_dir:
+            args.cache_dir = os.path.abspath(args.cache_dir)
+
+        args.variation_modules_dir = [
+            os.path.abspath(path) for path in args.variation_modules_dir
+        ]
+
+        # The log file is open by then, the reports are written later on.
+        if len(args.reporting_method) > 1:
+            args.reporting_method[1] = os.path.abspath(args.reporting_method[1])
+
+        snmp_args = [
+            (opt[0], os.path.abspath(opt[1])) if opt[0] == "--data-dir" else opt
+            for opt in snmp_args
+        ]
+
     if args.debug:
         pysnmp_debug.set_logger(pysnmp_debug.Debug(*args.debug))
 
@@ -606,20 +1277,6 @@ configured automatically based on simulation data file paths relative to
     variation_modules_options = variation.parse_modules_options(
         args.variation_module_options
     )
-
-    if args.args_from_file:
-        try:
-            with open(args.args_from_file) as fl:
-                snmp_args.extend(
-                    [handler.split("=", 1) for handler in fl.read().split()]
-                )
-
-        except Exception as exc:
-            sys.stderr.write(
-                "ERROR: file %s opening failure: " "%s\r\n" % (args.args_from_file, exc)
-            )
-            snmp_helper.print_usage(sys.stderr)
-            return 1
 
     with daemon.PrivilegesOf(args.process_user, args.process_group):
         proc_name = os.path.basename(sys.argv[0])
@@ -643,9 +1300,11 @@ configured automatically based on simulation data file paths relative to
             snmp_helper.print_usage(sys.stderr)
             return 1
 
+    startup = None
+
     if args.daemonize:
         try:
-            daemon.daemonize(args.pid_file)
+            startup = daemon.daemonize(args.pid_file, wait=True)
 
         except Exception as exc:
             sys.stderr.write("ERROR: cant daemonize process: %s\r\n" % exc)
@@ -659,6 +1318,21 @@ configured automatically based on simulation data file paths relative to
         asyncio.get_event_loop()
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
+
+    rescanner = Rescanner(asyncio.get_event_loop())
+
+    if hasattr(signal, "SIGHUP"):
+        # Takes the place of what --daemonize does on SIGHUP, which is to
+        # exit, and of dying of it in the foreground. The event loop calls
+        # this once it runs: a SIGHUP which comes while the responder is
+        # still starting is a rescan right after the start.
+        try:
+            asyncio.get_event_loop().add_signal_handler(
+                signal.SIGHUP, rescanner.request
+            )
+
+        except (NotImplementedError, RuntimeError, ValueError) as exc:
+            log.info("SIGHUP will not rescan the data directories: %s" % exc)
 
     if not os.path.exists(confdir.cache):
         try:
@@ -681,112 +1355,39 @@ configured automatically based on simulation data file paths relative to
     with daemon.PrivilegesOf(args.process_user, args.process_group):
         variation.initialize_variation_modules(variation_modules, mode="variating")
 
-    def configure_managed_objects(
-        data_dirs, data_index_instrum_controller, snmp_engine=None, snmp_context=None
-    ):
-        """Build pysnmp Managed Objects base from data files information"""
-
-        _mib_instrums = {}
-        _data_files = {}
-
-        for dataDir in data_dirs:
-            log.info(
-                'Scanning "%s" directory for %s data '
-                "files..."
-                % (
-                    dataDir,
-                    ",".join(
-                        [
-                            f" *{os.path.extsep}{x.ext}"
-                            for x in variation.RECORD_TYPES.values()
-                        ]
-                    ),
-                )
-            )
-
-            if not os.path.exists(dataDir):
-                log.info('Directory "%s" does not exist' % dataDir)
-                continue
-
-            log.msg.inc_ident()
-
-            for full_path, text_parser, community_name in datafile.get_data_files(
-                dataDir
-            ):
-                if community_name in _data_files:
-                    log.error(
-                        'ignoring duplicate Community/ContextName "%s" for data '
-                        "file %s (%s already loaded)"
-                        % (community_name, full_path, _data_files[community_name])
-                    )
-                    continue
-
-                elif full_path in _mib_instrums:
-                    mib_instrum = _mib_instrums[full_path]
-                    log.info(f"Configuring *shared* {mib_instrum}")
-
-                else:
-                    data_file = datafile.DataFile(
-                        full_path, text_parser, variation_modules
-                    )
-                    data_file.index_text(args.force_index_rebuild, args.validate_data)
-
-                    MibController = controller.MIB_CONTROLLERS[data_file.layout]
-                    mib_instrum = MibController(data_file)
-
-                    _mib_instrums[full_path] = mib_instrum
-                    _data_files[community_name] = full_path
-
-                    log.info(f"Configuring {mib_instrum}")
-
-                log.info(f"SNMPv1/2c community name: {community_name}")
-
-                agent_name = md5(
-                    univ.OctetString(community_name).asOctets()
-                ).hexdigest()
-
-                context_name = agent_name
-
-                if not args.v3_only:
-                    # snmpCommunityTable::snmpCommunityIndex can't be > 32
-                    if snmp_engine:  # Add check for snmp_engine
-                        config.add_v1_system(
-                            snmp_engine,
-                            agent_name,
-                            community_name,
-                            contextName=context_name,
-                        )
-
-                snmp_context.register_context_name(context_name, mib_instrum)
-
-                if len(community_name) <= 32:
-                    snmp_context.register_context_name(community_name, mib_instrum)
-
-                data_index_instrum_controller.add_data_file(
-                    full_path, community_name, context_name
-                )
-
-                log.info(
-                    "SNMPv3 Context Name: %s"
-                    "%s"
-                    % (
-                        context_name,
-                        len(community_name) <= 32 and " or %s" % community_name or "",
-                    )
-                )
-
-            log.msg.dec_ident()
-
-        del _mib_instrums
-        del _data_files
-
     # Bind transport endpoints
+    bound_endpoints = []
+
     for idx, opt in enumerate(snmp_args):
         if opt[0] == "--agent-udpv4-endpoint":
             snmp_args[idx] = (opt[0], endpoints.IPv4TransportEndpoints().add(opt[1]))
+            bound_endpoints.append(
+                (f"UDP/IPv4 endpoint {opt[1]}", snmp_args[idx][1][0])
+            )
 
         elif opt[0] == "--agent-udpv6-endpoint":
             snmp_args[idx] = (opt[0], endpoints.IPv6TransportEndpoints().add(opt[1]))
+            bound_endpoints.append(
+                (f"UDP/IPv6 endpoint {opt[1]}", snmp_args[idx][1][0])
+            )
+
+    # The binding itself is done by the event loop. See to its end here: this
+    # is the last place where the process has the privileges it was started
+    # with, and nothing has been said to be listening yet.
+    failed_endpoints = wait_for_endpoints(bound_endpoints)
+
+    if failed_endpoints:
+        for name, exc in failed_endpoints:
+            log.error(f"failed to bind {name}: {exc}")
+
+        for _, transport in bound_endpoints:
+            try:
+                transport.close_transport()
+
+            except Exception:
+                pass
+
+        return 1
 
     # Start configuring SNMP engine(s)
 
@@ -799,6 +1400,17 @@ configured automatically based on simulation data file paths relative to
 
     if snmp_args and snmp_args[-1][0] != "end-of-options":
         snmp_args.append(("end-of-options", ""))
+
+    if args.v1_only:
+        served_versions = {"1"}
+
+    elif args.v2c_only:
+        served_versions = {"2c"}
+
+    else:
+        # --v3-only keeps its meaning: no community is configured for the
+        # recordings, the processing models stay
+        served_versions = None
 
     snmp_engine = None
     timeout = 0  # Initialize timeout before the loop
@@ -846,13 +1458,21 @@ configured automatically based on simulation data file paths relative to
                         controller.DataIndexInstrumController()
                     )
 
+                    recordings = Recordings(
+                        ctx_data_dirs or data_dirs or confdir.data,
+                        variation_modules,
+                        snmp_engine,
+                        snmp_context,
+                        data_index_instrum_controller,
+                        communities=not args.v3_only,
+                        force_index_rebuild=args.force_index_rebuild,
+                        validate_data=args.validate_data,
+                    )
+
                     with daemon.PrivilegesOf(args.process_user, args.process_group):
-                        configure_managed_objects(
-                            ctx_data_dirs or data_dirs or confdir.data,
-                            data_index_instrum_controller,
-                            snmp_engine,
-                            snmp_context,
-                        )
+                        recordings.rescan(strict=True)
+
+                    rescanner.recordings.append(recordings)
 
                 # Configure access to data index
 
@@ -909,15 +1529,49 @@ configured automatically based on simulation data file paths relative to
                         )
                         return 1
 
+                    if v3User in v3_auth_key_types and v3_auth_keys[v3User] is None:
+                        log.error(
+                            "auth key type configured without key for user "
+                            "%s" % v3User
+                        )
+                        return 1
+
+                    if v3User in v3_priv_key_types and v3_priv_keys[v3User] is None:
+                        log.error(
+                            "privacy key type configured without key for user "
+                            "%s" % v3User
+                        )
+                        return 1
+
+                    v3_auth_key_type = v3_auth_key_types.get(v3User, "passphrase")
+                    v3_priv_key_type = v3_priv_key_types.get(v3User, "passphrase")
+
                     try:
                         config.add_v3_user(
                             snmp_engine,
                             v3User,
                             AUTH_PROTOCOLS[v3_auth_protos[v3User]],
-                            v3_auth_keys[v3User],
+                            v3_auth_keys[v3User]
+                            and parse_usm_key(
+                                v3_auth_keys[v3User],
+                                v3_auth_key_type,
+                                v3_auth_protos[v3User],
+                            ),
                             PRIV_PROTOCOLS[v3_priv_protos[v3User]],
-                            v3_priv_keys[v3User],
+                            v3_priv_keys[v3User]
+                            and parse_usm_key(
+                                v3_priv_keys[v3User],
+                                v3_priv_key_type,
+                                v3_auth_protos[v3User],
+                                v3_priv_protos[v3User],
+                            ),
+                            authKeyType=USM_KEY_TYPES[v3_auth_key_type],
+                            privKeyType=USM_KEY_TYPES[v3_priv_key_type],
                         )
+
+                    except ValueError as exc:
+                        log.error("bad USM key for user %s: %s" % (v3User, exc))
+                        return 1
 
                     except error.PySnmpError as exc:
                         log.error("bad USM values for user %s: " "%s" % (v3User, exc))
@@ -932,12 +1586,24 @@ configured automatically based on simulation data file paths relative to
                             "%s" % (v3_auth_keys[v3User], v3_auth_protos[v3User])
                         )
 
+                        if v3_auth_key_type != "passphrase":
+                            log.info(
+                                "SNMPv3 USM authentication key type: "
+                                "%s" % v3_auth_key_type
+                            )
+
                     if PRIV_PROTOCOLS[v3_priv_protos[v3User]] != config.USM_PRIV_NONE:
                         log.info(
                             "SNMPv3 USM encryption (privacy) key: %s, "
                             "encryption protocol: "
                             "%s" % (v3_priv_keys[v3User], v3_priv_protos[v3User])
                         )
+
+                        if v3_priv_key_type != "passphrase":
+                            log.info(
+                                "SNMPv3 USM encryption (privacy) key type: "
+                                "%s" % v3_priv_key_type
+                            )
 
                 snmp_context.register_context_name(
                     "index", data_index_instrum_controller
@@ -951,6 +1617,16 @@ configured automatically based on simulation data file paths relative to
                 log.info(
                     "Maximum size of SNMP response message: %s octets"
                     % local_max_message_size
+                )
+
+                log.info(
+                    "SNMP versions served: %s"
+                    % ", ".join(
+                        sorted(
+                            SNMP_VERSIONS[int(model_id)]
+                            for model_id in snmp_engine.message_processing_subsystems
+                        )
+                    )
                 )
 
                 log.info("--- Transport configuration")
@@ -1040,6 +1716,8 @@ configured automatically based on simulation data file paths relative to
             v3_auth_protos = {}
             v3_priv_keys = {}
             v3_priv_protos = {}
+            v3_auth_key_types = {}
+            v3_priv_key_types = {}
             agent_udpv4_endpoints = []
             agent_udpv6_endpoints = []
             # timeout = 0  <- Remove initialization from here
@@ -1062,6 +1740,14 @@ configured automatically based on simulation data file paths relative to
                 return 1
 
             config.add_context(snmp_engine, "")
+
+            if served_versions:
+                # A message of a version the engine has no processing model
+                # for is counted in snmpInBadVersions and dropped, nothing
+                # goes back to the manager.
+                for model_id in list(snmp_engine.message_processing_subsystems):
+                    if SNMP_VERSIONS[int(model_id)] not in served_versions:
+                        del snmp_engine.message_processing_subsystems[model_id]
 
         elif opt[0] == "--v3-context-engine-id":
             v3_context_engine_ids.append((univ.OctetString(hexValue=opt[1]), []))
@@ -1136,6 +1822,28 @@ configured automatically based on simulation data file paths relative to
 
                 v3_priv_protos[v3_users[-1]] = opt[1].upper()
 
+        elif opt[0] in ("--v3-auth-key-type", "--v3-priv-key-type"):
+            # options of --args-from-file do not pass through argparse
+            if opt[1].lower() not in USM_KEY_TYPES:
+                log.error("bad v3 key type %s" % opt[1])
+                return 1
+
+            if not v3_users:
+                log.error("--v3-user should precede %s" % opt[0])
+                return 1
+
+            key_types = (
+                v3_auth_key_types
+                if opt[0] == "--v3-auth-key-type"
+                else v3_priv_key_types
+            )
+
+            if v3_users[-1] in key_types:
+                log.error(f"repetitive {opt[0]} option for user {v3_users[-1]}")
+                return 1
+
+            key_types[v3_users[-1]] = opt[1].lower()
+
         elif opt[0] == "--agent-udpv4-endpoint":
             agent_udpv4_endpoints.append(opt[1])
 
@@ -1149,6 +1857,11 @@ configured automatically based on simulation data file paths relative to
 
     with daemon.PrivilegesOf(args.process_user, args.process_group, final=True):
         try:
+            if startup:
+                # indexes are built and endpoints are bound: whoever started
+                # the daemon may go on and talk to it
+                startup.ready()
+
             transport_dispatcher.run_dispatcher(float(timeout))
 
         except KeyboardInterrupt:
