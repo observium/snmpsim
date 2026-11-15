@@ -247,6 +247,7 @@ def _start_resource_tracker():
         return
 
     saved = []
+    failure = None
 
     try:
         # what is buffered is written while there is still where to
@@ -277,12 +278,16 @@ def _start_resource_tracker():
 
     except Exception as exc:
         # the pool starts a tracker of its own then
-        log.debug(f"Resource tracker not started ahead of the pool: {exc}")
+        failure = exc
 
     finally:
         for fd, copy in saved:
             os.dup2(copy, fd)
             os.close(copy)
+
+    # logged only now: until the streams are back, stderr goes nowhere
+    if failure is not None:
+        log.debug(f"Resource tracker not started ahead of the pool: {failure}")
 
 
 def index_data_files(data_files, workers, force_index_build=False, validate_data=False):

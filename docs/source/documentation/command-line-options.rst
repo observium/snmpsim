@@ -164,13 +164,15 @@ of the command through a pipe is not kept waiting.
    $ snmpsim-command-responder --daemonize --pid-file=responder.pid \
        --data-dir=./data --agent-udpv4-endpoint=127.0.0.1:1161 || echo "not started"
 
-The daemon changes its working directory to `/`. Relative *--data-dir*,
+The daemon changes its working directory to `/`. In
+*snmpsim-command-responder* relative *--data-dir*,
 *--cache-dir*, *--variation-modules-dir*, *--pid-file* and the reports
 directory of *--reporting-method* are resolved before that, against the
 directory the responder was started in.
 
 *snmpsim-command-responder-lite* does not wait: its process exits with
-status 0 right after the fork, whatever becomes of the daemon.
+status 0 right after the fork, whatever becomes of the daemon. Nor does it
+resolve relative paths, so give it absolute ones.
 
 Not available on Windows.
 

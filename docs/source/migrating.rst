@@ -210,7 +210,7 @@ Variation modules
   longer *genErr* either: on GET, GETNEXT and GETBULK an SNMPv2c or SNMPv3
   manager gets error-status 0 with the exception as the value of that
   variable, next to the values of the others, and an SNMPv1 manager gets
-  *noSuchName*.
+  *noSuchName*. On SET they are still *genErr*.
 * :ref:`numeric <variate-numeric>` cuts ``deviation`` to a whole number,
   and its documentation states the formula the module computes. On Python
   3.12 and later a record with a ``deviation`` used to fail every request.
@@ -218,7 +218,8 @@ Variation modules
   value, ``0`` included, used to switch it on. A recording made with
   ``--variation-module=numeric`` and no options has its integers, counters,
   gauges and time ticks written as ``numeric`` records with
-  ``initial=<value>``, where it used to come out as plain values. See
+  ``initial=<value>`` (time ticks with ``rate=100`` and integers with
+  ``rate=0`` added), where it used to come out as plain values. See
   :ref:`record-numeric`.
 * :ref:`multiplex <variate-multiplex>` names the snapshots it records
   ``00000.snmprec``, not ``00000..snmprec``, and serves them in the order

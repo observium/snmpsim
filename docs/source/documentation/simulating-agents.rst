@@ -420,7 +420,9 @@ restart:
 * A recording that cannot be indexed is reported in the log and left out.
   This differs from startup, where such a recording stops the responder.
 * If a data directory cannot be read, the rescan fails and everything is
-  served as it was.
+  served as it was. A data directory that is gone - deleted, or a file
+  system that is no longer mounted - is no error: it is skipped, and the
+  recordings served from it stop being served.
 
 A signal that arrives while a rescan is running causes one more rescan when
 that one is over. A recording that was edited in place needs no signal: a
