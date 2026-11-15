@@ -563,11 +563,11 @@ Any other SET values will result in SNNP WrongValue error in response.
 
 Values that are not plain text are written in hex, by putting the *x*
 modifier on the tag. The first record below serves the IP address
-10.17.0.25, the second one the string ``ABC``:
+192.0.2.25, the second one the string ``ABC``:
 
 .. code-block:: bash
 
-    1.3.6.1.2.1.4.20.1.1.10.17.0.25|64x:writecache|value=0a110019
+    1.3.6.1.2.1.4.20.1.1.192.0.2.25|64x:writecache|value=c0000219
     1.3.6.1.2.1.1.6.0|4x:writecache|value=414243
 
 .. note::

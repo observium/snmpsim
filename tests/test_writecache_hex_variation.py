@@ -33,8 +33,8 @@ HEX_BINARY = "1.3.6.1.4.1.99999.1.7.0"
 HEX_HEXVALUE_STRING = "1.3.6.1.4.1.99999.1.8.0"
 ESCAPED_STRING = "1.3.6.1.4.1.99999.1.9.0"
 HEX_VLIST_STRING = "1.3.6.1.4.1.99999.1.10.0"
-HEX_ADDRESS = "1.3.6.1.4.1.99999.2.1.10.17.0.25"
-LAST = "1.3.6.1.4.1.99999.2.2.10.17.0.25"
+HEX_ADDRESS = "1.3.6.1.4.1.99999.2.1.192.0.2.25"
+LAST = "1.3.6.1.4.1.99999.2.2.192.0.2.25"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -101,7 +101,7 @@ async def test_hex_flag_serves_ip_address():
     value = await get(HEX_ADDRESS)
 
     assert isinstance(value, rfc1902.IpAddress)
-    assert value.prettyPrint() == "10.17.0.25"
+    assert value.prettyPrint() == "192.0.2.25"
 
 
 @pytest.mark.asyncio

@@ -101,12 +101,12 @@ upstream project yet.
   now cut to a whole number first: ``deviation=2`` adds one of -2, -1, 0, 1.
 - Fixed the ``writecache`` variation module ignoring the encoding flag of the
   record's tag. The text after ``value=`` was always taken as plain text, so
-  ``64x:writecache|value=0a110019`` failed with "Bad IP address syntax" on
+  ``64x:writecache|value=c0000219`` failed with "Bad IP address syntax" on
   every request and the record vanished from walks, while
   ``4x:writecache|value=414243`` served the six characters ``414243``.
   ``value=`` and the constants of ``vlist`` are now read the way a plain
   record reads its value: hex digits under the ``x`` flag (the records above
-  serve ``10.17.0.25`` and ``ABC``), a string with Python escapes under the
+  serve ``192.0.2.25`` and ``ABC``), a string with Python escapes under the
   ``e`` flag. ``hexvalue=`` works as before.
 - Fixed the ``subprocess`` variation module returning the line ending of the
   program's output as a part of the value. ``4:subprocess|echo hello``

@@ -63,8 +63,8 @@ Most items were also filed upstream; those link to their pull request:
   `rate` and the seconds since the previous request, said `wrap=0` freezes although it wraps,
   and gave the default `max` as `2**32` instead of `2**32 - 1`. A test now executes the formula
   from the docs against the module for 22 records
-* `writecache` records can hold hex-encoded initial values: `64x:writecache|value=0a110019`
-  serves the IP address 10.17.0.25 and `4x:writecache|value=414243` serves `ABC`. The module
+* `writecache` records can hold hex-encoded initial values: `64x:writecache|value=c0000219`
+  serves the IP address 192.0.2.25 and `4x:writecache|value=414243` serves `ABC`. The module
   used to drop the `x` flag of the tag, so the first record failed on every request and
   vanished from walks and the second served the six characters `414243`; the `e` flag and the
   constants of `vlist` follow the flag too
