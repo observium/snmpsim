@@ -74,6 +74,20 @@ def snapshots(tmp_path, monkeypatch):
     return write
 
 
+@pytest.mark.parametrize("slot", [0, 1, 2])
+def test_snapshots_take_turns_in_the_order_of_their_numbers(snapshots, slot):
+    """Which snapshot is on does not depend on how the directory lists them.
+
+    The numbers were searched by bisection in the order the system listed the
+    files, which is no order at all, so the wrong snapshot could be served.
+    """
+    snapshots_dir = snapshots("00001.snmprec", "00002.snmprec", "00000.snmprec")
+
+    value = served(load(), snapshots_dir, uptime=slot * PERIOD + PERIOD / 2)
+
+    assert value == f"from 0000{slot}.snmprec"
+
+
 @pytest.mark.parametrize(
     "names",
     [

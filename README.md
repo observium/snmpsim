@@ -27,6 +27,9 @@ Most items were also filed upstream; those link to their pull request:
   not make a number of the two-dot name, so what the module recorded it would not serve.
   Snapshots already recorded under the old name are served as well, and give way to one
   recorded since under the new name
+* `multiplex` serves the snapshot whose turn it is. It kept the snapshot numbers as the system
+  listed the files, in no particular order, and looked them up as if they were sorted, so
+  with several snapshots the wrong one could be served, depending on the file system
 * `snmpsim-record-commands` records over SNMPv3: `--v3-user` alone now selects protocol version
   3 (noAuthNoPriv, authNoPriv and authPriv, GETNEXT or GETBULK), and a v3 recording of the test
   agent is byte-for-byte the v2c one. `--protocol-version` used to accept only `1` and `2c`, so

@@ -137,7 +137,8 @@ def variate(oid, tag, value, **context):
                 recordContext["dirmap"][ident] = datafile
                 recordContext["parsermap"][datafile] = RECORD_SET[ext]
 
-        recordContext["keys"] = list(recordContext["dirmap"])
+        # looked up by bisection, and a directory is listed in no order
+        recordContext["keys"] = sorted(recordContext["dirmap"])
 
         recordContext["bounds"] = (
             min(recordContext["keys"]),
