@@ -5,6 +5,12 @@ Revision 2026.11.2, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Published the documentation at https://observium.github.io/snmpsim/. A
+  workflow builds it with ``sphinx-build -W`` on every change to
+  ``docs/``, ``CHANGES.rst``, ``LICENSE.txt`` or ``pyproject.toml`` on
+  ``master`` and publishes it on GitHub Pages; pull requests only build
+  it, so a page that does not build is seen before it is merged. The
+  package metadata and the README point at the site.
 - Made ``snmpsim-command-responder`` stop when it cannot bind an endpoint.
   pysnmp 7 binds a UDP endpoint in a task of the event loop, and the
   responder never looked at how that task ended: with the port taken by

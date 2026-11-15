@@ -1,0 +1,74 @@
+name: Docs
+
+# Builds the documentation site and publishes it on GitHub Pages
+# (https://observium.github.io/snmpsim/). Pull requests only build it, so
+# that a page which does not build is seen before it is merged.
+
+on:
+  push:
+    branches: [master]
+    paths: &docs
+      - "docs/**"
+      - "CHANGES.rst"
+      - "LICENSE.txt"
+      - "pyproject.toml"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths: *docs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One publication at a time, and a newer one does not cut an older one short;
+# a pull request's build is replaced by the build of its next push.
+concurrency:
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[docs]"
+
+      - name: Build
+        # Every warning is an error: a broken reference or include fails the
+        # build. The doctrees go beside the site, not into what is published.
+        run: sphinx-build -W --keep-going -b html -d build/doctrees docs/source build/html
+
+      # only master is published, whatever started the run
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        with:
+          path: build/html
+
+  publish:
+    name: Publish
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

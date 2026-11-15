@@ -33,6 +33,8 @@ scripts and recordings work unchanged.
 
 Compared with the release it was forked from:
 
+* Documentation of its own at <https://observium.github.io/snmpsim/>, built from
+  `docs/source` and published on every change to it on `master`
 * `snmpsim-command-responder` exits with status 1 and names the endpoint when it cannot bind it,
   e.g. `failed to bind UDP/IPv4 endpoint 127.0.0.1:1161: [Errno 48] Address already in use`.
   pysnmp 7 binds in a task nobody looked at, so with the port taken or an address the host does
@@ -575,10 +577,12 @@ key-value stores and other sources of information.
 
 ## Documentation
 
-The reference documentation is kept as Sphinx sources in [docs/source](docs/source); a site
-of its own for snmpsim-ng is being prepared. Until then, each command's `--help` covers its
-options, including the ones snmpsim-ng added, and [CHANGES.rst](CHANGES.rst) says what
-changed in each release.
+The documentation is published at <https://observium.github.io/snmpsim/>: a quick start,
+the command reference, the variation modules, a page on moving over
+from `snmpsim`, and the changelog. It is built from [docs/source](docs/source) on `master`
+each time the documentation changes there, so it describes `master` - where an option is
+newer than the release you run, [CHANGES.rst](CHANGES.rst) says which release brought it,
+and each command's `--help` lists what the installed version has.
 
 ## Who maintains this
 

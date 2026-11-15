@@ -37,8 +37,9 @@ extensions = [
 
 notfound_urls_prefix = "/snmpsim/"
 
-# The site has no address yet. Once it has one, set html_baseurl to it; a
-# sitemap (the stock sphinx-sitemap extension) needs that address too.
+# Where .github/workflows/docs.yml publishes the site; pages carry it as their
+# canonical address.
+html_baseurl = "https://observium.github.io/snmpsim/"
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
@@ -73,7 +74,8 @@ language = "en"
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This patterns also effect to html_static_path and html_extra_path
-exclude_patterns = []
+# Pieces pulled into other pages by include::, not pages of their own.
+exclude_patterns = ["includes"]
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = "sphinx"

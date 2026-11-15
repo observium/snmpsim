@@ -42,6 +42,7 @@ dependencies = [
 ]
 
 [project.urls]
+Documentation = "https://observium.github.io/snmpsim/"
 Repository = "https://github.com/observium/snmpsim"
 Issues = "https://github.com/observium/snmpsim/issues"
 Changelog = "https://github.com/observium/snmpsim/blob/master/CHANGES.rst"
