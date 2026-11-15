@@ -70,6 +70,23 @@ PRIV_PROTOCOLS = {
     "NONE": config.USM_PRIV_NONE,
 }
 
+USM_KEY_TYPES = {
+    "passphrase": config.USM_KEY_TYPE_PASSPHRASE,
+    "master": config.USM_KEY_TYPE_MASTER,
+    "localized": config.USM_KEY_TYPE_LOCALIZED,
+}
+
+# What the hash of an authentication protocol gives out, in octets: the size
+# of a master key and of a localized authentication key.
+USM_HASH_SIZES = {
+    "MD5": 16,
+    "SHA": 20,
+    "SHA224": 28,
+    "SHA256": 32,
+    "SHA384": 48,
+    "SHA512": 64,
+}
+
 DESCRIPTION = (
     "SNMP agent simulator: responds to SNMP v1/v2c/v3 requests, variate "
     "responses based on transport addresses, SNMP community name, SNMPv3 "
@@ -278,6 +295,63 @@ def _parse_sized_string(arg, min_length=8):
         )
 
     return arg
+
+
+def parse_usm_key(key, key_type, auth_proto, priv_proto=None):
+    """Turn a USM key off the command line into what pysnmp is to be given.
+
+    A passphrase is passed as it is. A master key (the hashed passphrase) and
+    a localized key (the master key hashed with the engine ID) are octets
+    written in hex, with or without the leading 0x, and come back as bytes.
+
+    `auth_proto` and `priv_proto` are our names of the protocols; the latter
+    is given for a privacy key, which is made by the hash of the
+    authentication protocol as well.
+
+    Raises ValueError saying what is wrong with a key that cannot be one: a
+    key of a wrong size would be taken at start-up and then fail every
+    request of that user.
+    """
+    if key_type == "passphrase":
+        return key
+
+    digits = key[2:] if key[:2].lower() == "0x" else key
+
+    try:
+        octets = bytes.fromhex(digits)
+
+    except ValueError:
+        octets = b""
+
+    # bytes.fromhex() lets white space through
+    if not octets or len(octets) * 2 != len(digits):
+        raise ValueError(
+            f'{key_type} key "{key}" is not hexadecimal (an even number of '
+            f"hex digits, with or without the leading 0x)"
+        )
+
+    hash_size = USM_HASH_SIZES[auth_proto]
+
+    if priv_proto and key_type == "localized":
+        # the cipher takes the leading octets of the key and agents differ
+        # in how many of the rest they show
+        proto, takes = (
+            priv_proto,
+            config.PRIV_SERVICES[PRIV_PROTOCOLS[priv_proto]].KEY_SIZE,
+        )
+        fits = len(octets) >= takes
+
+    else:
+        proto, takes = auth_proto, hash_size
+        fits = len(octets) == takes
+
+    if not fits:
+        raise ValueError(
+            f'{key_type} key "{key}" is {len(octets)} octets long, '
+            f"{proto} takes {takes}"
+        )
+
+    return octets
 
 
 def wait_for_endpoints(bound_endpoints):
@@ -558,9 +632,30 @@ configured automatically based on simulation data file paths relative to
     )
 
     v3_group.add_argument(
+        "--v3-auth-key-type",
+        choices=USM_KEY_TYPES,
+        type=lambda x: x.lower(),
+        default="passphrase",
+        help="What --v3-auth-key holds: a passphrase, or the master key made "
+        "of it (the hashed passphrase), or that key localized to the SNMP "
+        "engine ID. Master and localized keys are given in hex, with or "
+        "without the leading 0x; a localized key only fits the "
+        "--v3-engine-id it was made for",
+    )
+
+    v3_group.add_argument(
         "--v3-priv-key",
         type=_parse_sized_string,
         help="SNMPv3 USM privacy (encryption) key (must be > 8 chars)",
+    )
+
+    v3_group.add_argument(
+        "--v3-priv-key-type",
+        choices=USM_KEY_TYPES,
+        type=lambda x: x.lower(),
+        default="passphrase",
+        help="What --v3-priv-key holds: a passphrase, a master key or a "
+        "localized key, as with --v3-auth-key-type",
     )
 
     v3_group.add_argument(
@@ -1005,15 +1100,49 @@ configured automatically based on simulation data file paths relative to
                         )
                         return 1
 
+                    if v3User in v3_auth_key_types and v3_auth_keys[v3User] is None:
+                        log.error(
+                            "auth key type configured without key for user "
+                            "%s" % v3User
+                        )
+                        return 1
+
+                    if v3User in v3_priv_key_types and v3_priv_keys[v3User] is None:
+                        log.error(
+                            "privacy key type configured without key for user "
+                            "%s" % v3User
+                        )
+                        return 1
+
+                    v3_auth_key_type = v3_auth_key_types.get(v3User, "passphrase")
+                    v3_priv_key_type = v3_priv_key_types.get(v3User, "passphrase")
+
                     try:
                         config.add_v3_user(
                             snmp_engine,
                             v3User,
                             AUTH_PROTOCOLS[v3_auth_protos[v3User]],
-                            v3_auth_keys[v3User],
+                            v3_auth_keys[v3User]
+                            and parse_usm_key(
+                                v3_auth_keys[v3User],
+                                v3_auth_key_type,
+                                v3_auth_protos[v3User],
+                            ),
                             PRIV_PROTOCOLS[v3_priv_protos[v3User]],
-                            v3_priv_keys[v3User],
+                            v3_priv_keys[v3User]
+                            and parse_usm_key(
+                                v3_priv_keys[v3User],
+                                v3_priv_key_type,
+                                v3_auth_protos[v3User],
+                                v3_priv_protos[v3User],
+                            ),
+                            authKeyType=USM_KEY_TYPES[v3_auth_key_type],
+                            privKeyType=USM_KEY_TYPES[v3_priv_key_type],
                         )
+
+                    except ValueError as exc:
+                        log.error("bad USM key for user %s: %s" % (v3User, exc))
+                        return 1
 
                     except error.PySnmpError as exc:
                         log.error("bad USM values for user %s: " "%s" % (v3User, exc))
@@ -1028,12 +1157,24 @@ configured automatically based on simulation data file paths relative to
                             "%s" % (v3_auth_keys[v3User], v3_auth_protos[v3User])
                         )
 
+                        if v3_auth_key_type != "passphrase":
+                            log.info(
+                                "SNMPv3 USM authentication key type: "
+                                "%s" % v3_auth_key_type
+                            )
+
                     if PRIV_PROTOCOLS[v3_priv_protos[v3User]] != config.USM_PRIV_NONE:
                         log.info(
                             "SNMPv3 USM encryption (privacy) key: %s, "
                             "encryption protocol: "
                             "%s" % (v3_priv_keys[v3User], v3_priv_protos[v3User])
                         )
+
+                        if v3_priv_key_type != "passphrase":
+                            log.info(
+                                "SNMPv3 USM encryption (privacy) key type: "
+                                "%s" % v3_priv_key_type
+                            )
 
                 snmp_context.register_context_name(
                     "index", data_index_instrum_controller
@@ -1146,6 +1287,8 @@ configured automatically based on simulation data file paths relative to
             v3_auth_protos = {}
             v3_priv_keys = {}
             v3_priv_protos = {}
+            v3_auth_key_types = {}
+            v3_priv_key_types = {}
             agent_udpv4_endpoints = []
             agent_udpv6_endpoints = []
             # timeout = 0  <- Remove initialization from here
@@ -1249,6 +1392,28 @@ configured automatically based on simulation data file paths relative to
                     return 1
 
                 v3_priv_protos[v3_users[-1]] = opt[1].upper()
+
+        elif opt[0] in ("--v3-auth-key-type", "--v3-priv-key-type"):
+            # options of --args-from-file do not pass through argparse
+            if opt[1].lower() not in USM_KEY_TYPES:
+                log.error("bad v3 key type %s" % opt[1])
+                return 1
+
+            if not v3_users:
+                log.error("--v3-user should precede %s" % opt[0])
+                return 1
+
+            key_types = (
+                v3_auth_key_types
+                if opt[0] == "--v3-auth-key-type"
+                else v3_priv_key_types
+            )
+
+            if v3_users[-1] in key_types:
+                log.error(f"repetitive {opt[0]} option for user {v3_users[-1]}")
+                return 1
+
+            key_types[v3_users[-1]] = opt[1].lower()
 
         elif opt[0] == "--agent-udpv4-endpoint":
             agent_udpv4_endpoints.append(opt[1])
