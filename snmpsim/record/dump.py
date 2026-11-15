@@ -40,6 +40,10 @@ class DumpRecord(abstract.AbstractRecord):
                 "value evaluation error for tag %r, value %r: " "%s" % (tag, value, exc)
             )
 
+        # pyasn1 builds an OID out of nothing, BER has no encoding for it
+        if isinstance(value, univ.ObjectIdentifier) and not len(value):
+            raise SnmpsimError("empty OID value")
+
         # not all callers supply the context - just ignore it
         try:
             if (

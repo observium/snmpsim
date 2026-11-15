@@ -35,7 +35,8 @@ class DumpGrammar(abstract.AbstractGrammar):
         if value[:5].lower() == "hex: ":
             value = [int(x, 16) for x in value[5:].split(".")]
 
-        elif value[0] == '"' and value[-1] == '"':
+        # an empty value is an empty string, and a lone quote is not a pair
+        elif len(value) > 1 and value[0] == '"' and value[-1] == '"':
             value = value[1:-1]
 
         return value

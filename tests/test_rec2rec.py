@@ -99,12 +99,20 @@ UNCONVERTIBLE = [
     ("sapwalk", f"{SYSNAME}, OctetString, 0x73ZZ\n".encode()),
     ("sapwalk", b"sysName.0, OctetString, switch\n"),
     ("dump", f"{SYSNAME}|6|Hex: 73.ZZ\n".encode()),
+    # no value where the type cannot do without one
+    ("dump", f"{SYSNAME}|2|\n".encode()),
+    ("dump", f"{SYSNAME}|5|\n".encode()),
+    ("snmprec", f"{SYSNAME}|2|\n".encode()),
+    ("snmprec", f"{SYSNAME}|2x|\n".encode()),
+    ("snmprec", f"{SYSNAME}|66x|\n".encode()),
+    ("snmprec", f"{SYSNAME}|6|\n".encode()),
 ]
 
 GOOD = {
     "snmpwalk": ".%s = STRING: eth0\n",
     "sapwalk": "%s, OctetString, eth0\n",
     "dump": "%s|6|eth0\n",
+    "snmprec": "%s|4|eth0\n",
 }
 
 
@@ -114,7 +122,7 @@ def convert_with_a_bad_line(tmp_path, monkeypatch, record_type, bad, *options):
     source.write_bytes(
         (good % "1.3.6.1.2.1.1.4.0").encode() + bad + (good % IF_DESCR).encode()
     )
-    target = tmp_path / "switch.snmprec"
+    target = tmp_path / "converted.snmprec"
 
     status = manage_records(
         monkeypatch,
@@ -158,6 +166,32 @@ def test_unconvertible_line_stops_the_conversion_with_a_message(
     messages = capsys.readouterr().err
     assert f"ERROR: broken record <{bad!r}>" in messages
     assert "Traceback" not in messages
+
+
+@pytest.mark.parametrize(
+    "record_type, empty",
+    [
+        ("dump", "|6|"),
+        ("dump", '|6|""'),
+        ("snmprec", "|4|"),
+        ("snmprec", "|4x|"),
+        ("snmprec", "|4e|"),
+    ],
+)
+def test_empty_string_value_is_converted(
+    tmp_path, monkeypatch, capsys, record_type, empty
+):
+    status, target = convert_with_a_bad_line(
+        tmp_path, monkeypatch, record_type, f"{SYSNAME}{empty}\n".encode()
+    )
+
+    assert not status
+    assert target.read_bytes().splitlines() == [
+        b"1.3.6.1.2.1.1.4.0|4|eth0",
+        f"{SYSNAME}|4|".encode(),
+        f"{IF_DESCR}|4|eth0".encode(),
+    ]
+    assert "broken 0," in capsys.readouterr().err
 
 
 def test_walk_with_names_for_oids_is_told_how_to_get_numbers(
