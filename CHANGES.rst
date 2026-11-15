@@ -61,7 +61,7 @@ upstream project yet.
   than what the device sent. A walk read from a pipe
   (``--input-file=/dev/stdin``) is converted the same way, on Windows too,
   where a pipe claims it can be moved back and the record after a wrapped
-  value would be lost: only a regular file is moved back. The ``.snmprec``
+  value was lost: only a regular file is moved back. The ``.snmprec``
   reader and the line reader of the responder are not changed.
 - Fixed ``snmpsim-manage-records`` crashing on walk and sapwalk lines it
   cannot convert. A walk taken without ``-On`` has names for OIDs, and

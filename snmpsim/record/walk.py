@@ -17,8 +17,9 @@ def can_rewind(file_obj):
 
     seekable() is not the answer: on Windows it is true of a pipe, whose
     seek() then succeeds and brings nothing back. So only a regular file
-    is moved back; a pipe, a FIFO or a console is not, whatever it says.
-    A file without a descriptor, a BytesIO, is taken at its word.
+    is moved back, and only if it seeks; a pipe, a FIFO or a console is
+    not, whatever it says. A file without a descriptor, a BytesIO, is
+    taken at its word.
     """
     try:
         mode = os.fstat(file_obj.fileno()).st_mode
@@ -26,7 +27,7 @@ def can_rewind(file_obj):
     except (AttributeError, OSError, ValueError):
         return file_obj.seekable()
 
-    return stat.S_ISREG(mode)
+    return stat.S_ISREG(mode) and file_obj.seekable()
 
 
 class HeldLine:
@@ -55,6 +56,8 @@ class WalkRecord(dump.DumpRecord):
     # MIB names are not resolved here
     oid_hint = " (snmpwalk -On prints them so)"
 
+    # the file being read and, if it cannot be moved back, its held line
+    _input = None
     _pipe = None
 
     def read_record(self, file_obj, line_no=None, offset=0):
@@ -68,16 +71,15 @@ class WalkRecord(dump.DumpRecord):
         Telling where a record ends takes reading one line past it. A
         regular file is moved back to the start of that line; anything
         else (see can_rewind) cannot be, so its line is held for the
-        next call on the same file.
+        next call on the same file. Which of the two a file is gets
+        decided on its first record and kept until its last.
         """
-        if self._pipe is not None and self._pipe.file_obj is file_obj:
-            source = self._pipe
+        if self._input is not file_obj:
+            # asked once per file, not per record: fstat() is not free
+            self._input = file_obj
+            self._pipe = None if can_rewind(file_obj) else HeldLine(file_obj)
 
-        elif can_rewind(file_obj):
-            source = file_obj
-
-        else:
-            source = self._pipe = HeldLine(file_obj)
+        source = self._pipe or file_obj
 
         record, line_no, offset = get_record(source, line_no, offset)
 
@@ -103,6 +105,6 @@ class WalkRecord(dump.DumpRecord):
             break
 
         if not record:
-            self._pipe = None
+            self._input = self._pipe = None
 
         return b"".join(lines), line_no, offset

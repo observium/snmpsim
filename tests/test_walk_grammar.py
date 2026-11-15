@@ -8,6 +8,7 @@ from snmpsim.error import SnmpsimError
 
 from snmpsim.record.sap import SapRecord
 from snmpsim.record.snmprec import SnmprecRecord
+from snmpsim.record import walk as walk_module
 from snmpsim.record.walk import WalkRecord, can_rewind
 
 OID = "1.3.6.1.4.1.2021.10.1.6.1"
@@ -399,11 +400,7 @@ def test_walk_is_read_from_a_pipe():
 
 
 class PipeThatSaysItSeeks(io.BufferedReader):
-    """The read end of a pipe as the C runtime of Windows shows it.
-
-    Its lseek() does not fail on a pipe, so the file says it is seekable
-    and takes seek(), but what has been read does not come back.
-    """
+    """A pipe that says it seeks and whose seek() brings nothing back."""
 
     def seekable(self):
         return True
@@ -449,6 +446,41 @@ def test_only_a_regular_file_is_moved_back(tmp_path):
 
     with os.fdopen(writer, "wb"), os.fdopen(reader, "rb") as source:
         assert not can_rewind(source)
+
+
+def test_regular_file_behind_a_reader_that_cannot_seek_is_not_moved_back(tmp_path):
+    class Unseekable(io.BufferedReader):
+        def seekable(self):
+            return False
+
+    walk = tmp_path / "switch.snmpwalk"
+    walk.write_bytes(b"")
+
+    with Unseekable(io.FileIO(walk, "rb")) as source:
+        assert not can_rewind(source)
+
+
+def test_what_a_file_is_gets_asked_once_for_all_its_records(tmp_path, monkeypatch):
+    asked = []
+    fstat = os.fstat
+
+    def spy(descriptor):
+        asked.append(descriptor)
+        return fstat(descriptor)
+
+    walk = tmp_path / "switch.snmpwalk"
+    walk.write_bytes(
+        b"".join(b".%s.%d = STRING: eth\n" % (IF_DESCR.encode(), n) for n in range(50))
+    )
+    record = WalkRecord()
+
+    with open(walk, "rb") as source:
+        monkeypatch.setattr(walk_module.os, "fstat", spy)
+        lines = [record.read_record(source)[0] for _ in range(51)]
+        monkeypatch.undo()
+
+    assert all(lines[:50]) and lines[50] == b""
+    assert len(asked) == 1
 
 
 def test_file_without_a_descriptor_is_asked_whether_it_seeks():
