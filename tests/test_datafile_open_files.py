@@ -237,6 +237,9 @@ def test_a_modified_file_is_reopened_in_place(recordings, closes, monkeypatch):
 
     os.utime(a._text_file, (stamp.st_atime + 10, stamp.st_mtime + 10))
 
+    # an open file is looked at for changes once in a while, not every time
+    monkeypatch.setattr(RecordIndex, "change_check_interval", 0)
+
     text, db = a.get_handles()
 
     assert text.readline().rstrip().endswith(b"Another device")

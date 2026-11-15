@@ -183,15 +183,20 @@ class DataFile(AbstractLayout):
         vars_remaining = vars_total = len(var_binds)
         err_total = 0
 
-        log.info(
-            "Request var-binds: %s, flags: %s, "
-            "%s"
-            % (
-                ", ".join([f"{vb[0]}=<{vb[1].prettyPrint()}>" for vb in var_binds]),
-                context.get("nextFlag") and "NEXT" or "EXACT",
-                context.get("setFlag") and "SET" or "GET",
+        # every value is turned into text for these two lines, which is not
+        # worth doing for a log that drops them
+        log_var_binds = log.is_enabled(log.LOG_INFO)
+
+        if log_var_binds:
+            log.info(
+                "Request var-binds: %s, flags: %s, "
+                "%s"
+                % (
+                    ", ".join([f"{vb[0]}=<{vb[1].prettyPrint()}>" for vb in var_binds]),
+                    context.get("nextFlag") and "NEXT" or "EXACT",
+                    context.get("setFlag") and "SET" or "GET",
+                )
             )
-        )
 
         separator = b","
 
@@ -199,9 +204,7 @@ class DataFile(AbstractLayout):
             text_oid = str(univ.OctetString(".".join(["%s" % x for x in oid])))
 
             try:
-                line = self._record_index.lookup(
-                    str(univ.OctetString(".".join(["%s" % x for x in oid])))
-                )
+                line = self._record_index.lookup(text_oid)
 
             except KeyError:
                 offset = search_record_by_oid(oid, text, self._text_parser)
@@ -339,10 +342,15 @@ class DataFile(AbstractLayout):
 
             rsp_var_binds.append((_oid, _val))
 
-        log.info(
-            "Response var-binds: %s"
-            % (", ".join([f"{vb[0]}=<{vb[1].prettyPrint()}>" for vb in rsp_var_binds]))
-        )
+        if log_var_binds:
+            log.info(
+                "Response var-binds: %s"
+                % (
+                    ", ".join(
+                        [f"{vb[0]}=<{vb[1].prettyPrint()}>" for vb in rsp_var_binds]
+                    )
+                )
+            )
 
         ReportingManager.update_metrics(
             data_file=self._text_file,

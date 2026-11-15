@@ -9,6 +9,7 @@ import dbm
 import importlib
 import os
 import sys
+from time import monotonic
 
 from snmpsim import confdir
 from snmpsim import error
@@ -53,6 +54,12 @@ DBM_FILES = {
 
 
 class RecordIndex:
+    # an open data file is looked at for changes no more often than this,
+    # in seconds: a stat() per request is a system call per request, and a
+    # recording edited under a running responder may as well be picked up a
+    # moment later
+    change_check_interval = 1.0
+
     def __init__(self, text_file, text_parser):
         self._text_file = text_file
         self._text_parser = text_parser
@@ -75,6 +82,7 @@ class RecordIndex:
         self._db_module = None
 
         self._text_file_time = 0
+        self._change_checked_at = None
 
     def __str__(self):
         return "Data file {}, {}-indexed, {}".format(
@@ -87,7 +95,7 @@ class RecordIndex:
         return self._db is not None
 
     def get_handles(self):
-        if self.is_open():
+        if self.is_open() and self._change_check_due():
             if self._text_file_time != os.stat(self._text_file)[8]:
                 log.info("Text file %s modified, closing" % self._text_file)
                 self.close()
@@ -96,7 +104,24 @@ class RecordIndex:
             self.create()
             self.open()
 
+            # create() has just looked at the data file
+            self._change_checked_at = monotonic()
+
         return self._text, self._db
+
+    def _change_check_due(self):
+        """Tell if the data file is to be looked at, and note that it is."""
+        now = monotonic()
+
+        if (
+            self._change_checked_at is not None
+            and now - self._change_checked_at < self.change_check_interval
+        ):
+            return False
+
+        self._change_checked_at = now
+
+        return True
 
     @property
     def _db_files(self):
