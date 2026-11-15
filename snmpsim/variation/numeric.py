@@ -40,40 +40,54 @@ def init(**context):
         random.seed()
 
     if context["mode"] == "recording":
+        # the settings stay empty unless every option parses: a failed
+        # initialization does not stop the recorder, and it must not
+        # record with half of the options applied
         moduleContext["settings"] = {}
 
         if context["options"]:
+            settings = {}
+
             for x in split(context["options"], ","):
-                for k, v in split(x, ":"):
-                    if k == "addon":
-                        if k in moduleContext["settings"]:
-                            moduleContext["settings"][k].append(v)
+                # only the first colon separates the key: a value may
+                # contain colons of its own
+                k, separator, v = x.partition(":")
 
-                        else:
-                            moduleContext["settings"][k] = [v]
-
-                    else:
-                        moduleContext["settings"][k] = v
-
-                if "iterations" in moduleContext["settings"]:
-                    moduleContext["settings"]["iterations"] = int(
-                        moduleContext["settings"]["iterations"]
+                if not separator:
+                    raise error.SnmpsimError(
+                        'numeric: option "%s" is not in key:value form' % x
                     )
 
-                    if moduleContext["settings"]["iterations"]:
-                        # no reason for more
-                        moduleContext["settings"]["iterations"] = 1
-
-                if "period" in moduleContext["settings"]:
-                    moduleContext["settings"]["period"] = float(
-                        moduleContext["settings"]["period"]
-                    )
+                if k == "addon":
+                    settings.setdefault(k, []).append(v)
 
                 else:
-                    moduleContext["settings"]["period"] = 10.0
+                    settings[k] = v
 
-                if "taglist" not in moduleContext["settings"]:
-                    moduleContext["settings"]["taglist"] = "2-65-66-67-70"
+            if "iterations" in settings:
+                try:
+                    iterations = int(settings["iterations"])
+
+                except ValueError:
+                    raise error.SnmpsimError(
+                        'numeric: option "iterations:%s" is not a whole number'
+                        % settings["iterations"]
+                    )
+
+                # no reason for more than one
+                settings["iterations"] = 1 if iterations else 0
+
+            try:
+                settings["period"] = float(settings.get("period", 10.0))
+
+            except ValueError:
+                raise error.SnmpsimError(
+                    'numeric: option "period:%s" is not a number' % settings["period"]
+                )
+
+            settings.setdefault("taglist", "2-65-66-67-70")
+
+            moduleContext["settings"] = settings
 
 
 def variate(oid, tag, value, **context):
@@ -157,7 +171,8 @@ def variate(oid, tag, value, **context):
         else:
             v += recordContext["settings"]["offset"]
 
-    deviation = recordContext["settings"].get("deviation")
+    # settings are floats, and randrange() takes whole numbers only
+    deviation = int(recordContext["settings"].get("deviation", 0))
     if deviation:
         v += random.randrange(-deviation, deviation)
 

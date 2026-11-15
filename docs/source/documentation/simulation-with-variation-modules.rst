@@ -169,25 +169,34 @@ in ``.snmprec`` value field:
 * ``min`` - the minimum value ever stored and returned by this module.
   Default is ``0``.
 * ``max`` - the maximum value ever stored and returned by this module.
-  Default is ``2\*\*32`` or ``2\*\*64`` (``Counter64`` type).
+  Default is ``2**32 - 1`` or ``2**64 - 1`` (``Counter64`` type).
 * ``initial`` - initial value. Default is ``min``.
-* ``atime`` - if non-zero, uses current time for value generation, not Simulator
-  uptime.
-* ``wrap`` - if zero, generated value will freeze when reaching ``max``.
-  Otherwise generated value is reset to ``min``.
+* ``atime`` - if present, uses current time (UNIX time, seconds) for value
+  generation, not Simulator uptime.
+* ``wrap`` - if present, a generated value exceeding ``max`` starts over
+  from ``min``. Otherwise it freezes at ``max``.
 * ``function`` - defines elapsed-time-to-generated-value relationship. Can be
   any of reasonably suitable mathematical function from the
-  math module such as ``sin``, ``log``, ``pow`` etc. The only requirement
-  is that used function accepts a single integer argument.
-  Default is ``x = f(x)``.
+  math module such as ``sin``, ``log``, ``sqrt`` etc. The function is called
+  with a single floating point argument, the time multiplied by ``rate``.
+  A function of several arguments is given them separated by ``%``, with
+  ``<time>`` standing for the time: ``function=pow%<time>%2``.
+  Default is ``f(x) = x``.
 * ``rate`` - elapsed time scaling factor. Default is ``1``.
 * ``scale`` - function value scaling factor. Default is ``1``.
-* ``offset`` - constant value by which the return value increases on each
-  invocation. Default is ``0``.
-* ``deviation`` - random deviation maximum. Default is ``0`` which means no
-  deviation.
-* ``cumulative`` - if non-zero sums up previous value with the newly
+* ``offset`` - a constant added to the function value. With ``cumulative``
+  it is a speed instead: the value grows by ``offset * rate`` per second
+  between the requests. Default is ``0``.
+* ``deviation`` - random deviation maximum, a whole number. Default is ``0``
+  which means no deviation.
+* ``cumulative`` - if present, sums up previous value with the newly
   generated one. This is important when simulating ``COUNTER`` values.
+
+.. note::
+
+   ``atime``, ``wrap`` and ``cumulative`` are switched on by the key being
+   there, whatever its value: ``wrap=0`` wraps just like ``wrap=1`` does.
+   Leave the key out to keep the feature off.
 
 This module generates values by execution of the following formula:
 
@@ -195,9 +204,49 @@ This module generates values by execution of the following formula:
 
   TIME = TIMENOW if atime else UPTIME
 
-  v = function(TIME * rate) * scale + offset + RAND(-deviation, deviation)
+  v = function(TIME * rate) * scale
 
-  v = v + prev_v if cumulative else v
+  if cumulative:
+      v = v + offset * ELAPSED * rate
+  else:
+      v = v + offset
+
+  v = v + RAND(-deviation, deviation)
+
+  if cumulative:
+      if v < 0:
+          v = 0
+
+      v = v + prev_v
+  else:
+      v = v + initial
+
+  if v < min:
+      v = min
+  elif v > max:
+      v = v % max + min if wrap else max
+
+Where:
+
+* ``UPTIME`` is the number of seconds since Simulator start, ``TIMENOW`` is
+  the current UNIX time.
+* ``ELAPSED`` is the number of seconds since the previous request for this
+  OID, or since Simulator start if there was none.
+* ``prev_v`` is the value returned to the previous request for this OID,
+  or ``initial`` if there was none.
+* ``RAND(-deviation, deviation)`` is a random whole number from
+  ``-deviation`` up to, but not including, ``deviation``.
+
+The fractional part of the result is dropped in SNMP response.
+
+Mind that with ``cumulative`` the function value is added in full on every
+request, while only the ``offset`` part depends on the time passed since the
+previous one. With the default function a ``Counter32`` polled at uptime of
+100 seconds and again at 110 seconds grows by 100 and then by 110, and
+polling it twice as often makes it grow about twice as fast. For a counter
+that grows at a steady pace no matter how often it is polled either leave
+``cumulative`` out (the value is then ``initial`` plus a function of time),
+or silence the function with ``scale=0`` and set the pace with ``offset``.
 
 Examples
 ~~~~~~~~
@@ -209,6 +258,9 @@ Examples
 
     # GAUGE object
     1.3.6.1.2.1.2.2.1.14.1|66:numeric|min=5,max=50,initial=25
+
+    # COUNTER64 object growing by 100 per second from 5000
+    1.3.6.1.2.1.31.1.1.1.6.1|70:numeric|scale=0,offset=100,cumulative=1,initial=5000
 
 You are welcome to try the ``numeric`` module in action at our online
 `public SNMP simulation service <https://www.pysnmp.com/snmp-simulation-service>`_:
@@ -357,6 +409,17 @@ in *.snmprec* value field:
    When *tooBig* error is flagged, variable-bindings list is automatically
    reset to empty as per :RFC:`1905#section-4.2.2`.
 
+.. note::
+
+   SNMPv1 knows five errors only, so a manager talking SNMPv1 receives
+   *tooBig*, *noSuchName*, *badValue*, *readOnly* and *genError* as they are
+   and any other error translated as :RFC:`3584#section-4.4` tells:
+   *wrongValue*, *wrongType* and *inconsistentValue* become *badValue*,
+   *noAccess*, *notWritable*, *noCreation*, *inconsistentName* and
+   *authorizationError* become *noSuchName*, *resourceUnavailable*,
+   *commitFailed* and *undoFailed* become *genError*. SNMPv2c and SNMPv3
+   managers receive the error as configured.
+
 * *vlist* - a list of triples (comparison:constant:error) to use as an access
   list for SET values.
 
@@ -468,7 +531,11 @@ parameters in *.snmprec* value field:
 
 .. note::
 
-   Optional tag modifier in :ref:`.snmprec file <snmprec>` is ignored by this variation module.
+   The optional tag modifier of the :ref:`.snmprec file <snmprec>` tells how
+   *value* and the constants of *vlist* are written, just as it does on a
+   plain record: with the *x* modifier they are hex digits, with the *e*
+   modifier they are strings with Python escapes. *hexvalue* is hex digits
+   whatever the modifier.
 
 Examples
 ~~~~~~~~
@@ -493,6 +560,15 @@ allows only values of 1 and 2 to be SET:
     1.3.6.1.2.1.1.3.0|2:writecache|value=42,vlist=lt:1:wrongvalue:gt:2:wrongvalue
 
 Any other SET values will result in SNNP WrongValue error in response.
+
+Values that are not plain text are written in hex, by putting the *x*
+modifier on the tag. The first record below serves the IP address
+10.17.0.25, the second one the string ``ABC``:
+
+.. code-block:: bash
+
+    1.3.6.1.2.1.4.20.1.1.10.17.0.25|64x:writecache|value=0a110019
+    1.3.6.1.2.1.1.6.0|4x:writecache|value=414243
 
 .. note::
 
@@ -644,6 +720,19 @@ the UNIX date command instructing it to report elapsed UNIX epoch time.
 
 Note *.snmprec* tag values -- executed program's stdout will be casted into
 appropriate type depending of tag indication.
+
+The line ending a program finishes its output with is not a part of the
+value: one trailing line feed, along with the carriage return in front of
+it if there is one, is dropped. So *echo hello* makes the five octets of
+*hello*, and a hex-encoded value needs no *echo -n*:
+
+.. code-block:: bash
+
+    1.3.6.1.2.1.25.1.2.0|4x:subprocess|echo 07e30307001b01152b0000
+
+Nothing else is trimmed. Whatever precedes that one line ending, be it
+spaces or another line ending, is passed on as it is: a program that prints
+*a* followed by two line feeds returns *a* followed by one.
 
 .. _variate-notification:
 
@@ -830,6 +919,15 @@ assuming you have the
 installed on the SNMP Simulator machine and a PostgreSQL server running locally
 (accessed through default UNIX domain socket) with PostgreSQL user/password
 snmpsim/snmpsim having full access to a database *snmpsim*.
+
+The connection is opened once, when the Simulator starts. If a request
+later fails on it (the database server was restarted, or closed a
+connection that sat idle for too long), the module connects again with
+the same parameters and repeats the request once. Should that fail as
+well, the error is reported and the next request tries anew, so the
+Simulator picks the database up again as soon as it is back. Changes
+of a SET that were not committed when the connection went away are lost
+with it.
 
 Simulation data configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

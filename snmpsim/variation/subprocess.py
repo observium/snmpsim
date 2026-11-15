@@ -31,6 +31,28 @@ def init(**context):
         moduleContext["settings"]["shell"] = int(moduleContext["settings"]["shell"])
 
 
+def strip_line_ending(output):
+    """Drop the line ending a program finishes its output with.
+
+    Nearly every program ends what it prints with a line feed (`echo`, `date`,
+    `print`), which is not a part of the value: it would add an octet to a
+    string and to a hex-encoded value alike. Exactly one line ending goes, LF
+    or CRLF, so that a program which means its output to end with an empty
+    line or with spaces still gets them through.
+    """
+    if not isinstance(output, bytes):
+        # the handlers of an old Python return an exit status, not the output
+        return output
+
+    if output.endswith(b"\n"):
+        output = output[:-1]
+
+        if output.endswith(b"\r"):
+            output = output[:-1]
+
+    return output
+
+
 def variate(oid, tag, value, **context):
     # in --v2c-arch some of the items are not defined
     transport_domain = transport_address = security_model = "<undefined>"
@@ -90,7 +112,9 @@ def variate(oid, tag, value, **context):
             handler = subprocess.call
 
     try:
-        return oid, tag, handler(args, shell=moduleContext["settings"]["shell"])
+        output = handler(args, shell=moduleContext["settings"]["shell"])
+
+        return oid, tag, strip_line_ending(output)
 
     except getattr(subprocess, "CalledProcessError", Exception):
         log.info("subprocess: external program execution failed")

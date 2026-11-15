@@ -4,6 +4,7 @@
 # Copyright (c) 2010-2019, Ilya Etingof <etingof@gmail.com>
 # License: https://www.pysnmp.com/snmpsim/license.html
 #
+from pysnmp.proto.proxy import rfc2576
 from pysnmp.smi import error
 
 from snmpsim import log
@@ -28,15 +29,26 @@ ERROR_TYPES = {
     "authorizationerror": error.AuthorizationError,
     "notwritable": error.NotWritableError,
     "inconsistentname": error.InconsistentNameError,
-    # These only makes sense for SNMP v1
+    # These have no error-status of their own and come out as genErr
     "nosuchobject": error.NoSuchObjectError,
     "nosuchinstance": error.NoSuchInstanceError,
     "endofmib": error.EndOfMibViewError,
 }
 
 
+# SNMPv1 error-status codes which SNMPv2 has kept for proxies only: noSuchName,
+# badValue and readOnly
+V1_ONLY_STATUSES = (2, 3, 4)
+
+
 def init(**context):
-    pass
+    # pysnmp builds every response as SNMPv2 PDU and translates it for SNMPv1
+    # manager through this map. The map holds what RFC 3584 lists, that is the
+    # codes an SNMPv2 agent may produce on its own. The three SNMPv1 codes are
+    # not among them, so they would turn into genErr on their way to exactly
+    # the manager they are meant for.
+    for status in V1_ONLY_STATUSES:
+        rfc2576.V2_TO_V1_ERROR_MAP.setdefault(status, status)
 
 
 def variate(oid, tag, value, **context):
