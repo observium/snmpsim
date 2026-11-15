@@ -1,9 +1,13 @@
 import asyncio
 import logging
 import os
+import socket
+import subprocess
 import sys
+import textwrap
 import threading
 import time
+import warnings
 
 import pytest
 
@@ -363,3 +367,141 @@ def test_v3_user_with_v2c_is_rejected(monkeypatch, tmp_path, capsys, version):
         in capsys.readouterr().err
     )
     assert output_file.read_bytes() == b"1.3.6.1.2.1.1.1.0|4|kept\n"
+
+
+FAILURES_PORT_NUMBER = 1631
+SILENT_PORT_NUMBER = 1632
+
+
+@pytest.fixture(scope="module")
+def plain_agent(responder_process):
+    """A responder for the recordings whose exit code is looked at"""
+    with responder_process(
+        f"--data-dir={DATA_DIR}",
+        port=FAILURES_PORT_NUMBER,
+        oid="1.3.6.1.2.1.1.1.0",
+    ) as endpoint:
+        yield endpoint
+
+
+def _run_recorder(*options):
+    """Run the recorder the way its console script does, in its own process"""
+    return subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from snmpsim.commands.cmd2rec import main; sys.exit(main())",
+        ]
+        + list(options),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=120,
+    )
+
+
+def test_recorder_compiles_without_warnings():
+    """Nothing in the recorder makes the compiler complain.
+
+    main() returned from inside a "finally" block, which Python 3.14 warns
+    about on every start of the recorder.
+    """
+    with open(cmd2rec.__file__, encoding="utf-8") as source:
+        code = source.read()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+
+        compile(code, cmd2rec.__file__, "exec")
+
+
+def test_good_recording_exits_with_zero(plain_agent, tmp_path):
+    output_file = tmp_path / "recorded.snmprec"
+
+    recorder = _run_recorder(
+        f"--agent-udpv4-endpoint={plain_agent}",
+        "--community=public",
+        f"--output-file={output_file}",
+    )
+
+    assert recorder.returncode == 0, recorder.stderr.decode()
+    assert len(output_file.read_bytes().splitlines()) == 5
+
+
+def test_silent_agent_fails_the_recording(tmp_path):
+    """Nobody answering is an error, and the exit code says so."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as silent:
+        # holds the port without ever answering on it
+        silent.bind(("127.0.0.1", SILENT_PORT_NUMBER))
+
+        recorder = _run_recorder(
+            f"--agent-udpv4-endpoint=127.0.0.1:{SILENT_PORT_NUMBER}",
+            "--community=public",
+            "--timeout=1",
+            "--retries=0",
+            f"--output-file={tmp_path / 'recorded.snmprec'}",
+        )
+
+    stderr = recorder.stderr.decode()
+
+    assert recorder.returncode == 1, stderr
+    assert "No SNMP response received before timeout" in stderr
+    assert "errors: 1" in stderr
+
+
+FAILING_HANDLERS = {
+    "init": ("init", 'raise RuntimeError("no way to start")', "no way to start"),
+    "record": ("record", 'raise RuntimeError("no way to write")', "no way to write"),
+    "record-refused": (
+        "record",
+        'raise error.SnmpsimError("no way to keep")',
+        "no way to keep",
+    ),
+    "shutdown": ("shutdown", 'raise RuntimeError("no way to end")', "no way to end"),
+}
+
+
+@pytest.mark.parametrize("failure", list(FAILING_HANDLERS))
+def test_failing_variation_module_fails_the_recording(plain_agent, tmp_path, failure):
+    """A variation module that fails does not leave a recording called good.
+
+    main() ended with a "return" inside "finally", so whatever the walk
+    raised was dropped there and the recorder exited with 0. A module that
+    failed to initialize was walked with all the same, and a record it
+    refused was not counted as an error.
+    """
+    handler, body, complaint = FAILING_HANDLERS[failure]
+
+    handlers = {name: "pass" for name in ("init", "shutdown")}
+    handlers["record"] = "return oid, tag, value"
+    handlers[handler] = body
+
+    modules_dir = tmp_path / "variation"
+    modules_dir.mkdir()
+
+    (modules_dir / "failing.py").write_text(
+        "from snmpsim import error\n\n"
+        + "".join(
+            f"def {name}({signature}**context):\n"
+            + textwrap.indent(handlers[name], "    ")
+            + "\n\n"
+            for name, signature in (
+                ("init", ""),
+                ("record", "oid, tag, value, "),
+                ("shutdown", ""),
+            )
+        )
+    )
+
+    recorder = _run_recorder(
+        f"--agent-udpv4-endpoint={plain_agent}",
+        "--community=public",
+        f"--output-file={tmp_path / 'recorded.snmprec'}",
+        f"--variation-modules-dir={modules_dir}",
+        "--variation-module=failing",
+    )
+
+    stderr = recorder.stderr.decode()
+
+    assert recorder.returncode == 1, stderr
+    assert complaint in stderr
+    assert "Traceback" not in stderr

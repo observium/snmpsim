@@ -588,6 +588,13 @@ def main():
                 "%s" % (args.variation_module, exc)
             )
 
+            # nothing the module was meant to do with the records can be
+            # done, so there is no recording to make
+            args.output_file.flush()
+            args.output_file.close()
+
+            return 1
+
         else:
             log.info('Variation module "%s" initialization OK' % args.variation_module)
 
@@ -705,6 +712,8 @@ def main():
                 pass
 
             except error.SnmpsimError as exc:
+                # the record is lost, the recording is not what was asked for
+                state["errors"] += 1
                 log.error(exc)
                 continue
 
@@ -836,6 +845,11 @@ def main():
     except KeyboardInterrupt:
         log.info("Shutting down process...")
 
+    except Exception as exc:
+        # reported as an error of the recording, once it has been wound up
+        state["errors"] += 1
+        log.error("Recording FAILED: %s: %s" % (exc.__class__.__name__, exc))
+
     finally:
         if variation_module:
             log.info("Shutting down variation module %s..." % args.variation_module)
@@ -850,6 +864,8 @@ def main():
                 )
 
             except Exception as exc:
+                # what the module still held back may not have been written
+                state["errors"] += 1
                 log.error(
                     "Variation module %s shutdown FAILED: "
                     "%s" % (args.variation_module, exc)
@@ -868,7 +884,8 @@ def main():
         args.output_file.flush()
         args.output_file.close()
 
-        return state.get("errors", 0) and 1 or 0
+    # not from within "finally": a return there drops whatever is being raised
+    return 1 if state["errors"] else 0
 
 
 if __name__ == "__main__":
