@@ -235,9 +235,63 @@ class BulkCommandResponder(cmdrsp.BulkCommandResponder):
     fit. An oversized response leaves the simulator as a fragmented datagram
     which the manager often never sees whole, so the walk stalls with a
     timeout on the very recordings which hold the longest values.
+
+    A manager may ask for less than that: every SNMPv3 message carries
+    msgMaxSize, the largest message its sender is able to receive. pysnmp
+    refuses to send a response past it and drops the response without a word,
+    so the repetitions are cut to what the manager takes as well.
     """
 
     max_message_size = utils.MAX_MESSAGE_SIZE
+
+    # Octets held back for what wraps the var-bind list inside a scopedPDU:
+    # the scopedPDU header, contextEngineID (32 octets at most), the header
+    # of contextName, the PDU header, request-id, error-status, error-index
+    # and the var-bind list header.
+    scoped_pdu_envelope_size = 64
+
+    # the largest scopedPDU the manager takes in response to the request
+    # being handled, as the message processing model made it out of the
+    # request: msgMaxSize less the message header and the security
+    # parameters for SNMPv3, the engine's own limit for SNMPv1/v2c
+    _max_size_response_scoped_pdu = None
+
+    def process_pdu(
+        self,
+        snmp_engine,
+        message_processing_model,
+        security_model,
+        security_name,
+        security_level,
+        context_engine_id,
+        context_name,
+        pdu_version,
+        pdu,
+        max_size_response_scoped_pdu,
+        state_reference,
+    ):
+        # pysnmp keeps this to itself, handle_management_operation() below
+        # is not told
+        self._max_size_response_scoped_pdu = max_size_response_scoped_pdu
+
+        try:
+            cmdrsp.BulkCommandResponder.process_pdu(
+                self,
+                snmp_engine,
+                message_processing_model,
+                security_model,
+                security_name,
+                security_level,
+                context_engine_id,
+                context_name,
+                pdu_version,
+                pdu,
+                max_size_response_scoped_pdu,
+                state_reference,
+            )
+
+        finally:
+            self._max_size_response_scoped_pdu = None
 
     def handle_management_operation(
         self, snmp_engine, state_reference, context_name, pdu
@@ -270,7 +324,15 @@ class BulkCommandResponder(cmdrsp.BulkCommandResponder):
 
         # the context name travels back in the response as well: as the
         # community name for SNMPv1/v2c, as contextName for SNMPv3
-        max_response_size = self.max_message_size - envelope_size - len(context_name)
+        max_response_size = self.max_message_size - envelope_size
+
+        if self._max_size_response_scoped_pdu is not None:
+            max_response_size = min(
+                max_response_size,
+                int(self._max_size_response_scoped_pdu) - self.scoped_pdu_envelope_size,
+            )
+
+        max_response_size -= len(context_name)
 
         rsp_var_binds = utils.get_bulk_var_binds(
             read_next_vars,
