@@ -151,10 +151,14 @@ upstream project yet.
   request from then on, so after a database server restart - or after MySQL
   closed a connection idle for its ``wait_timeout``, eight hours by default -
   every request for a database-backed OID failed until the simulator itself
-  was restarted. A request that fails on the connection is now repeated once
-  on a new connection made with the same parameters; if that fails too the
+  was restarted. When a request fails, the module now checks the connection
+  with a ``select 1``. If the connection is gone, the request is repeated
+  once on a new one made with the same parameters; if that fails too the
   error is reported as before and the next request tries again, so the
-  database is picked up as soon as it is back.
+  database is picked up as soon as it is back. If the connection answers, the
+  statement itself was refused (no such table, bad SQL): the error is
+  reported on the connection the module has, with the failed request's
+  transaction rolled back, and nothing is reconnected.
 - Made the lite responder read its options from a file. Only
   ``snmpsim-command-responder`` had ``--args-from-file``;
   ``snmpsim-command-responder-lite --args-from-file=ips.txt`` stopped with

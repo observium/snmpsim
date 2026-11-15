@@ -925,13 +925,16 @@ installed on the SNMP Simulator machine and a PostgreSQL server running locally
 snmpsim/snmpsim having full access to a database *snmpsim*.
 
 The connection is opened once, when the Simulator starts. If a request
-later fails on it (the database server was restarted, or closed a
-connection that sat idle for too long), the module connects again with
-the same parameters and repeats the request once. Should that fail as
-well, the error is reported and the next request tries anew, so the
-Simulator picks the database up again as soon as it is back. Changes
-of a SET that were not committed when the connection went away are lost
-with it.
+later fails, the module rolls its transaction back and checks the
+connection with a *select 1*. When the connection is gone (the database
+server was restarted, or closed a connection that sat idle for too
+long), the module connects again with the same parameters and repeats
+the request once. Should that fail as well, the error is reported and
+the next request tries anew, so the Simulator picks the database up
+again as soon as it is back. When the connection answers, the database
+refused the statement itself - the table does not exist, for one - and
+the error is reported without reconnecting. Either way, changes of a
+SET that were not committed when the request failed are lost.
 
 Simulation data configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

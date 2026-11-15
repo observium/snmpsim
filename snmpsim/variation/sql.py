@@ -12,9 +12,11 @@
 # Expects to work a table of the following layout:
 # CREATE TABLE <tablename> (oid text, tag text, value text, maxaccess text)
 #
-# A request that fails on the database connection is tried once more on
-# a new connection, so a restarted or idle-disconnecting database server
-# does not leave the module answering errors until the simulator restarts.
+# A request that fails because the database connection is gone is tried
+# once more on a new connection, so a restarted or idle-disconnecting
+# database server does not leave the module answering errors until the
+# simulator restarts. A request the database itself refuses (no such table,
+# bad SQL) is reported on the connection it has.
 #
 from snmpsim import error
 from snmpsim import log
@@ -111,19 +113,42 @@ def init(**context):
 
 
 def _connection_errors():
-    """Errors the database driver raises when its connection is of no use.
+    """Errors the database driver may raise when its connection is of no use.
 
     DB-API has no class for a lost connection alone. Drivers report it as
     OperationalError or InterfaceError, and a connection that is already
     closed as ProgrammingError (sqlite3) or InterfaceError (psycopg2,
-    MySQLdb). Errors about the data itself are left out: they would
-    repeat on any connection.
+    MySQLdb). The same classes cover a statement the database refuses - a
+    missing table, bad syntax - which would repeat on any connection, so
+    these errors only call for a look at the connection: `_connection_alive`
+    tells the two apart.
     """
     db = moduleContext["db"]
 
     names = "OperationalError", "InterfaceError", "ProgrammingError"
 
     return tuple(getattr(db, name) for name in names if hasattr(db, name))
+
+
+def _connection_alive(db_conn):
+    """Tell if the connection still answers, after a request failed on it.
+
+    The failed request's transaction is rolled back first: PostgreSQL
+    refuses every statement, this one included, until it is, and the
+    request is reported as failed anyway.
+    """
+    try:
+        db_conn.rollback()
+
+        cursor = db_conn.cursor()
+        cursor.execute("select 1")
+        cursor.fetchall()
+        cursor.close()
+
+    except Exception:
+        return False
+
+    return True
 
 
 def _reconnect():
@@ -152,6 +177,10 @@ def variate(oid, tag, value, **context):
         return _variate(db_conn, oid, tag, value, **context)
 
     except _connection_errors() as exc:
+        if _connection_alive(db_conn):
+            # the statement is at fault: a new connection would refuse it too
+            raise
+
         log.info(
             "SQL connection failed for OID %s (%s), "
             "reconnecting" % (context["origOid"], exc)

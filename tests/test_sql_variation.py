@@ -182,17 +182,6 @@ def test_connection_is_reopened_once_per_request(counting_driver, database):
         assert variate(ctx, FIRST) == (FIRST, "4", "first")
         assert len(counting_driver.connections) == 2
 
-        # a statement the database refuses fails on the new connection as well
-        stale = sqlite3.connect(database)
-        stale.execute("drop table snmprec")
-        stale.commit()
-        stale.close()
-
-        with pytest.raises(sqlite3.OperationalError):
-            variate(ctx, FIRST)
-
-        assert len(counting_driver.connections) == 3
-
     finally:
         ctx["shutdown"](mode="variating")
 
@@ -200,6 +189,64 @@ def test_connection_is_reopened_once_per_request(counting_driver, database):
     for conn in counting_driver.connections:
         with pytest.raises(sqlite3.ProgrammingError):
             conn.execute("select 1")
+
+
+def test_refused_statement_does_not_reconnect(counting_driver, database):
+    """A missing table is the database's answer, not a lost connection."""
+    ctx = load()
+    ctx["init"](
+        options="dbtype:%s,database:%s,dbtable:nosuchtable"
+        % (counting_driver.__name__, database),
+        mode="variating",
+    )
+
+    reconnects = []
+    reconnect = ctx["_reconnect"]
+    ctx["_reconnect"] = lambda: reconnects.append(1) or reconnect()
+
+    try:
+        conn = ctx["moduleContext"]["dbConn"]
+
+        for _ in range(3):
+            with pytest.raises(sqlite3.OperationalError, match="no such table"):
+                variate(ctx, FIRST)
+
+        assert not reconnects
+        assert len(counting_driver.connections) == 1
+        assert ctx["moduleContext"]["dbConn"] is conn
+
+        # the spy does see a reconnect when there is one
+        drop_connection(ctx)
+
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            variate(ctx, FIRST)
+
+        assert reconnects == [1]
+        assert len(counting_driver.connections) == 2
+
+    finally:
+        ctx["shutdown"](mode="variating")
+
+
+def test_refused_statement_undoes_the_request_it_failed(module, database):
+    """Checking the connection rolls back what the failed SET left open."""
+    variate(module, FIRST, set_to=rfc1902.OctetString("half"), vars_remaining=1)
+
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        module["variate"](
+            SECOND,
+            "2",
+            "nosuchtable",
+            origOid=rfc1902.ObjectName(SECOND),
+            origValue=rfc1902.Integer32(7),
+            errorStatus=rfc1905.noSuchInstance,
+            setFlag=True,
+            nextFlag=False,
+            varsRemaining=0,
+        )
+
+    assert variate(module, FIRST) == (FIRST, "4", "first")
+    assert stored(database, FIRST) == ("4", "first")
 
 
 def test_broken_dsn_fails_at_start(tmp_path):

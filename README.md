@@ -87,9 +87,11 @@ Most items were also filed upstream; those link to their pull request:
   `/usr/local/share/snmpsim/{variation,data}` as well; the Windows path came from `HOMEPATH`,
   which has no drive letter, and all 3 environment variables it read were mandatory, so a
   service account without them got `KeyError` from every command before it parsed its arguments
-* The `sql` variation module survives a database restart: a request that fails on the
-  connection is repeated once on a new connection made with the same parameters, and if the
-  database is still away the next request tries again. The module used to open one connection
+* The `sql` variation module survives a database restart: a request that fails because the
+  connection is gone is repeated once on a new connection made with the same parameters, and
+  if the database is still away the next request tries again. A request the database itself
+  refuses (no such table, bad SQL) is reported without reconnecting: the module tells the two
+  apart with a `select 1` on the connection it has. The module used to open one connection
   at start and keep it for good, so after a server restart, or after MySQL closed a connection
   idle for its `wait_timeout` (8 hours by default), every database-backed OID failed until the
   simulator was restarted
