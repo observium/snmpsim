@@ -407,6 +407,9 @@ def main():
 
     output = []
 
+    # Indexes of the rows generated so far, by the columns that index them
+    shared_rows = {}
+
     # MIBs walk
     for modName in args.mib_modules:
         if not args.quiet:
@@ -502,26 +505,45 @@ def main():
                 continue
 
             elif isinstance(node, MibTableRow):
-                row_indices = {}
-                suffix = ()
+                if row_oid is None:
+                    this_table_size = 0
+
+                index_names = tuple(node.getIndexNames())
+
+                # Rows of the tables indexed by the same columns (AUGMENTS
+                # or a repeated INDEX clause) describe the same things, so
+                # the n-th row of each of them gets the same index
+                table_rows = shared_rows.setdefault(index_names, [])
+
                 row_hint = hint + f"# Row {mib_name}::{sym_name}\r\n"
 
-                for implied_flag, idx_mod_name, idx_sym_name in node.getIndexNames():
-                    (idxNode,) = mib_builder.import_symbols(idx_mod_name, idx_sym_name)
+                if index_names and this_table_size < len(table_rows):
+                    row_indices, suffix = table_rows[this_table_size]
 
-                    row_hint += "# Index {}::{} (type {})\r\n".format(
-                        idx_mod_name,
-                        idx_sym_name,
-                        idxNode.syntax.__class__.__name__,
-                    )
+                else:
+                    row_indices = {}
+                    suffix = ()
 
-                    row_indices[idxNode.name] = get_value(
-                        idxNode.syntax, not args.quiet and row_hint or ""
-                    )
+                    for implied_flag, idx_mod_name, idx_sym_name in index_names:
+                        (idxNode,) = mib_builder.import_symbols(
+                            idx_mod_name, idx_sym_name
+                        )
 
-                    suffix = suffix + node.getAsName(
-                        row_indices[idxNode.name], implied_flag
-                    )
+                        row_hint += "# Index {}::{} (type {})\r\n".format(
+                            idx_mod_name,
+                            idx_sym_name,
+                            idxNode.syntax.__class__.__name__,
+                        )
+
+                        row_indices[idxNode.name] = get_value(
+                            idxNode.syntax, not args.quiet and row_hint or ""
+                        )
+
+                        suffix = suffix + node.getAsName(
+                            row_indices[idxNode.name], implied_flag
+                        )
+
+                    table_rows.append((row_indices, suffix))
 
                 if not row_indices:
                     if not args.quiet:
@@ -529,9 +551,6 @@ def main():
                             "# WARNING: %s::%s table has no index!\r\n"
                             % (mib_name, sym_name)
                         )
-
-                if row_oid is None:
-                    this_table_size = 0
 
                 row_oid = univ.ObjectIdentifier(oid)
                 continue
