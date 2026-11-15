@@ -56,9 +56,17 @@ def test_recording_option_value_may_contain_a_colon():
     assert settings["taglist"] == "65-70"
 
 
-def test_recording_without_options_leaves_settings_empty():
-    assert recording_settings("") == {}
-    assert recording_settings(None) == {}
+def test_recording_without_options_applies_the_defaults():
+    defaults = {"period": 10.0, "taglist": "2-65-66-67-70"}
+
+    assert recording_settings("") == defaults
+    assert recording_settings(None) == defaults
+
+    # the very same defaults another option brings along
+    with_an_option = recording_settings("addon:rate=5")
+    del with_an_option["addon"]
+
+    assert with_an_option == defaults
 
 
 def test_recording_option_without_a_value_is_reported():
@@ -86,6 +94,48 @@ def test_recording_with_a_taglist_writes_numeric_records():
         "66",
         "7",
     )
+
+
+@pytest.mark.parametrize("options", ["", None])
+def test_recording_without_options_writes_numeric_records(options):
+    module = load_module()
+    module["init"](mode="recording", options=options)
+
+    assert record_one(module, "65", rfc1902.Counter32(5)) == (
+        "1.3.6.1.2.1.2.2.1.10.1",
+        "65:numeric",
+        "initial=5",
+    )
+
+    assert record_one(module, "67", rfc1902.TimeTicks(7)) == (
+        "1.3.6.1.2.1.2.2.1.10.1",
+        "67:numeric",
+        "initial=7,rate=100",
+    )
+
+    # not a number: left alone
+    assert record_one(module, "4", rfc1902.OctetString("eth0")) == (
+        "1.3.6.1.2.1.2.2.1.10.1",
+        "4",
+        "eth0",
+    )
+
+
+@pytest.mark.parametrize(
+    "options, expected",
+    [
+        ("taglist:65", None),
+        ("iterations:0", 0),
+        ("iterations:1", 1),
+        ("iterations:2", 1),
+        ("iterations:50", 1),
+        ("iterations:-3", 1),
+    ],
+)
+def test_recording_iterations_only_ask_for_a_second_walk_or_not(options, expected):
+    # what the documentation says: any number but zero stands for one
+    # more walk, however large it is
+    assert recording_settings(options).get("iterations") == expected
 
 
 @pytest.mark.parametrize(
@@ -175,7 +225,7 @@ def documented_values(record, tag, times):
     def rand(low, high):
         return lowest(int(low), int(high)) if int(high) else 0
 
-    flags = {k: k in settings for k in ("atime", "wrap", "cumulative")}
+    flags = {k: float(settings.get(k, 0)) != 0 for k in ("atime", "wrap", "cumulative")}
     settings = {k: float(v) for k, v in settings.items() if k not in flags}
 
     settings.setdefault("min", 0)
@@ -270,10 +320,13 @@ def simulated_values(monkeypatch, record, tag, times):
         ("65", "cumulative=1,initial=400,max=500,wrap=1"),
         ("65", "cumulative=1,initial=400,min=100,max=500,wrap=1"),
         ("66", "initial=90,max=100,wrap=1"),
-        # a flag is on when its key is there, whatever the value
+        # a flag set to zero is off, any other number switches it on
         ("66", "initial=90,max=100,wrap=0"),
         ("65", "cumulative=0,initial=400"),
         ("66", "atime=0,rate=0.001"),
+        ("66", "initial=90,max=100,wrap=2"),
+        ("65", "cumulative=0.5,initial=400"),
+        ("66", "atime=-1,rate=0.001"),
     ],
 )
 def test_numeric_formula_matches_docs(monkeypatch, tag, record):
@@ -286,6 +339,67 @@ def test_numeric_formula_matches_docs(monkeypatch, tag, record):
     # the examples are not all constants, or the comparison proves little
     if "rate=0" not in record.split(","):
         assert len(set(simulated)) > 1
+
+
+# The same flags without the documentation in between: a formula test
+# would pass just as well with both sides wrong the same way.
+
+
+@pytest.mark.parametrize(
+    "off, on, same_as_off",
+    [
+        (
+            "initial=90,max=100,wrap=0",
+            "initial=90,max=100,wrap=1",
+            "initial=90,max=100",
+        ),
+        (
+            "cumulative=0,initial=400",
+            "cumulative=1,initial=400",
+            "initial=400",
+        ),
+        ("atime=0", "atime=1", "rate=1"),
+    ],
+)
+def test_numeric_flag_set_to_zero_is_off(monkeypatch, off, on, same_as_off):
+    times = [BOOTED + x for x in (10.0, 25.5, 100.0)]
+
+    values = simulated_values(monkeypatch, off, "66", times)
+
+    assert values == simulated_values(monkeypatch, same_as_off, "66", times)
+    assert values != simulated_values(monkeypatch, on, "66", times)
+
+
+def test_numeric_flags_set_to_zero_by_value(monkeypatch):
+    times = [BOOTED + x for x in (10.0, 25.5, 100.0)]
+
+    # freezes at max instead of starting over
+    assert simulated_values(monkeypatch, "initial=90,max=100,wrap=0", "66", times) == [
+        100,
+        100,
+        100,
+    ]
+
+    # initial plus uptime, nothing carried over from the previous request
+    assert simulated_values(monkeypatch, "cumulative=0,initial=400", "65", times) == [
+        410.0,
+        425.5,
+        500.0,
+    ]
+
+    # uptime, not the clock
+    assert simulated_values(monkeypatch, "atime=0", "66", times) == [10.0, 25.5, 100.0]
+
+
+@pytest.mark.parametrize("tag, limit", [("65", 2**32 - 1), ("70", 2**64 - 1)])
+def test_numeric_record_without_parameters_gets_the_defaults(monkeypatch, tag, limit):
+    times = [BOOTED + x for x in (10.0, 25.5, 100.0)]
+
+    # min=0, initial=min, rate=1 and the identity function: the uptime
+    assert simulated_values(monkeypatch, "", tag, times) == [10.0, 25.5, 100.0]
+
+    # and max by the type of the value
+    assert simulated_values(monkeypatch, "", tag, [BOOTED + limit * 2]) == [limit]
 
 
 def test_numeric_deviation_stays_within_its_range():
