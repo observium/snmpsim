@@ -58,15 +58,15 @@ We maintain a detailed log of changes:
 Download
 --------
 
-The easiest way to download and install SNMP simulator is to ``pip install``
-the latest version from PyPI:
+This fork is distributed as ``snmpsim-ng`` and is not on PyPI yet, so install
+it straight from git:
 
 .. code-block:: bash
 
-   $ pip install snmpsim
+   $ pipx install "git+https://github.com/observium/snmpsim.git@master"
 
-Alternatively, you can `download <https://github.com/lextudio/snmpsim/releases>`_
-the latest release from GitHub or `PyPI <https://pypi.org/project/snmpsim/>`_.
+``pip install snmpsim`` fetches the upstream release instead, which does not
+contain the fork's changes.
 
 License
 -------

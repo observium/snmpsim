@@ -1,11 +1,21 @@
-.. current-version: 1.2.2 (managed by bump2version)
+.. current-version: 2026.11.0 (managed by bump2version)
 
-Revision 1.2.3, unreleased
---------------------------
+Revision 2026.11.0, unreleased
+--------------------------------
 
 Changes carried by the Observium fork. Where a change was also sent to the
 upstream project, its pull request is given.
 
+- Renamed the distribution to ``snmpsim-ng``. The name ``snmpsim`` on PyPI
+  belongs to the upstream release, so the fork could not be published under it,
+  and an installation of either could not tell which one it had. The ``snmpsim``
+  module and the ``snmpsim-*`` commands are unchanged; an existing installation
+  under the old name has to be removed before installing the new one.
+- Numbered releases by the calendar, ``YYYY.M.N``, instead of continuing the
+  upstream ``1.2.x`` series. The fork's next release would otherwise have been
+  ``1.2.3``, the number upstream is most likely to give its own next release, and
+  two different packages under one version is something no installer can tell
+  apart. A calendar version sorts above any upstream ``1.x`` or ``2.x``.
 - Switched the remaining calls to pysnmp's pre-7 camelCase names -
   ``importSymbols``, ``resolveWithMib``, ``addMibCompiler``,
   ``getNextNodeName``, ``getNodeLocation``, ``flagMap`` and the index context's

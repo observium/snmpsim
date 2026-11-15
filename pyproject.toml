@@ -3,8 +3,8 @@ requires = ["hatchling>=1.21.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "snmpsim"
-version = "1.2.2"
+name = "snmpsim-ng"
+version = "2026.11.0"
 description = "SNMP Simulator is a tool that acts as multitude of SNMP Agents built into real physical devices, from SNMP Manager's point of view. Simulator builds and uses a database of physical devices' SNMP footprints to respond like their original counterparts do."
 readme = "README.md"
 requires-python = ">=3.10,<4.0"
@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/lextudio/snmpsim"
+Repository = "https://github.com/observium/snmpsim"
 
 [project.scripts]
 snmpsim-manage-records = "snmpsim.commands.rec2rec:main"

@@ -7,14 +7,19 @@ distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.
 
 > **This is Observium's fork of [lextudio/snmpsim](https://github.com/lextudio/snmpsim).**
 > It carries fixes for recordings that the upstream responder refuses to serve, and adds a
-> lint tool for recording repositories. The package published on PyPI is the upstream
-> release, which does **not** contain these changes - see [Installation](#installation) for
-> how to install this fork. Every code change here is also filed upstream; this README is not.
+> lint tool for recording repositories. It is distributed as **`snmpsim-ng`**; the package
+> named `snmpsim` on PyPI is the upstream release, which does **not** contain these changes -
+> see [Installation](#installation) for how to install this fork. Every code change here is also filed upstream; this README is not.
 
 ## What this fork adds
 
 Most items were also filed upstream; those link to their pull request:
 
+* Its own package name and version line: the fork installs as `snmpsim-ng` and is numbered
+  by the calendar, `2026.11.0` for the first release. It used to call itself `snmpsim
+  1.2.2`, the very name and number of the upstream release it no longer matches, and its
+  next version would have been `1.2.3`, the number upstream is most likely to use next. The
+  `snmpsim` module and the `snmpsim-*` commands keep their names
 * `snmpsim-record-commands` reports its progress as the number of OIDs recorded so far,
   `OIDs dumped: 300`, rather than `0/300` - the `0` was the pass of a variation module
   that walks repeatedly, and it is now shown only for one. The closing rate is every OID
@@ -137,7 +142,8 @@ Python 3.10 or newer is required.
 
 ### From this repository
 
-This fork is not published to PyPI, so install it straight from git. With `pipx`, which keeps
+This fork is distributed as `snmpsim-ng`. It is not on PyPI yet, so install it straight from
+git. With `pipx`, which keeps
 the simulator in its own environment and puts its commands on your `PATH`:
 
 ```bash
@@ -180,6 +186,32 @@ uv tool install --force "git+https://github.com/observium/snmpsim.git@master"
 `pipx` keeps packages added with `pipx inject` across a `--force` reinstall, and dependencies
 are re-resolved, so a newer pysnmp arrives with it.
 
+#### Coming from an installation named `snmpsim`
+
+Before 2026.11.0 the fork installed under the upstream name, `snmpsim`. A reinstall does not
+replace that one: the new name is a different package, which ships the same `snmpsim` module
+and the same commands. `pipx` would not touch the `snmpsim-*` links already on the `PATH`,
+so they kept running the old environment, and `pip` would leave two packages writing over
+each other's files. Remove the old one
+first, then install as above:
+
+```bash
+pipx uninstall snmpsim
+```
+
+```bash
+pip uninstall snmpsim
+```
+
+```bash
+uv tool uninstall snmpsim
+```
+
+`pipx uninstall` also drops whatever was added with `pipx inject`; re-add it to the
+`snmpsim-ng` environment afterwards.
+
+#### After updating
+
 A responder already running keeps serving the code it started with: restart it afterwards.
 The same goes for changed recordings — the running process holds byte offsets into the files
 it indexed at startup.
@@ -212,7 +244,8 @@ point, no retries, which is how it catches failures the retrying workflow lets t
 <details>
 <summary>Installing the upstream release from PyPI instead</summary>
 
-`pip install snmpsim` fetches the package LeXtudio publishes, which is **not** this fork: it
+`pip install snmpsim` fetches the package LeXtudio publishes, which is **not** this fork
+(`snmpsim-ng`): it
 contains none of the fixes listed at the top of this file, so recordings which trip over any
 of them behave there as they did before. Use it only if you specifically want the upstream
 release.
