@@ -276,6 +276,44 @@ def _parse_sized_string(arg, min_length=8):
     return arg
 
 
+def wait_for_endpoints(bound_endpoints):
+    """Wait until every endpoint is bound, return those which are not.
+
+    pysnmp 7 binds a UDP endpoint in a task of the event loop, which has not
+    run yet when `open_server_mode()` returns, and nobody looks at how that
+    task ended: a port in use, or an address the host does not have, left a
+    responder which logged "Listening" and served nothing.
+
+    Takes (name, transport) pairs, returns a (name, error) pair for every
+    endpoint that could not be bound.
+    """
+    failed = []
+
+    for name, transport in bound_endpoints:
+        # the task pysnmp keeps for its own use; a transport without one has
+        # nothing to wait for
+        bind = getattr(transport, "_lport", None)
+
+        if bind is None:
+            continue
+
+        if not bind.done():
+            try:
+                bind.get_loop().run_until_complete(asyncio.wait([bind]))
+
+            except Exception as exc:
+                failed.append((name, exc))
+                continue
+
+        if bind.cancelled():
+            failed.append((name, "binding was cancelled"))
+
+        elif bind.exception() is not None:
+            failed.append((name, bind.exception()))
+
+    return failed
+
+
 def main():
     parser = argparse.ArgumentParser(add_help=False)
 
@@ -781,12 +819,38 @@ configured automatically based on simulation data file paths relative to
         del _data_files
 
     # Bind transport endpoints
+    bound_endpoints = []
+
     for idx, opt in enumerate(snmp_args):
         if opt[0] == "--agent-udpv4-endpoint":
             snmp_args[idx] = (opt[0], endpoints.IPv4TransportEndpoints().add(opt[1]))
+            bound_endpoints.append(
+                (f"UDP/IPv4 endpoint {opt[1]}", snmp_args[idx][1][0])
+            )
 
         elif opt[0] == "--agent-udpv6-endpoint":
             snmp_args[idx] = (opt[0], endpoints.IPv6TransportEndpoints().add(opt[1]))
+            bound_endpoints.append(
+                (f"UDP/IPv6 endpoint {opt[1]}", snmp_args[idx][1][0])
+            )
+
+    # The binding itself is done by the event loop. See to its end here: this
+    # is the last place where the process has the privileges it was started
+    # with, and nothing has been said to be listening yet.
+    failed_endpoints = wait_for_endpoints(bound_endpoints)
+
+    if failed_endpoints:
+        for name, exc in failed_endpoints:
+            log.error(f"failed to bind {name}: {exc}")
+
+        for _, transport in bound_endpoints:
+            try:
+                transport.close_transport()
+
+            except Exception:
+                pass
+
+        return 1
 
     # Start configuring SNMP engine(s)
 
