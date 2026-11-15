@@ -68,10 +68,11 @@ def running_responder(*options, port, oid, community="public"):
     its --timeout, which is its whole lifetime, is far longer than anything
     the tests are going to do with it.
 
-    The port has to be free. Were somebody else answering on it, the probe
-    would be answered by them and the tests would run against their data; a
-    responder does not even have to fail on a taken port, where the system
-    lets two processes share one.
+    The port has to be free, and is checked before the responder starts.
+    Were somebody else answering on it, the probe would be answered by them
+    and the tests would run against their data: a responder which cannot
+    bind its port does not exit, because pysnmp binds in a task nobody
+    awaits, logs "Listening" all the same and serves nothing.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         try:
@@ -125,8 +126,8 @@ def running_responder(*options, port, oid, community="public"):
                 # a GET which fails at once must not turn this into a busy loop
                 time.sleep(0.1)
 
-            # the answer has to be from the responder started here: one which
-            # lost the port to somebody else in the meantime is on its way out
+            # a responder which crashed right after its first answer would
+            # otherwise leave the tests talking to nobody
             time.sleep(0.2)
             alive()
 
