@@ -12,6 +12,10 @@
 # Expects to work a table of the following layout:
 # CREATE TABLE <tablename> (oid text, tag text, value text, maxaccess text)
 #
+# A request that fails on the database connection is tried once more on
+# a new connection, so a restarted or idle-disconnecting database server
+# does not leave the module answering errors until the simulator restarts.
+#
 from snmpsim import error
 from snmpsim import log
 from snmpsim.grammar.snmprec import SnmprecGrammar
@@ -63,6 +67,8 @@ def init(**context):
     if not connectParams:
         raise error.SnmpsimError("database connect parameters not specified")
 
+    moduleContext["db"] = db
+    moduleContext["connectParams"] = connectParams
     moduleContext["dbConn"] = dbConn = db.connect(**connectParams)
     moduleContext["dbTable"] = dbTable = options.get("dbtable", "snmprec")
     moduleContext["isolationLevel"] = options.get("isolationlevel", "1")
@@ -104,6 +110,37 @@ def init(**context):
         cursor.close()
 
 
+def _connection_errors():
+    """Errors the database driver raises when its connection is of no use.
+
+    DB-API has no class for a lost connection alone. Drivers report it as
+    OperationalError or InterfaceError, and a connection that is already
+    closed as ProgrammingError (sqlite3) or InterfaceError (psycopg2,
+    MySQLdb). Errors about the data itself are left out: they would
+    repeat on any connection.
+    """
+    db = moduleContext["db"]
+
+    names = "OperationalError", "InterfaceError", "ProgrammingError"
+
+    return tuple(getattr(db, name) for name in names if hasattr(db, name))
+
+
+def _reconnect():
+    """Replace the connection with a new one made the way the first was."""
+    try:
+        moduleContext["dbConn"].close()
+
+    except Exception:  # most likely closed or broken already
+        pass
+
+    moduleContext["dbConn"] = moduleContext["db"].connect(
+        **moduleContext["connectParams"]
+    )
+
+    return moduleContext["dbConn"]
+
+
 def variate(oid, tag, value, **context):
     if "dbConn" in moduleContext:
         db_conn = moduleContext["dbConn"]
@@ -111,6 +148,20 @@ def variate(oid, tag, value, **context):
     else:
         raise error.SnmpsimError("variation module not initialized")
 
+    try:
+        return _variate(db_conn, oid, tag, value, **context)
+
+    except _connection_errors() as exc:
+        log.info(
+            "SQL connection failed for OID %s (%s), "
+            "reconnecting" % (context["origOid"], exc)
+        )
+
+    # once only: whatever fails on a new connection is for the caller
+    return _variate(_reconnect(), oid, tag, value, **context)
+
+
+def _variate(db_conn, oid, tag, value, **context):
     cursor = db_conn.cursor()
 
     try:
