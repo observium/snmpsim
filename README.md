@@ -15,6 +15,93 @@ distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.
 
 Most items were also filed upstream; those link to their pull request:
 
+* Recording through a variation module works again. `snmpsim-record-commands` handed the start
+  OID to the module under a name none of them reads, so `--variation-module=multiplex`, `sql`
+  and `redis` failed on the first OID and left an empty recording; it is passed as `startOID`
+  now, the name the modules expect
+* `snmpsim-record-commands` records over SNMPv3: `--v3-user` alone now selects protocol version
+  3 (noAuthNoPriv, authNoPriv and authPriv, GETNEXT or GETBULK), and a v3 recording of the test
+  agent is byte-for-byte the v2c one. `--protocol-version` used to accept only `1` and `2c`, so
+  every `--v3-*` option was dead code and the recorder kept asking over v2c with the `public`
+  community, dumping 0 OIDs from a v3-only agent
+* Opaque Float and Double values survive conversion from snmpwalk output:
+  `Opaque: Float: 100.000000` is recorded as `68x|9f780442c80000` and `Opaque: Double: 1.5` as
+  `68x|9f79083ff8000000000000`, the encoding net-snmp agents send. Before, the `Float:` prefix
+  was stripped twice, so 100.000000 was recorded as 0 and 12.5 aborted the conversion, the
+  stored value was a BER Real no manager reads as a float, and Double was not recognised at all
+* Strings in `snmpwalk` output keep their non-ASCII octets. Every octet from 0x80 up used to be
+  deleted on conversion, so a `sysName` of `Привет` in UTF-8 or cp1251 became an empty string.
+  `sapwalk` values no longer lose a trailing `0x85` or `0xa0` octet, and a UTF-8 byte order
+  mark at the start of a walk saved on Windows is skipped
+* `snmpsim-manage-records` reads the values `snmpwalk` wraps onto several lines: a `Hex-STRING`
+  continued after every sixteen octets and a quoted `STRING` with newlines inside each become
+  one record, from a file or from a pipe. Every line of a walk used to be taken for a record,
+  so a 40-octet `Hex-STRING` came out 16 octets long with its other two lines reported as
+  broken, and `"first\nsecond"` became the value `"first` with the opening quote still on it. A
+  string that never closes ends at the next record, whether its OID is numeric or a name,
+  instead of swallowing the rest of the walk. The backslash `snmpwalk` puts before each quote
+  and backslash of a quoted `STRING` is dropped as well: `"C:\\Temp \"x\""` was recorded three
+  octets longer than what the device sent
+* `snmpsim-manage-records` skips the walk and sapwalk lines it cannot convert under
+  `--ignore-broken-records` and otherwise stops with a message that quotes the line: a walk
+  taken without `-On` (`SNMPv2-MIB::sysName.0 = STRING: switch`) used to end in a `PyAsn1Error`
+  traceback and a sapwalk value like `0x73ZZ` in a `ValueError`, with or without the option,
+  and under `--quiet` a broken record made the command exit 1 without saying anything
+* `snmpsim-manage-records` converts recordings larger than memory: records are written as they
+  are read unless `--sort-records` is asked for. Every record used to be held in a list until
+  the last line was read, so a 37 MB walk of 600000 lines took 742 MB (48 MB now) and a 221 MB
+  one ran out of memory
+* Recording with the `numeric` variation module accepts its options (`taglist`, `iterations`,
+  `period`, `addon`) again; they used to fail to parse, so the recording came out as plain
+  values. A malformed option is reported by name and none of the options are applied
+* The `numeric` variation module answers records with a `deviation` again, and its
+  documentation states the formula it really computes: on Python 3.12+ every request for e.g.
+  `66:numeric|initial=100,deviation=2` failed with
+  `'float' object cannot be interpreted as an integer` (the float setting went straight into
+  `random.randrange()`), which broke the documentation's own COUNTER example; the documented
+  formula showed `offset` as a plain addend although with `cumulative` it is multiplied by
+  `rate` and the seconds since the previous request, said `wrap=0` freezes although it wraps,
+  and gave the default `max` as `2**32` instead of `2**32 - 1`. A test now executes the formula
+  from the docs against the module for 22 records
+* `writecache` records can hold hex-encoded initial values: `64x:writecache|value=0a110019`
+  serves the IP address 10.17.0.25 and `4x:writecache|value=414243` serves `ABC`. The module
+  used to drop the `x` flag of the tag, so the first record failed on every request and
+  vanished from walks and the second served the six characters `414243`; the `e` flag and the
+  constants of `vlist` follow the flag too
+* The `subprocess` variation module returns what the program printed without the line ending:
+  `4:subprocess|echo hello` is the 5 octets of `hello` and `4x:subprocess|echo 07e30307` is 4
+  octets; before, the string came back as 6 octets with a trailing `\n` and the hex value as 5,
+  unless the command was `echo -n`. Exactly one trailing LF (or CRLF) is dropped, everything
+  else the program printed is kept
+* The `error` variation module returns `noSuchName`, `badValue` and `readOnly` to SNMPv1
+  managers: `4:error|status=noSuchName` used to answer a v1 GET with error-status 5 (`genErr`)
+  instead of 2, and `badValue`/`readOnly` on SET with 5 instead of 3 and 4, as pysnmp has no
+  SNMPv1 translation for these three codes
+* The `notification` module sends SNMPv3 traps and informs without breaking the agent: it has
+  an SNMP engine of its own under the agent's engine ID, and accepts all 7 auth and 9 privacy
+  protocol names the responder does (`sha256`, `aes256`, ...). Before, a trap sent as the
+  agent's own user overwrote that user's keys and every v3 GET after it failed with a wrong
+  digest until restart, and only `md5`/`sha` and `des`/`aes` were known
+* Data and variation directories are found on Windows under the user's real profile
+  (`USERPROFILE`, then `HOMEDRIVE` + `HOMEPATH`) and on Linux under
+  `/usr/local/share/snmpsim/{variation,data}` as well; the Windows path came from `HOMEPATH`,
+  which has no drive letter, and all 3 environment variables it read were mandatory, so a
+  service account without them got `KeyError` from every command before it parsed its arguments
+* The `sql` variation module survives a database restart: a request that fails on the
+  connection is repeated once on a new connection made with the same parameters, and if the
+  database is still away the next request tries again. The module used to open one connection
+  at start and keep it for good, so after a server restart, or after MySQL closed a connection
+  idle for its `wait_timeout` (8 hours by default), every database-backed OID failed until the
+  simulator was restarted
+* `snmpsim-command-responder-lite` takes `--args-from-file`, with the same file format as the
+  full responder (`--option=value` items separated by whitespace) and any of its options
+  allowed in the file; before, the option existed only in the full responder and the lite one
+  rejected it as "unrecognized arguments", so hundreds of endpoints had to fit on one command
+  line
+* The lite responder and `snmpsim-record-traffic` no longer depend on pysnmp's last camelCase
+  leftover: both called `api.decodeMessageVersion`, a pre-7 alias of
+  `verdec.decode_message_version`, and without it the responder answers nothing and the
+  converter writes no recording without saying why
 * Its own package name and version line: the fork installs as `snmpsim-ng` and is numbered
   by the calendar, `2026.11.0` for the first release. It used to call itself `snmpsim
   1.2.2`, the very name and number of the upstream release it no longer matches, and its

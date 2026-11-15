@@ -1,4 +1,188 @@
-.. current-version: 2026.11.0 (managed by bump2version)
+.. current-version: 2026.11.1 (managed by bump2version)
+
+Revision 2026.11.1, unreleased
+------------------------------
+
+Changes carried by the Observium fork. None of them has been sent to the
+upstream project yet.
+
+- Told variation modules which OID a recording starts at.
+  ``snmpsim-record-commands`` handed the start OID to a module's ``record``
+  handler under a name none of them reads, so
+  ``--variation-module=multiplex``, ``sql`` and ``redis`` failed on the first
+  OID, the failure was only logged, and the recording came out empty. The
+  handler now gets it as ``startOID``, the name those modules and
+  ``snmpsim-record-traffic`` already use.
+- Fixed ``snmpsim-record-commands`` not being able to record over SNMPv3. It
+  took ``--v3-user`` and the other USM options, but ``--protocol-version``
+  accepted only ``1`` and ``2c``, so they were never used: given a v3 user the
+  recorder went on asking over v2c with the ``public`` community, and an agent
+  answering only SNMPv3 timed out with 0 OIDs dumped. ``--protocol-version``
+  now takes ``3`` as well; when it is left out it is ``3`` if ``--v3-user`` is
+  given and ``2c`` otherwise, and ``--v3-user`` together with an explicit
+  ``1`` or ``2c`` is rejected. ``--v3-context-name`` is sent as an octet
+  string, which the line logging the SNMPv3 settings can print. The command
+  line is now checked before the output file is opened, so a rejected one no
+  longer empties an existing recording.
+- Fixed conversion of Opaque Float and Double values from snmpwalk output. The
+  ``Float:`` prefix was cut off twice, so ``Opaque: Float: 100.000000`` was
+  recorded as zero and ``Opaque: Float: 12.5`` failed the conversion; what did
+  get recorded was a BER Real, which agents do not send inside an Opaque.
+  ``Opaque: Double:`` was not recognised at all. Both are now written as
+  net-snmp puts them on the wire, the way UInt64 and Int64 already were:
+  ``Opaque: Float: 100.000000`` becomes ``68x|9f780442c80000`` (sub-tag
+  ``9f78``, four octets of IEEE 754 single precision) and
+  ``Opaque: Double: 1.5`` becomes ``68x|9f79083ff8000000000000`` (sub-tag
+  ``9f79``, eight octets of double precision).
+- Kept the non-ASCII octets of strings read from ``snmpwalk`` output. The walk
+  grammar decoded each line as ASCII and ignored what did not fit, so every
+  octet from 0x80 up was deleted before the value was read: a ``sysName`` of
+  ``Привет``, in UTF-8 or in cp1251, was converted to an empty string, and
+  ``Zürich`` lost two of its seven octets. Lines are now read octet for octet,
+  and white space is stripped by its ASCII list only, as ``0x85`` and ``0xa0``
+  end many UTF-8 and code page strings. The ``sapwalk`` grammar lost such a
+  trailing octet from an unquoted value the same way and is fixed with it. A
+  UTF-8 byte order mark at the start of a walk saved on Windows is skipped.
+- Read the values ``snmpwalk`` wraps onto several lines when converting a walk
+  with ``snmpsim-manage-records``. ``snmpwalk`` starts a new line after every
+  sixteen octets of a ``Hex-STRING`` and prints the newlines inside a quoted
+  ``STRING`` as they are, but every line of a walk was taken for a record: a
+  40-octet ``Hex-STRING`` came out 16 octets long with its other two lines
+  reported as broken records, and ``"first\nsecond"`` became the value
+  ``"first`` with the opening quote still on it. A line is now joined to the
+  record before it when that record is a quoted ``STRING`` whose closing quote
+  has not come yet, or a ``Hex-STRING`` and the line holds nothing but hex
+  octets (with the text column of ``-OT``, if any). A line that starts a
+  record of its own - with a numeric OID or a name, as ``-Os`` and ``-Of``
+  print them - is never joined, so a string that was cut short costs that one
+  value and not the rest of the walk. The backslash ``snmpwalk`` puts before
+  every quote and backslash of a quoted ``STRING`` is no longer recorded as
+  part of the value: ``"C:\\Temp \"x\""`` used to come out three octets longer
+  than what the device sent. A walk read from a pipe
+  (``--input-file=/dev/stdin``) is converted the same way. The ``.snmprec``
+  reader and the line reader of the responder are not changed.
+- Fixed ``snmpsim-manage-records`` crashing on walk and sapwalk lines it
+  cannot convert. A walk taken without ``-On`` has names for OIDs, and
+  ``SNMPv2-MIB::sysName.0 = STRING: switch`` ended the conversion with a
+  ``PyAsn1Error`` traceback; a sapwalk line with a bad hex value,
+  ``1.3.6.1.2.1.1.5.0, OctetString, 0x73ZZ``, did the same with a
+  ``ValueError``, as did the walk values ``Opaque: Float: n/a``,
+  ``BITS: ZZ 01`` and ``Network Address: ZZ:00:00:01``.
+  ``--ignore-broken-records`` made no difference. Such lines are broken
+  records now: skipped and counted with ``--ignore-broken-records``, otherwise
+  the command exits with status 1 and a message that quotes the line and says
+  what is wrong with it (for a walk with names, that ``snmpwalk -On`` prints
+  OIDs in numbers; MIB names are not resolved). That message is printed under
+  ``--quiet`` as well, where the command used to exit with status 1 and not a
+  word.
+- Fixed ``snmpsim-manage-records`` holding a whole conversion in memory. Every
+  record was kept in a list until the last input line had been read, whether
+  or not ``--sort-records`` was given, so a 37 MB walk of 600000 lines took
+  742 MB and a 221 MB one ran out of memory. Records are now written as they
+  are read unless they are to be sorted (the same walk takes 48 MB);
+  ``--deduplicate-records`` streams as well. The output is byte for byte what
+  it was. A broken record met without ``--ignore-broken-records`` still ends
+  the conversion with exit status 1, but the records ahead of it are now
+  already in the output file, which used to be left empty.
+- Fixed recording with ``--variation-module=numeric``: any
+  ``--variation-module-options`` failed to parse ("too many values to
+  unpack"), so the run silently wrote plain values instead of numeric records.
+  Options are now cut at the first colon (a value may contain colons),
+  repeated ``addon`` options accumulate, and the options are applied all or
+  nothing: an option with no colon, or an ``iterations``/``period`` that is
+  not a number, is reported by name and the recording then proceeds with plain
+  values instead of half of the options.
+- Fixed the ``numeric`` variation module failing every request for a record
+  with a ``deviation`` on Python 3.12 and later. The module reads its settings
+  as floats and passed the deviation to ``random.randrange()``, which no
+  longer accepts them, so ``66:numeric|initial=100,deviation=2`` and the
+  COUNTER example of the documentation answered with a data error
+  (``'float' object cannot be interpreted as an integer``). The deviation is
+  now cut to a whole number first: ``deviation=2`` adds one of -2, -1, 0, 1.
+- Fixed the ``writecache`` variation module ignoring the encoding flag of the
+  record's tag. The text after ``value=`` was always taken as plain text, so
+  ``64x:writecache|value=0a110019`` failed with "Bad IP address syntax" on
+  every request and the record vanished from walks, while
+  ``4x:writecache|value=414243`` served the six characters ``414243``.
+  ``value=`` and the constants of ``vlist`` are now read the way a plain
+  record reads its value: hex digits under the ``x`` flag (the records above
+  serve ``10.17.0.25`` and ``ABC``), a string with Python escapes under the
+  ``e`` flag. ``hexvalue=`` works as before.
+- Fixed the ``subprocess`` variation module returning the line ending of the
+  program's output as a part of the value. ``4:subprocess|echo hello``
+  answered the six octets of ``hello\n``, and ``4x:subprocess|echo 07e30307``
+  decoded into five octets instead of four, the only way around being
+  ``echo -n``. One trailing line feed, with the carriage return in front of it
+  if there is one, is dropped now. Nothing else is trimmed: a program printing
+  ``a\n\n`` still returns ``a\n``, and trailing spaces stay.
+- Fixed the ``error`` variation module reporting ``genErr`` to SNMPv1 managers
+  for the three errors only SNMPv1 has. A record like
+  ``4:error|status=noSuchName`` answered an SNMPv1 GET with error-status 5
+  instead of 2, and ``status=badValue`` or ``status=readOnly`` answered a SET
+  with 5 instead of 3 or 4, because pysnmp has no SNMPv1 translation for these
+  codes. They now reach an SNMPv1 manager as configured; other errors
+  translate as before and SNMPv2c responses are unchanged.
+- Fixed the ``notification`` variation module rekeying the agent's own USM
+  users. Notifications were sent through the engine that answers the managers,
+  so a record sending a v3 trap as user ``simulator`` with keys of its own
+  replaced that user's keys and protocols: the trap went out and every v3 GET
+  after it failed with a wrong digest until the responder was restarted.
+  Notifications now leave through a separate SNMP engine carrying the agent's
+  engine ID, and no longer hold up the response that triggered them.
+  ``authproto`` and ``privproto`` take every name ``--v3-auth-proto`` and
+  ``--v3-priv-proto`` take (``sha224`` to ``sha512``, ``3des``, ``aes192``,
+  ``aes256`` and the Blumenthal variants) instead of only ``md5``, ``sha``,
+  ``des`` and ``aes``; a record asking for ``sha256`` used to answer
+  noSuchInstance. The module also works under
+  ``snmpsim-command-responder-lite`` now.
+- Fixed the search path for data and variation modules. On Windows the
+  per-user ``SNMP Simulator`` directories were built from ``HOMEPATH``, which
+  holds no drive letter, so ``\Users\name`` resolved against whatever drive
+  the simulator was started from; a service account with no ``HOMEPATH`` at
+  all could not start any command, they died with ``KeyError: 'HOMEPATH'`` on
+  import. The home directory is now taken from ``USERPROFILE``, then from
+  ``HOMEDRIVE`` and ``HOMEPATH`` together, and a directory whose environment
+  variable (``APPDATA``, ``PROGRAMFILES``, ``HOME`` included) is not set is
+  left out of the search path. Linux now also searches
+  ``/usr/local/share/snmpsim/variation`` and
+  ``/usr/local/share/snmpsim/data``, as macOS always did.
+- Made the ``sql`` variation module reconnect when the database drops its
+  connection. The connection was opened once, at start, and used for every
+  request from then on, so after a database server restart - or after MySQL
+  closed a connection idle for its ``wait_timeout``, eight hours by default -
+  every request for a database-backed OID failed until the simulator itself
+  was restarted. A request that fails on the connection is now repeated once
+  on a new connection made with the same parameters; if that fails too the
+  error is reported as before and the next request tries again, so the
+  database is picked up as soon as it is back.
+- Made the lite responder read its options from a file. Only
+  ``snmpsim-command-responder`` had ``--args-from-file``;
+  ``snmpsim-command-responder-lite --args-from-file=ips.txt`` stopped with
+  "unrecognized arguments", so a list of endpoints too long for a command line
+  could not be served by it. The lite responder now takes the same option and
+  the same file format, ``--option=value`` items separated by whitespace. Any
+  of its options can be kept in the file, the required endpoints included, and
+  an option also given on the command line takes precedence. A file that
+  cannot be read is reported and the responder exits with status 1.
+- Switched the lite responder and ``snmpsim-record-traffic`` to decoding the
+  SNMP message version through
+  ``pysnmp.proto.api.verdec.decode_message_version`` instead of the camelCase
+  ``api.decodeMessageVersion``. They were the last two callers of that pre-7
+  name, which pysnmp keeps only as an alias; without it the lite responder
+  answers no request and the converter writes no recording and reports no
+  error.
+- Made the documentation of the ``numeric`` variation module state the formula
+  the module actually computes. The old one showed ``offset`` as a plain
+  addend, while with ``cumulative`` it is multiplied by ``rate`` and by the
+  seconds since the previous request, and ``min``, ``max`` and ``wrap`` apply
+  after the previous value is added. It also said ``atime``, ``wrap`` and
+  ``cumulative`` act "if non-zero" (the module only looks for the key, so
+  ``wrap=0`` wraps) and gave the default ``max`` as ``2**32`` instead of
+  ``2**32 - 1``. The section now warns that a cumulative value grows by the
+  whole function value on every request, so a counter polled twice as often
+  grows about twice as fast, and shows ``scale=0,offset=100,cumulative=1`` for
+  a counter with a steady pace. A test executes the documented formula against
+  the module.
 
 Revision 2026.11.0, released on Nov 15, 2026
 ----------------------------------------------
