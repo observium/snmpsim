@@ -938,10 +938,13 @@ on its own, like a locked database or a deadlock, is reported as well
 and not retried.
 
 The transaction is rolled back after every database error, on the
-first attempt and on the repeated one. A SET message is committed at
-its last variable binding, so when one of them fails the earlier ones
-of the same message are discarded, although they were answered
-already.
+first attempt and on the repeated one. The module commits a SET when
+it handles the last variable binding of the message, so when one
+binding fails, the earlier ones of the same message are discarded,
+although they were answered already; the bindings after it are still
+applied. If the last binding of a SET belongs to another module, the
+changes stay open until a later SET whose last binding is an ``sql``
+record commits them.
 
 Simulation data configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

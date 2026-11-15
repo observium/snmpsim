@@ -181,8 +181,8 @@ upstream project yet.
   line, or the other way round, are refused the way they are on a single
   command line. A switch the file sets (``--daemonize``, ``--quiet``,
   ``--v2c-arch``, ``--v3-only``, ``--force-index-rebuild``,
-  ``--validate-data``) cannot be switched off from the command line. A file that cannot be read is reported and the responder
-  exits with status 1.
+  ``--validate-data``) cannot be switched off from the command line. A file
+  that cannot be read is reported and the responder exits with status 1.
 - Switched the lite responder and ``snmpsim-record-traffic`` to decoding the
   SNMP message version through
   ``pysnmp.proto.api.verdec.decode_message_version`` instead of the camelCase
