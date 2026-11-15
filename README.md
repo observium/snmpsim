@@ -258,26 +258,26 @@ with `pipx`, which keeps the simulator in an environment of its own and puts its
 your `PATH`:
 
 ```bash
-pipx install "git+https://github.com/observium/snmpsim.git@2026.11.0"
+pipx install "git+https://github.com/observium/snmpsim.git@2026.11.1"
 ```
 
 or from the release's wheel, without git:
 
 ```bash
-pipx install https://github.com/observium/snmpsim/releases/download/2026.11.0/snmpsim_ng-2026.11.0-py3-none-any.whl
+pipx install https://github.com/observium/snmpsim/releases/download/2026.11.1/snmpsim_ng-2026.11.1-py3-none-any.whl
 ```
 
 With `pip`, into the environment of your choice, or as a `uv` tool, the same specifiers work:
 
 ```bash
-pip install "git+https://github.com/observium/snmpsim.git@2026.11.0"
+pip install "git+https://github.com/observium/snmpsim.git@2026.11.1"
 ```
 
 ```bash
-uv tool install "git+https://github.com/observium/snmpsim.git@2026.11.0"
+uv tool install "git+https://github.com/observium/snmpsim.git@2026.11.1"
 ```
 
-Replace `2026.11.0` with the release you want. snmpsim-ng is not on PyPI yet, and
+Replace `2026.11.1` with the release you want. snmpsim-ng is not on PyPI yet, and
 `pip install snmpsim` installs the other release line, which has none of the changes listed
 under [What snmpsim-ng adds](#what-snmpsim-ng-adds).
 
@@ -297,18 +297,18 @@ Any commit works the same way, for example `@8c804dc`.
 An installation from git or from a wheel has no package index to compare against, so nothing
 upgrades by itself. Install the newer release over the top, with the flag which says "yes,
 replace what is there" - in the commands below, put the release you are moving to in place of
-`2026.11.0`; a wheel URL takes `--force` the same way:
+`2026.11.1`; a wheel URL takes `--force` the same way:
 
 ```bash
-pipx install --force "git+https://github.com/observium/snmpsim.git@2026.11.0"
+pipx install --force "git+https://github.com/observium/snmpsim.git@2026.11.1"
 ```
 
 ```bash
-pip install --upgrade --force-reinstall "git+https://github.com/observium/snmpsim.git@2026.11.0"
+pip install --upgrade --force-reinstall "git+https://github.com/observium/snmpsim.git@2026.11.1"
 ```
 
 ```bash
-uv tool install --force "git+https://github.com/observium/snmpsim.git@2026.11.0"
+uv tool install --force "git+https://github.com/observium/snmpsim.git@2026.11.1"
 ```
 
 `pipx` keeps packages added with `pipx inject` across a `--force` reinstall, and dependencies
