@@ -6,8 +6,14 @@
 #
 # Simulation data file management tools
 #
+import collections
+import importlib
+import multiprocessing
 import os
 import stat
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
+from time import monotonic
 
 from pyasn1.type import univ
 from pysnmp.carrier.asyncio.dgram import udp
@@ -16,10 +22,12 @@ from pysnmp.proto import rfc1902
 from pysnmp.smi import exval
 from pysnmp.smi.error import MibOperationError
 
+from snmpsim import confdir
 from snmpsim import log
 from snmpsim import variation
 from snmpsim.error import NoDataNotification
 from snmpsim.error import SnmpsimError
+from snmpsim.record.search import database
 from snmpsim.record.search.database import RecordIndex
 from snmpsim.record.search.file import get_record
 from snmpsim.record.search.file import search_record_by_oid
@@ -28,14 +36,336 @@ from snmpsim.reporting.manager import ReportingManager
 SELF_LABEL = "self"
 
 
+# never more data files than this are kept open, whatever the process may open
+MAX_OPEN_FILES = 256
+
+# descriptors left to everything that is not a data file: sockets, logs, the
+# modules and the files variation modules open
+RESERVED_DESCRIPTORS = 64
+
+
+def default_max_open_files():
+    """Tell how many data files to keep open unless told otherwise.
+
+    An open data file holds two descriptors, the recording and its index, so
+    half of what the process may open, less a reserve, is the most that fits.
+    Where the limit cannot be asked for, as on Windows, or there is none, the
+    answer is `MAX_OPEN_FILES`.
+    """
+    try:
+        import resource
+
+        soft_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+
+    except (ImportError, AttributeError, OSError, ValueError):
+        return MAX_OPEN_FILES
+
+    if soft_limit == resource.RLIM_INFINITY or soft_limit < 0:
+        return MAX_OPEN_FILES
+
+    return max(1, min(MAX_OPEN_FILES, (soft_limit - RESERVED_DESCRIPTORS) // 2))
+
+
+def open_files_limit(text):
+    """Read a number of data files to keep open off the command line."""
+    max_open_files = int(text)
+
+    if max_open_files < 1:
+        raise ValueError("at least one data file has to be kept open")
+
+    return max_open_files
+
+
+def set_max_open_files(max_open_files):
+    """Keep at most this many data files open, closing those over it now."""
+    if max_open_files < 1:
+        raise SnmpsimError(
+            "At least one data file has to be kept open, not %s" % max_open_files
+        )
+
+    DataFile.max_open_files = max_open_files
+    DataFile.close_idle()
+
+
+# never more processes than this build indexes, however many CPUs there are:
+# past it they wait for the disk rather than for each other
+MAX_INDEX_WORKERS = 8
+
+
+def default_index_workers():
+    """Tell how many processes build indexes unless told otherwise.
+
+    That is one per CPU this process may run on, which under a container or
+    `taskset` is fewer than the machine has, and `MAX_INDEX_WORKERS` at most.
+    """
+    try:
+        cpus = len(os.sched_getaffinity(0))
+
+    except (AttributeError, OSError):
+        # macOS and Windows cannot be asked
+        cpus = os.cpu_count()
+
+    return max(1, min(MAX_INDEX_WORKERS, cpus or 1))
+
+
+def index_workers(text):
+    """Read a number of indexing processes off the command line."""
+    workers = int(text)
+
+    if workers < 1:
+        raise ValueError("at least one process has to build the indexes")
+
+    return workers
+
+
+def configured_data_dirs(options, default_dirs):
+    """Tell which directories the SNMP engines on a command line serve.
+
+    `options` are the responder's per-engine options in the order given,
+    each a pair of a name and a value. An engine serves the directories
+    named for it, or for its SNMPv3 context engines; one given none serves
+    `default_dirs`. Every directory is listed once, in the order met.
+    """
+    served = []
+
+    def serve(dirs):
+        for data_dir in dirs:
+            if data_dir not in served:
+                served.append(data_dir)
+
+    def configure():
+        for context_dirs in context_engines or [[]]:
+            serve(context_dirs or data_dirs or default_dirs)
+
+    configured = False
+
+    context_engines, data_dirs = [], []
+
+    for option in options:
+        name, value = option[0], option[1]
+
+        if name in ("--v3-engine-id", "end-of-options"):
+            if configured:
+                configure()
+
+            configured = True
+
+            context_engines, data_dirs = [], []
+
+        elif name == "--v3-context-engine-id":
+            context_engines.append([])
+
+        elif name == "--data-dir":
+            if context_engines:
+                context_engines[-1].append(value)
+
+            else:
+                data_dirs.append(value)
+
+    return served
+
+
+def find_data_files(data_dirs):
+    """List the recordings in these directories with their parsers.
+
+    A directory that is not there or cannot be read is passed over: whoever
+    serves it is going to say so.
+    """
+    data_files = []
+
+    for data_dir in data_dirs:
+        try:
+            found = get_data_files(data_dir)
+
+        except OSError as exc:
+            log.debug(f"Not looking for data files in {data_dir}: {exc}")
+            continue
+
+        data_files.extend((full_path, parser) for full_path, parser, _ in found)
+
+    return data_files
+
+
+def _build_index(
+    text_file,
+    text_parser,
+    force_index_build,
+    validate_data,
+    cache_dir,
+    backend,
+    log_level,
+):
+    """Build the index of one data file, in a process of its own.
+
+    The process is a fresh interpreter, so it is told what the one that
+    started it had been told: where indexes go, what writes them and what is
+    worth logging. It has no log of its own - several of them writing to one
+    file or one terminal would interleave - and hands its lines back instead,
+    together with what went wrong, if anything did.
+    """
+    lines = []
+
+    confdir.cache = cache_dir
+    database.DBM_BACKEND = importlib.import_module(backend)
+
+    log.msg = lines.append
+    log.log_level = log_level
+
+    try:
+        RecordIndex(text_file, text_parser).create(force_index_build, validate_data)
+
+    except Exception as exc:
+        return lines, str(exc) or exc.__class__.__name__
+
+    return lines, None
+
+
+def index_data_files(data_files, workers, force_index_build=False, validate_data=False):
+    """Build the indexes that are missing or out of date, several at a time.
+
+    `data_files` are pairs of a recording and its parser. Each index that
+    has to be built is built by one of up to `workers` processes; one that
+    fails is reported and does not stop the others. With one worker, or
+    fewer than two indexes to build, nothing is done here: an index is built
+    when its data file is set up, as it always was.
+
+    Returns what was taken on: the error, or None, by recording. A recording
+    with None has an index that is up to date, `force_index_build` included.
+    """
+    if workers < 2:
+        return {}
+
+    pending = []
+    seen_text_files = set()
+    seen_db_files = set()
+
+    for text_file, text_parser in data_files:
+        if text_file in seen_text_files:
+            continue
+
+        seen_text_files.add(text_file)
+
+        record_index = RecordIndex(text_file, text_parser)
+
+        try:
+            if not force_index_build and not record_index.needs_build():
+                continue
+
+        except OSError:
+            # gone since the directory was read, or not to be looked at
+            continue
+
+        # recordings of different kinds under one name share an index, and
+        # two processes must not write it at once: the first one gets it
+        if record_index.db_file in seen_db_files:
+            continue
+
+        seen_db_files.add(record_index.db_file)
+
+        pending.append((text_file, text_parser))
+
+    if len(pending) < 2:
+        return {}
+
+    workers = min(workers, len(pending))
+
+    started = monotonic()
+
+    try:
+        # a process started afresh shares neither sockets nor an event loop
+        # nor a log with this one, and is what Windows and macOS do anyway.
+        # On POSIX it brings multiprocessing's resource tracker with it: one
+        # more child, idle, that stays when the pool is gone and ends with
+        # this process.
+        executor = ProcessPoolExecutor(
+            max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+        )
+
+    except Exception as exc:
+        log.error(
+            "Cannot start processes to build indexes, building them one by "
+            "one: %s" % exc
+        )
+        return {}
+
+    log.info("Indexing %d data files in %d processes..." % (len(pending), workers))
+
+    results = {}
+
+    try:
+        futures = [
+            (
+                text_file,
+                executor.submit(
+                    _build_index,
+                    text_file,
+                    text_parser,
+                    force_index_build,
+                    validate_data,
+                    confdir.cache,
+                    database.DBM_BACKEND.__name__,
+                    log.log_level,
+                ),
+            )
+            for text_file, text_parser in pending
+        ]
+
+        for text_file, future in futures:
+            try:
+                lines, failure = future.result()
+
+            except BrokenProcessPool as exc:
+                # a process died and took the others with it: what they
+                # have not handed back is left to the caller
+                log.error(
+                    "Processes building indexes are gone, the remaining %d "
+                    "are built one by one: %s"
+                    % (len(pending) - len(results), exc or exc.__class__.__name__)
+                )
+                break
+
+            except Exception as exc:
+                # nothing is known about this file, leave it to the caller
+                log.error(
+                    "Process indexing data file %s failed, its index is "
+                    "built later: %s" % (text_file, exc or exc.__class__.__name__)
+                )
+                continue
+
+            for line in lines:
+                log.msg(line)
+
+            if failure:
+                log.error(f"Failed to index data file {text_file}: {failure}")
+
+            results[text_file] = failure
+
+    except BaseException:
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+
+    executor.shutdown()
+
+    failed = len([text_file for text_file in results if results[text_file]])
+
+    log.info(
+        "...%d indexed, %d failed in %.1f sec"
+        % (len(results) - failed, failed, monotonic() - started)
+    )
+
+    return results
+
+
 class AbstractLayout:
     layout = "?"
 
 
 class DataFile(AbstractLayout):
     layout = "text"
-    opened_queue = []
-    max_queue_entries = 31  # max number of open text and index files
+    # open data files, the one asked for the longest ago first; a data file
+    # is in here once, and only while it is open
+    _opened = collections.OrderedDict()
+    max_open_files = default_max_open_files()  # each has a text and an index file
     max_broken_records = 100  # max number of broken records skipped in a row
 
     def __init__(self, textFile, textParser, variationModules):
@@ -49,20 +379,58 @@ class DataFile(AbstractLayout):
         return self
 
     def close(self):
+        DataFile._opened.pop(self, None)
         self._record_index.close()
 
+    @classmethod
+    def close_idle(cls, keep=None):
+        """Close the files asked for the longest ago until the rest fits.
+
+        The file being served is passed as `keep`: it is the most recently
+        used one, and is not closed even when there is room for none.
+        """
+        opened = DataFile._opened
+
+        while len(opened) > cls.max_open_files:
+            data_file = next(iter(opened))
+
+            if data_file is keep:
+                break
+
+            log.info(
+                "Closing %s, the least recently used of %d open data files"
+                % (data_file, len(opened))
+            )
+
+            data_file.close()
+
     def get_handles(self):
-        if not self._record_index.is_open():
-            if len(DataFile.opened_queue) > self.max_queue_entries:
-                log.info("Closing %s" % self)
-                DataFile.opened_queue[0].close()
-                del DataFile.opened_queue[0]
+        opened = DataFile._opened
 
-            DataFile.opened_queue.append(self)
+        kept_open = self._record_index.is_open() and self in opened
 
+        if not kept_open:
             log.info("Opening %s" % self)
 
-        return self._record_index.get_handles()
+        try:
+            # a file that is open is reopened by this if it has changed
+            handles = self._record_index.get_handles()
+
+        except Exception:
+            # whatever was opened before it failed must not stay open, and
+            # a file that cannot be served takes nobody's place
+            self.close()
+            raise
+
+        opened[self] = True
+        opened.move_to_end(self)
+
+        if not kept_open:
+            # only now: a file that fails to open closes nobody, at the price
+            # of one file over the limit for a moment
+            self.close_idle(keep=self)
+
+        return handles
 
     def process_var_binds(self, var_binds, **context):
         rsp_var_binds = []
@@ -91,15 +459,20 @@ class DataFile(AbstractLayout):
         vars_remaining = vars_total = len(var_binds)
         err_total = 0
 
-        log.info(
-            "Request var-binds: %s, flags: %s, "
-            "%s"
-            % (
-                ", ".join([f"{vb[0]}=<{vb[1].prettyPrint()}>" for vb in var_binds]),
-                context.get("nextFlag") and "NEXT" or "EXACT",
-                context.get("setFlag") and "SET" or "GET",
+        # every value is turned into text for these two lines, which is not
+        # worth doing for a log that drops them
+        log_var_binds = log.is_enabled(log.LOG_INFO)
+
+        if log_var_binds:
+            log.info(
+                "Request var-binds: %s, flags: %s, "
+                "%s"
+                % (
+                    ", ".join([f"{vb[0]}=<{vb[1].prettyPrint()}>" for vb in var_binds]),
+                    context.get("nextFlag") and "NEXT" or "EXACT",
+                    context.get("setFlag") and "SET" or "GET",
+                )
             )
-        )
 
         separator = b","
 
@@ -107,9 +480,7 @@ class DataFile(AbstractLayout):
             text_oid = str(univ.OctetString(".".join(["%s" % x for x in oid])))
 
             try:
-                line = self._record_index.lookup(
-                    str(univ.OctetString(".".join(["%s" % x for x in oid])))
-                )
+                line = self._record_index.lookup(text_oid)
 
             except KeyError:
                 offset = search_record_by_oid(oid, text, self._text_parser)
@@ -247,10 +618,15 @@ class DataFile(AbstractLayout):
 
             rsp_var_binds.append((_oid, _val))
 
-        log.info(
-            "Response var-binds: %s"
-            % (", ".join([f"{vb[0]}=<{vb[1].prettyPrint()}>" for vb in rsp_var_binds]))
-        )
+        if log_var_binds:
+            log.info(
+                "Response var-binds: %s"
+                % (
+                    ", ".join(
+                        [f"{vb[0]}=<{vb[1].prettyPrint()}>" for vb in rsp_var_binds]
+                    )
+                )
+            )
 
         ReportingManager.update_metrics(
             data_file=self._text_file,

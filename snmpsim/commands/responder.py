@@ -513,6 +513,7 @@ class Recordings:
         communities=True,
         force_index_rebuild=False,
         validate_data=False,
+        indexed=None,
     ):
         self.data_dirs = list(data_dirs)
         self.snmp_engine = snmp_engine
@@ -523,6 +524,10 @@ class Recordings:
         self._communities = communities
         self._force_index_rebuild = force_index_rebuild
         self._validate_data = validate_data
+
+        # what `datafile.index_data_files()` has just built, the error or
+        # None by data file; emptied by its owner once the start is over
+        self._indexed = {} if indexed is None else indexed
 
         # community name to what was registered for it
         self._served = {}
@@ -616,7 +621,11 @@ class Recordings:
         Nothing is registered, so this may run aside from the event loop.
         """
         data_file = datafile.DataFile(full_path, text_parser, self._variation_modules)
-        data_file.index_text(self._force_index_rebuild, self._validate_data)
+        data_file.index_text(
+            # one that has just been built is not built again
+            self._force_index_rebuild and self._indexed.get(full_path, True),
+            self._validate_data,
+        )
 
         return controller.MIB_CONTROLLERS[data_file.layout](data_file)
 
@@ -1044,6 +1053,28 @@ def main():
     )
 
     parser.add_argument(
+        "--max-open-data-files",
+        metavar="<N>",
+        type=datafile.open_files_limit,
+        default=datafile.DataFile.max_open_files,
+        help="Keep at most this many data files open, closing the least "
+        "recently used one to open another. Each open data file takes two "
+        "file descriptors. Default is half of the descriptors the process "
+        "may open less a reserve of 64, 256 at most (%(default)s here)",
+    )
+
+    parser.add_argument(
+        "--index-workers",
+        metavar="<N>",
+        type=datafile.index_workers,
+        default=datafile.default_index_workers(),
+        help="Build missing and out of date data file indices in this many "
+        "processes at once before the SNMP engines are configured. 1 builds "
+        "them one by one. Default is the number of CPUs the process may use, "
+        "8 at most (%(default)s here)",
+    )
+
+    parser.add_argument(
         "--args-from-file",
         metavar="<FILE>",
         type=str,
@@ -1292,6 +1323,10 @@ configured automatically based on simulation data file paths relative to
             snmp_helper.print_usage(sys.stderr)
             return 1
 
+        datafile.set_max_open_files(args.max_open_data_files)
+
+        log.info("Data files kept open at most: %s" % args.max_open_data_files)
+
         try:
             ReportingManager.configure(*args.reporting_method)
 
@@ -1412,6 +1447,17 @@ configured automatically based on simulation data file paths relative to
         # recordings, the processing models stay
         served_versions = None
 
+    # Build the indices the engines are going to ask for, several at a time
+    with daemon.PrivilegesOf(args.process_user, args.process_group):
+        indexed = datafile.index_data_files(
+            datafile.find_data_files(
+                datafile.configured_data_dirs(snmp_args, confdir.data)
+            ),
+            args.index_workers,
+            args.force_index_rebuild,
+            args.validate_data,
+        )
+
     snmp_engine = None
     timeout = 0  # Initialize timeout before the loop
 
@@ -1467,6 +1513,7 @@ configured automatically based on simulation data file paths relative to
                         communities=not args.v3_only,
                         force_index_rebuild=args.force_index_rebuild,
                         validate_data=args.validate_data,
+                        indexed=indexed,
                     )
 
                     with daemon.PrivilegesOf(args.process_user, args.process_group):
@@ -1852,6 +1899,9 @@ configured automatically based on simulation data file paths relative to
 
         elif opt[0] == "--timeout":
             timeout = opt[1]
+
+    # a recording found by a rescan later on is indexed as the options say
+    indexed.clear()
 
     transport_dispatcher.job_started(1)  # server job would never finish
 
