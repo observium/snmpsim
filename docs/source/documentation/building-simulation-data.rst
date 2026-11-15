@@ -60,23 +60,22 @@ No special requirements exist for device file name and location. Just keep in
 mind that at simulation time, *snmpsim-command-responder* treats *.snmprec*
 file path as SNMPv1/v2c community name or SNMPv3 context name.
 
-If you don't readily have some SNMP agent to play with, you're welcome to
-use our publicly available
-`SNMP Simulator instance <https://www.pysnmp.com/snmp-simulation-service.html>`_.
+The agent in the next example answers at 192.0.2.1, an address reserved for
+documentation - put the address of your own agent in its place.
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
         --community=public
     SNMP version 2c, Community name: public
-    Querying UDP/IPv4 agent at 195.218.195.228:161
+    Querying UDP/IPv4 agent at 192.0.2.1:161
     Sending initial GETNEXT request....
-    1.3.6.1.2.1.1.1.0|4|SunOS zeus.pysnmp.com 4.1.3_U1 1 sun4m
+    1.3.6.1.2.1.1.1.0|4|SunOS zeus.example.com 4.1.3_U1 1 sun4m
     1.3.6.1.2.1.1.2.0|6|1.3.6.1.4.1.20408
     1.3.6.1.2.1.1.3.0|67|137765775
-    1.3.6.1.2.1.1.4.0|4|LeXtudio Inc., support@lextudio.com
-    1.3.6.1.2.1.1.5.0|4|zeus.pysnmp.com
-    1.3.6.1.2.1.1.6.0|4|Toronto, Ontario, Canada
+    1.3.6.1.2.1.1.4.0|4|Network Operations, noc@example.com
+    1.3.6.1.2.1.1.5.0|4|zeus.example.com
+    1.3.6.1.2.1.1.6.0|4|Server room, rack 3
     ...
     1.3.6.1.2.1.11.31.0|65|0
     1.3.6.1.2.1.11.32.0|65|0

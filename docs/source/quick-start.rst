@@ -9,24 +9,25 @@ Quick Start
 Installation
 ------------
 
-SNMP Simulator is written in Python and depends on other Python libraries.
-The easiest way to deploy SNMP Simulator is by downloading it from PyPI.
+snmpsim-ng is written in Python and depends on other Python libraries.
+It is not on PyPI yet, so it is installed straight from git. The package
+named ``snmpsim`` on PyPI is a different release line.
 
-Below we quickly set up a Python 3.12 virtual environment and install SNMP
-Simulator into it.
+Below we quickly set up a Python virtual environment and install snmpsim-ng
+into it.
 
 .. code-block:: bash
 
-   $ pyenv local 3.12
-   $ pip install pipenv
-   $ pipenv --python 3.12
-   $ pipenv install snmpsim
+   $ python3 -m venv venv
+   $ . venv/bin/activate
+   $ pip install "git+https://github.com/observium/snmpsim.git@master"
 
 .. note::
 
-   You might want to use some existing data files to get started quickly. Then,
-   you can install ``snmpsim-data`` package as well. You can learn more
-   about it in the `SNMP Simulator Data`_.
+   A few sample recordings come with the package, in its ``data``
+   directory. The ``snmpsim-data`` package on PyPI is not a way to get more:
+   it requires ``snmpsim`` 1.x, so installing it puts the other release
+   line over this one.
 
 Run SNMP Simulator
 ------------------
@@ -36,7 +37,7 @@ directory containing simulation data:
 
 .. code-block:: bash
 
-   $ pipenv run snmpsim-command-responder --data-dir=./data/UPS \
+   $ snmpsim-command-responder --data-dir=./data/UPS \
         --agent-udpv4-endpoint=127.0.0.1:1611
 
 This command starts the Simulator on UDP/IPv4 port 1611. It will
@@ -116,23 +117,18 @@ Simulate Existing SNMP Agent
 ----------------------------
 
 Besides creating simulation data by hand, you can generate it from some
-existing SNMP agent. Here we use publicly available SNMP Simulator instance
-as a donor device:
+existing SNMP agent. Here the donor device answers at 192.0.2.1, an address
+reserved for documentation - put the address of your own agent in its place:
 
 .. code-block:: bash
 
-   $ pipenv run snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
+   $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
         --output-file=./data/public.snmprec
    SNMP version 2c, Community name: public
-   Querying UDP/IPv4 agent at 195.218.195.228:161
+   Querying UDP/IPv4 agent at 192.0.2.1:161
    Agent response timeout: 3.00 secs, retries: 3
    Sending initial GETNEXT request for 1.3.6 (stop at <end-of-mib>)....
    OIDs dumped: 182, elapsed: 11.97 sec, rate: 15.20 OIDs/sec, errors: 0
-
-.. note::
-
-   We host many simulation data files in ``snmpsim-data`` package.
-   You can learn more about them in the `SNMP Simulator Data`_.
 
 Simulate from MIB
 -----------------
@@ -141,7 +137,7 @@ Alternatively, you could build simulation data from a MIB file:
 
 .. code-block:: bash
 
-   $ pipenv run snmpsim-record-mibs --output-file=./data/public.snmprec \
+   $ snmpsim-record-mibs --output-file=./data/public.snmprec \
         --mib-module=IF-MIB
    # MIB module: IF-MIB, from the beginning till the end
    # Starting table IF-MIB::ifTable (1.3.6.1.2.1.2.2)
@@ -160,6 +156,5 @@ databases, file-based key-value stores and other sources of information.
 Related Resources
 -----------------
 
-- `Support Options`_
 - :doc:`/documentation/index`
 - :doc:`/license`
