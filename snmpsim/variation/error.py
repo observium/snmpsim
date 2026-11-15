@@ -4,6 +4,7 @@
 # Copyright (c) 2010-2019, Ilya Etingof <etingof@gmail.com>
 # License: https://www.pysnmp.com/snmpsim/license.html
 #
+from pysnmp.proto import rfc1905
 from pysnmp.proto.proxy import rfc2576
 from pysnmp.smi import error
 
@@ -29,10 +30,24 @@ ERROR_TYPES = {
     "authorizationerror": error.AuthorizationError,
     "notwritable": error.NotWritableError,
     "inconsistentname": error.InconsistentNameError,
-    # These have no error-status of their own and come out as genErr
+    # These are raised on SET only, see EXCEPTION_VALUES
     "nosuchobject": error.NoSuchObjectError,
     "nosuchinstance": error.NoSuchInstanceError,
     "endofmib": error.EndOfMibViewError,
+}
+
+# SNMPv2 has no error-status for these three: on a read they are the value of
+# the variable, the response is otherwise a success and carries the values of
+# its other variables. For an SNMPv1 manager pysnmp turns such a response into
+# noSuchName pointing at the variable (RFC 3584, 4.2.2.1).
+#
+# The values are made here rather than taken from pysnmp.smi.exval: the data
+# file reader takes that very endOfMib object for "nothing at this record,
+# try the next one", which is not what the recording asks for.
+EXCEPTION_VALUES = {
+    "nosuchobject": rfc1905.NoSuchObject(),
+    "nosuchinstance": rfc1905.NoSuchInstance(),
+    "endofmib": rfc1905.EndOfMibView(),
 }
 
 
@@ -137,6 +152,16 @@ def variate(oid, tag, value, **context):
         if recordContext["settings"]["op"] in ("get", "any"):
             if "status" in recordContext["settings"]:
                 e = recordContext["settings"]["status"]
+
+    if e and e in EXCEPTION_VALUES and not context["setFlag"]:
+        log.info(f"error: reporting {e} for {oid}")
+
+        # GETNEXT is answered with the name of the record it has arrived at
+        return (
+            oid if context["nextFlag"] else context["origOid"],
+            tag,
+            EXCEPTION_VALUES[e],
+        )
 
     if e and e in ERROR_TYPES:
         log.info(f"error: reporting {e} for {oid}")

@@ -170,7 +170,49 @@ def probe_hash_context(responder, snmp_engine):
     return context_name
 
 
-class GetCommandResponder(cmdrsp.GetCommandResponder):
+class ErrorReporter:
+    """Report a failed variable by its own place in the request.
+
+    pysnmp's command responder answers an error raised for a variable with
+    error-index 1 unless the variable is the last one of the request, so a
+    manager which asked for three variables and got the second one refused
+    blames the first. The responders below catch the error before pysnmp
+    does and send the error response themselves.
+    """
+
+    def report_error(self, snmp_engine, state_reference, pdu, exc, offset=0):
+        """Send the error response for `exc`, or raise `exc` for pysnmp.
+
+        `exc` goes back to pysnmp when it does not name the variable, or
+        when it asks for a REPORT, which only pysnmp is able to produce.
+        `offset` is added to the place the error names: what read the
+        variables may have been given a part of the request.
+        """
+        var_binds = v2c.apiPDU.get_varbinds(pdu)
+
+        try:
+            error_index = exc["idx"] + offset + 1
+
+        except (KeyError, TypeError):
+            raise exc
+
+        if "oid" in exc or not 0 < error_index <= len(var_binds):
+            raise exc
+
+        error_status = self.SMI_ERROR_MAP.get(exc.__class__, "genErr")
+
+        # RFC 3416, 4.2.1: tooBig comes with no index and no variables
+        if error_status == "tooBig":
+            error_index = 0
+            var_binds = []
+
+        self.send_varbinds(
+            snmp_engine, state_reference, error_status, error_index, var_binds
+        )
+        self.release_state_information(state_reference)
+
+
+class GetCommandResponder(ErrorReporter, cmdrsp.GetCommandResponder):
     """v3arch GET command handler"""
 
     def handle_management_operation(
@@ -188,8 +230,11 @@ class GetCommandResponder(cmdrsp.GetCommandResponder):
         except NoDataNotification:
             self.release_state_information(state_reference)
 
+        except smi_error.SmiError as exc:
+            self.report_error(snmp_engine, state_reference, pdu, exc)
 
-class SetCommandResponder(cmdrsp.SetCommandResponder):
+
+class SetCommandResponder(ErrorReporter, cmdrsp.SetCommandResponder):
     """v3arch SET command handler"""
 
     def handle_management_operation(
@@ -207,8 +252,11 @@ class SetCommandResponder(cmdrsp.SetCommandResponder):
         except NoDataNotification:
             self.release_state_information(state_reference)
 
+        except smi_error.SmiError as exc:
+            self.report_error(snmp_engine, state_reference, pdu, exc)
 
-class NextCommandResponder(cmdrsp.NextCommandResponder):
+
+class NextCommandResponder(ErrorReporter, cmdrsp.NextCommandResponder):
     """v3arch GETNEXT command handler"""
 
     def handle_management_operation(
@@ -226,8 +274,11 @@ class NextCommandResponder(cmdrsp.NextCommandResponder):
         except NoDataNotification:
             self.release_state_information(state_reference)
 
+        except smi_error.SmiError as exc:
+            self.report_error(snmp_engine, state_reference, pdu, exc)
 
-class BulkCommandResponder(cmdrsp.BulkCommandResponder):
+
+class BulkCommandResponder(ErrorReporter, cmdrsp.BulkCommandResponder):
     """v3arch GETBULK command handler.
 
     Unlike the pysnmp responder it derives from, this one keeps the response
@@ -334,14 +385,37 @@ class BulkCommandResponder(cmdrsp.BulkCommandResponder):
 
         max_response_size -= len(context_name)
 
-        rsp_var_binds = utils.get_bulk_var_binds(
-            read_next_vars,
-            v2c.apiPDU.get_varbinds(pdu),
-            v2c.apiBulkPDU.get_non_repeaters(pdu),
-            v2c.apiBulkPDU.get_max_repetitions(pdu),
-            self.max_varbinds,
-            max_response_size,
-        )
+        req_var_binds = v2c.apiPDU.get_varbinds(pdu)
+        non_repeaters = v2c.apiBulkPDU.get_non_repeaters(pdu)
+
+        # how many times the variables have been read
+        takes = []
+
+        try:
+            rsp_var_binds = utils.get_bulk_var_binds(
+                lambda *var_binds: takes.append(None) or read_next_vars(*var_binds),
+                req_var_binds,
+                non_repeaters,
+                v2c.apiBulkPDU.get_max_repetitions(pdu),
+                self.max_varbinds,
+                max_response_size,
+            )
+
+        except smi_error.SmiError as exc:
+            # The non-repeaters are read in one take, the repeaters in the
+            # takes which follow, and an error counts the variables of its
+            # take, while error-index is a place in the request (RFC 3416,
+            # 4.2.3).
+            non_repeaters = min(max(int(non_repeaters), 0), len(req_var_binds))
+
+            self.report_error(
+                snmp_engine,
+                state_reference,
+                pdu,
+                exc,
+                offset=non_repeaters if len(takes) > 1 else 0,
+            )
+            return
 
         if not rsp_var_binds:
             raise smi_error.SmiError()
