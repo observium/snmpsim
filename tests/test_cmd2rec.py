@@ -505,3 +505,98 @@ def test_failing_variation_module_fails_the_recording(plain_agent, tmp_path, fai
     assert recorder.returncode == 1, stderr
     assert complaint in stderr
     assert "Traceback" not in stderr
+
+
+@pytest.mark.parametrize("mode", ["getnext", "getbulk"])
+def test_multiplex_iterations_need_no_stop_object(plain_agent, tmp_path, mode):
+    """Every iteration asked of multiplex makes a snapshot of its own.
+
+    The module starts the next snapshot once it is told the walk is over,
+    and it was told so only when the walk ran into --stop-object. A walk up
+    to the end of the MIB just ended, so however many iterations were asked
+    for, a single snapshot was made.
+    """
+    output_file = tmp_path / "recorded.snmprec"
+    snapshots_dir = tmp_path / "snapshots"
+
+    recorder = _run_recorder(
+        f"--agent-udpv4-endpoint={plain_agent}",
+        "--community=public",
+        "--start-object=1.3.6.1.2.1",
+        f"--output-file={output_file}",
+        "--variation-module=multiplex",
+        f"--variation-module-options=dir::{snapshots_dir.as_posix()},"
+        "iterations:3,period:1",
+        *(["--use-getbulk"] if mode == "getbulk" else []),
+    )
+
+    stderr = recorder.stderr.decode()
+
+    assert recorder.returncode == 0, stderr
+
+    assert sorted(snapshot.name for snapshot in snapshots_dir.iterdir()) == [
+        "00000.snmprec",
+        "00001.snmprec",
+        "00002.snmprec",
+    ]
+
+    # each of them holds everything the agent serves, and nothing else
+    for snapshot in snapshots_dir.iterdir():
+        dumped = [
+            line.split("|")[0] for line in snapshot.read_text().splitlines() if line
+        ]
+
+        assert dumped == [
+            "1.3.6.1.2.1.1.1.0",
+            "1.3.6.1.2.1.1.2.0",
+            "1.3.6.1.2.1.1.3.0",
+            "1.3.6.1.2.1.2.2.1.2.1",
+            "1.3.6.1.2.1.2.2.1.5.1",
+        ], snapshot.name
+
+    # the recording itself still is the one record leading to the snapshots
+    assert output_file.read_text().splitlines() == [
+        f"1.3.6.1.2.1|:multiplex|dir={snapshots_dir.as_posix()},period=1.00"
+    ]
+
+    assert "errors: 0" in stderr
+
+
+def test_end_of_walk_is_not_a_record(plain_agent, tmp_path):
+    """A module is told the walk is over, and nothing is written for that.
+
+    What a module makes of the notice is no record of the agent's, even if
+    the module hands one back.
+    """
+    modules_dir = tmp_path / "variation"
+    modules_dir.mkdir()
+
+    (modules_dir / "witness.py").write_text(
+        "import sys\n\n"
+        "def init(**context):\n"
+        "    pass\n\n"
+        "def record(oid, tag, value, **context):\n"
+        "    if context['stopFlag']:\n"
+        "        sys.stderr.write('walk is over after %s\\n' % oid)\n"
+        "    return oid, tag, value\n\n"
+        "def shutdown(**context):\n"
+        "    pass\n"
+    )
+
+    output_file = tmp_path / "recorded.snmprec"
+
+    recorder = _run_recorder(
+        f"--agent-udpv4-endpoint={plain_agent}",
+        "--community=public",
+        f"--output-file={output_file}",
+        f"--variation-modules-dir={modules_dir}",
+        "--variation-module=witness",
+    )
+
+    stderr = recorder.stderr.decode()
+
+    assert recorder.returncode == 0, stderr
+    assert stderr.count("walk is over after") == 1, stderr
+    assert "walk is over after 1.3.6.1.2.1.2.2.1.5.1\n" in stderr
+    assert len(output_file.read_bytes().splitlines()) == 5
+    assert "OIDs dumped: 5, " in stderr

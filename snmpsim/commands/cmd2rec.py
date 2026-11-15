@@ -640,13 +640,17 @@ def main():
 
         return next_oid
 
-    def record(var_binds):
+    def record(var_binds, ended=False):
         """Write one response worth of var-binds into the data file
 
         Returns whether the walk is over, and whether a variation module has
         asked for a fresh iteration of it.
+
+        With `ended` the var-binds are no response but the notice that the
+        walk is over: they go to the variation module, and what it makes of
+        them is not written.
         """
-        stop_flag = False
+        stop_flag = ended
         restarted = False
 
         # Walk var-binds
@@ -718,6 +722,9 @@ def main():
                 continue
 
             else:
+                if ended:
+                    continue
+
                 args.output_file.write(line)
 
                 state["count"] += 1
@@ -836,6 +843,17 @@ def main():
 
                 if stop_flag:
                     return
+
+            else:
+                # pysnmp ends a walk at the end of the MIB without handing
+                # the end-of-MIB response over, and a variation module
+                # counts its passes by being told that one is over
+                _, restarted = record(
+                    [(state["lastOID"], rfc1905.endOfMibView)], ended=True
+                )
+
+                if restarted:
+                    start_oid = args.start_object
 
     started = time.time()
 
