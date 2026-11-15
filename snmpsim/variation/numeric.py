@@ -43,37 +43,39 @@ def init(**context):
         moduleContext["settings"] = {}
 
         if context["options"]:
+            settings = moduleContext["settings"]
+
             for x in split(context["options"], ","):
-                for k, v in split(x, ":"):
-                    if k == "addon":
-                        if k in moduleContext["settings"]:
-                            moduleContext["settings"][k].append(v)
+                # only the first colon separates the key: a value may
+                # contain colons of its own
+                k, separator, v = x.partition(":")
 
-                        else:
-                            moduleContext["settings"][k] = [v]
-
-                    else:
-                        moduleContext["settings"][k] = v
-
-                if "iterations" in moduleContext["settings"]:
-                    moduleContext["settings"]["iterations"] = int(
-                        moduleContext["settings"]["iterations"]
+                if not separator:
+                    raise error.SnmpsimError(
+                        'numeric: option "%s" is not in key:value form' % x
                     )
 
-                    if moduleContext["settings"]["iterations"]:
-                        # no reason for more
-                        moduleContext["settings"]["iterations"] = 1
-
-                if "period" in moduleContext["settings"]:
-                    moduleContext["settings"]["period"] = float(
-                        moduleContext["settings"]["period"]
-                    )
+                if k == "addon":
+                    settings.setdefault(k, []).append(v)
 
                 else:
-                    moduleContext["settings"]["period"] = 10.0
+                    settings[k] = v
 
-                if "taglist" not in moduleContext["settings"]:
-                    moduleContext["settings"]["taglist"] = "2-65-66-67-70"
+            if "iterations" in settings:
+                settings["iterations"] = int(settings["iterations"])
+
+                if settings["iterations"]:
+                    # no reason for more
+                    settings["iterations"] = 1
+
+            if "period" in settings:
+                settings["period"] = float(settings["period"])
+
+            else:
+                settings["period"] = 10.0
+
+            if "taglist" not in settings:
+                settings["taglist"] = "2-65-66-67-70"
 
 
 def variate(oid, tag, value, **context):
