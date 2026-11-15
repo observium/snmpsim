@@ -409,3 +409,37 @@ def test_walk_string_of_many_lines_is_read_in_one_pass():
 
     assert record == text
     assert time.monotonic() - started < 5
+
+
+@pytest.mark.parametrize(
+    "record, line",
+    [
+        (WalkRecord(), b"SNMPv2-MIB::sysName.0 = STRING: switch\n"),
+        (WalkRecord(), b"iso.3.6.1.2.1.1.5.0 = STRING: switch\n"),
+        (WalkRecord(), b".1.3.6.1.2.1.1.5.0 = Opaque: Float: much\n"),
+        (WalkRecord(), b".1.3.6.1.2.1.1.5.0 = Opaque: UInt64: many\n"),
+        (WalkRecord(), b".1.3.6.1.2.1.1.5.0 = Opaque: ZZ 01\n"),
+        (WalkRecord(), b".1.3.6.1.2.1.1.5.0 = BITS: ZZ 01\n"),
+        (WalkRecord(), b".1.3.6.1.2.1.1.5.0 = Network Address: ZZ:00:00:01\n"),
+        (SapRecord(), b"1.3.6.1.2.1.1.5.0, OctetString, 0x73ZZ\n"),
+        (SapRecord(), b"sysName.0, OctetString, switch\n"),
+    ],
+)
+def test_line_that_cannot_be_converted_is_a_broken_record(record, line):
+    with pytest.raises(SnmpsimError) as raised:
+        record.evaluate(line)
+
+    # the message says what in the line is wrong, the caller adds the line
+    assert str(raised.value)
+
+
+def test_oid_only_evaluation_of_a_named_oid_is_a_broken_record():
+    # how the index and the search read a record
+    with pytest.raises(SnmpsimError):
+        WalkRecord().evaluate(b"sysName.0 = STRING: switch\n", oidOnly=True)
+
+
+def test_sapwalk_hex_string_is_still_read():
+    oid, value = SapRecord().evaluate(b"1.3.6.1.2.1.1.5.0, OctetString, 0x73770a\n")
+
+    assert bytes(value) == b"sw\n"

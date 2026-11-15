@@ -341,6 +341,18 @@ class WalkGrammar(abstract.AbstractGrammar):
             if tag == "Network Address:":
                 tag = "IpAddress:"
 
-            return oid, tag.upper(), handler(value.strip(self.WHITESPACE))
+            value = value.strip(self.WHITESPACE)
+
+            try:
+                return oid, tag.upper(), handler(value)
+
+            except error.SnmpsimError:
+                raise
+
+            except Exception as exc:
+                # .1.3.6.1.4.1.2021.10.1.6.1 = Opaque: Float: n/a
+                raise error.SnmpsimError(
+                    "value %r is not what %s takes: %s" % (value, tag, exc)
+                )
 
         raise error.SnmpsimError("broken record <%s>" % line)

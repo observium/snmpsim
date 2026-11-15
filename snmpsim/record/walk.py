@@ -32,6 +32,9 @@ class WalkRecord(dump.DumpRecord):
     grammar = walk.WalkGrammar()
     ext = "snmpwalk"
 
+    # MIB names are not resolved here
+    oid_hint = " (snmpwalk -On prints them so)"
+
     _pipe = None
 
     def read_record(self, file_obj, line_no=None, offset=0):

@@ -32,7 +32,14 @@ class SapGrammar(abstract.AbstractGrammar):
     @staticmethod
     def _stringFilter(value):
         if value[:2] == "0x":
-            value = [int(value[x : x + 2], 16) for x in range(2, len(value[2:]) + 2, 2)]
+            try:
+                value = [
+                    int(value[x : x + 2], 16) for x in range(2, len(value[2:]) + 2, 2)
+                ]
+
+            except ValueError:
+                # 1.3.6.1.2.1.1.5.0, OctetString, 0x73ZZ
+                raise error.SnmpsimError("broken hex string <%s>" % value)
 
         return value
 

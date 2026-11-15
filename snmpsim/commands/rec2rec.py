@@ -289,10 +289,10 @@ def main():
                     continue
 
                 else:
-                    if not args.quiet:
-                        sys.stderr.write(
-                            "ERROR: broken record <%s>: " "%s\r\n" % (line, exc)
-                        )
+                    # what stopped the conversion is said even to --quiet
+                    sys.stderr.write(
+                        "ERROR: broken record <%s>: " "%s\r\n" % (line, exc)
+                    )
 
                     return 1
 
