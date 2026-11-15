@@ -265,12 +265,13 @@ Examples
     # COUNTER64 object growing by 100 per second from 5000
     1.3.6.1.2.1.31.1.1.1.6.1|70:numeric|scale=0,offset=100,cumulative=1,initial=5000
 
-You are welcome to try the ``numeric`` module in action at our online
-`public SNMP simulation service <https://www.pysnmp.com/snmp-simulation-service>`_:
+The ``variation/virtualtable.snmprec`` recording that comes with the package
+uses the ``numeric`` module. With a responder serving the bundled recordings
+on 127.0.0.1:1611 it can be seen in action:
 
 .. code-block:: bash
 
-    $ snmpget -v2c -c variation/virtualtable demo.pysnmp.com  \
+    $ snmpget -v2c -c variation/virtualtable 127.0.0.1:1611  \
         IF-MIB::ifLastChange.1 IF-MIB::ifInOctets.1
     IF-MIB::ifLastChange.1 = Timeticks: (16808012) 1 day, 22:41:20.12
     IF-MIB::ifInOctets.1 = Counter32: 30374688
@@ -625,16 +626,26 @@ of *.snmprec* files:
     -rw-r--r--  1 root  staff  3145 Mar 30 22:52 00002.snmprec
     ...
 
+The snapshots are served in the ascending order of the numbers in their
+names, in whatever order the file system lists them.
+
 Simulator can use each of these files only once through its
 configured time series. To make it cycling over them, use *wrap*
 option.
+
+.. note::
+
+    Snapshots recorded by a release before 2026.11.1 have two dots in
+    their names, *00000..snmprec*. They are served like the others. Where
+    a directory was recorded into again and holds a snapshot under both
+    names, the one with the single dot is served and the other is logged
+    as ignored.
 
 The *.snmprec* files served by the multiplex module can not include references
 to variation modules.
 
 In cases when automatic, time-based *.snmprec* multiplexing is not
 applicable for simulation purposes, *.snmprec* selection can be configured:
-</p>
 
 .. code-block:: bash
 

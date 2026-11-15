@@ -108,7 +108,9 @@ for Simulator to listen on.
 .. note::
 
     Other parameters can also be present in the file passed to Simulator with
-    the *--args-from-file* option.
+    the *--args-from-file* option. *snmpsim-command-responder-lite* takes
+    the option as well, see :ref:`its description <args-from-file>` for how
+    the file and the command line combine.
 
 For the :ref:`address-based <addressing-simulation-data>` simulation it makes
 to design your *--data-dir* layout matching transport ID's of the addresses
@@ -168,3 +170,8 @@ into SNMPv3 engine so startup time can be dramatically reduced by either
 using the lite version of command responder tool or by turning off
 SNMPv1/v2c configuration at SNMPv3 engine with *--v3-only* command-line
 flag of full version of command responder.
+
+The first start over a set of data files also has to index them. On Python
+3.13 and later that goes about twice as fast when Python has its *gdbm*
+module (the *python3-gdbm* package on Debian and Ubuntu); later starts
+reuse the indices kept in *--cache-dir* for the files which did not change.

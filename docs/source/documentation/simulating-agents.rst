@@ -19,15 +19,21 @@ locate it by searching through the following directories:
 
 * ``~/.snmpsim/data``
 * ``/usr/local/share/snmpsim/data``
+* ``{python-prefix}/snmpsim/data``
+* ``{python-prefix}/share/snmpsim/data``
 * ``{python-package-root}/data``
 
 On Windows search paths are:
 
-* ``\Document and Settings\{user}\Application Data\SNMP Simulator\Data``
-* ``\Program Files\SNMP Simulator\Data``
-* ``{python-package-root}/data``
+* ``%USERPROFILE%\SNMP Simulator\Data``
+* ``%APPDATA%\SNMP Simulator\Data``
+* ``%PROGRAMFILES%\SNMP Simulator\Data``
+* ``{python-package-root}\data``
 
 These directories are searched in the specified order till the first match.
+A directory whose environment variable is not set is left out, so the
+Simulator starts under a service account that has no home directory. The
+last directory holds the sample recordings which come with the package.
 For example, a set up collection of ``.snmprec`` files would look like:
 
 .. code-block:: bash
@@ -77,10 +83,11 @@ Multiple Network Interfaces
 SNMP Simulator daemon can listen at multiple local IP interfaces and/or UDP
 ports. Just pass multiple ``--agent-udpv4-endpoint``/``--agent-udpv6-endpoint``
 command line parameters carrying addresses to listen on. Whenever you wish
-Simulator to listen on thousands of local interfaces and/or ports, use the
-``--agent-udpv4-endpoints-list``/``--agent-udpv6-endpoints-list`` options. These
-options expect to refer to a plain text file containing newline-separated list
-of transport endpoints for Simulator to listen on.
+Simulator to listen on thousands of local interfaces and/or ports, put the
+options into a plain text file and pass it with ``--args-from-file``, as
+shown in :ref:`tips-file-based-configuration`. Both
+``snmpsim-command-responder`` and ``snmpsim-command-responder-lite`` take
+that option.
 
 .. code-block:: bash
 
@@ -181,6 +188,29 @@ To walk simulated 3com switch over SNMPv3 we'd run:
 
     The ``-n <snmp-context>`` parameter passed to the ``snmpwalk`` tool
     addresses specific simulated device at SNMP Simulator daemon.
+
+.. _response-size:
+
+Response size
++++++++++++++
+
+A real agent does not answer a *GETBULK* with more than fits into one
+datagram, and neither does the Simulator: a response is cut to as many
+repetitions as stay within ``--max-message-size``, 1472 octets by default,
+and the manager asks for the rest. Without that a recording with long
+values answers with several kilobytes at once, the reply is fragmented on
+its way, and a manager which does not get every fragment sees a timeout at
+the same OID every time. ``--max-var-binds`` limits the number of variable
+bindings in a response the same way, 64 by default.
+
+Records that cannot be served
++++++++++++++++++++++++++++++
+
+A recording taken from a real device may hold a value no agent can put on
+the wire. Such a record does not stop the Simulator and does not end a
+walk: it is answered with *noSuchInstance* on GET and stepped over on
+GETNEXT and GETBULK. The :ref:`snmpsim-lint-records <snmpsim-lint-records>`
+tool finds these records ahead of time.
 
 .. _multiple-usm-users:
 

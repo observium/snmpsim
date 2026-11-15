@@ -16,6 +16,9 @@ name via the *--variation-module* command-line option. Additional variation
 module parameters could also be passed through the
 *--variation-module-options* switch.
 
+The agent recorded in the examples below answers at 192.0.2.1, an address
+reserved for documentation - put the address of your own agent in its place.
+
 The following standard modules support the recording feature:
 
 * The :ref:`numeric <record-numeric>` module produces a non-decreasing
@@ -73,6 +76,12 @@ whether some other option is given or none at all:
   Multiple add-on parameters can be used. Add-on parameters are written
   only when the Agent is walked twice. Default is empty.
 
+An option is cut at its first colon, so the value may have colons of its
+own. The options are taken all or none: when one of them has no colon, or
+*iterations* or *period* is not a number, the module names the option it
+could not read and the recording goes on with plain values, as if the
+module had been given no options at all.
+
 Examples
 ++++++++
 
@@ -81,15 +90,15 @@ tool will be used.
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
-      --start-oid=1.3.6.1.2.1.2 --stop-oid=1.3.6.1.2.1.3 \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
+      --start-object=1.3.6.1.2.1.2 --stop-object=1.3.6.1.2.1.3 \
       --variation-module=numeric \
       --variation-module-options=taglist:65,iterations:2,period:15 \
     Scanning "/usr/local/share/snmpsim/variation" directory for variation
     modules...numeric module loaded
     SNMP version 2c
     Community name: public
-    Querying UDP/IPv4 agent at demo.pysnmp.com:161
+    Querying UDP/IPv4 agent at 192.0.2.1:161
     Initializing variation module:
         numeric...OK
     numeric: waiting 0.77 sec(s), 111 OIDs dumped, 1 iterations remaining...
@@ -127,14 +136,14 @@ Examples
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
-      --start-oid=1.3.6.1.2.1.2 --stop-oid=1.3.6.1.2.1.3 \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
+      --start-object=1.3.6.1.2.1.2 --stop-object=1.3.6.1.2.1.3 \
       --variation-module=delay
     Scanning "/usr/local/share/snmpsim/variation" directory for variation
     modules...delay module loaded
     SNMP version 2c
     Community name: public
-    Querying UDP/IPv4 agent at demo.pysnmp.com:161
+    Querying UDP/IPv4 agent at 192.0.2.1:161
     Initializing variation module:
         delay...OK
     1.3.6.1.2.1.2.1.0|2:delay|value=5,wait=8
@@ -177,15 +186,15 @@ Examples
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
-      --start-oid=1.3.6.1.2.1.2 --stop-oid=1.3.6.1.2.1.3 \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
+      --start-object=1.3.6.1.2.1.2 --stop-object=1.3.6.1.2.1.3 \
       --output-file=data/multiplex.snmprec \
       --variation-module=multiplex \
       --variation-module-options=dir:data/multiplex,iterations:5,period:15
     Scanning "/usr/local/share/snmpsim/variation" directory for variation modules...multiplex module loaded
     SNMP version 2c
     Community name: public
-    Querying UDP/IPv4 agent at demo.pysnmp.com:161
+    Querying UDP/IPv4 agent at 192.0.2.1:161
     Initializing variation module:
         multiplex...OK
     multiplex: writing into data/multiplex/00000.snmprec file...
@@ -205,7 +214,18 @@ will also be written:
     1.3.6.1.2.1.2|:multiplex|period=15.00,dir=data/multiplex
 
 where the multiplex module is configured for specific OID subtree (actually,
-specified in *--start-oid*).
+specified in *--start-object*).
+
+The snapshots are numbered from zero and named by their number in five
+digits, *00000.snmprec*, *00001.snmprec* and so on. The module closes the
+snapshot it is writing when the recorder shuts it down, so a recording
+that was interrupted still has what was recorded up to then.
+
+.. note::
+
+    Releases before 2026.11.1 named the snapshots with two dots,
+    *00000..snmprec*. Directories recorded by them are served as they are,
+    see the :ref:`multiplex module <variate-multiplex>`.
 
 Although multiplex-generated *.snmprec* files can also be addressed directly
 by Simulator, to benefit from the time series nature of the collected data,
@@ -231,15 +251,15 @@ Running with SQLite DB backend:
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com
-      --start-oid=1.3.6.1.2.1.2 --stop-oid=1.3.6.1.2.1.3
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1
+      --start-object=1.3.6.1.2.1.2 --stop-object=1.3.6.1.2.1.3
       --output-file=data/sql.snmprec
       --variation-module=sql
       --variation-module-options=dbtype:sqlite3,database:/tmp/snmpsim.db,dbtable:snmprec
     Scanning "/usr/local/share/snmpsim/variation" directory for variation modules... sql module loaded
     SNMP version 2c
     Community name: public
-    Querying UDP/IPv4 agent at demo.pysnmp.com:161
+    Querying UDP/IPv4 agent at 192.0.2.1:161
     Initializing variation module:
         sql...OK
     Shutting down variation modules:
@@ -247,7 +267,7 @@ Running with SQLite DB backend:
     OIDs dumped: 45, elapsed: 0.21 sec, rate: 214.29 OIDs/sec
 
 By this point you'd get the *data/sql.snmprec* file where *sql* module
-is configured for OID subtree (taken from *--start-oid* parameter):
+is configured for OID subtree (taken from *--start-object* parameter):
 
 .. code-block:: bash
 
@@ -279,7 +299,7 @@ driver:
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
       --output-file=data/sql.snmprec \
       --variation-module=sql \
       --variation-module-options=dbtype:mysql.connector,host:127.0.0.1, \
@@ -298,7 +318,7 @@ might work:
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
       --output-file=data/sql.snmprec \
       --variation-module=sql
       --variation-module-options=dbtype:mysql.connector,unix_socket: \
@@ -309,7 +329,7 @@ package could be used for SNMP Simulator's MySQL connection:
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
       --output-file=data/sql.snmprec \
       --variation-module=sql \
       --variation-module-options=dbtype:MySQLdb,host:127.0.0.1,port:3306, \
@@ -320,7 +340,7 @@ as a backend data store:
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
       --output-file=data/sql.snmprec \
       --variation-module=sql \
       --variation-module-options=dbtype:psycopg2,database:snmpsim,user:snmpsim, \
@@ -379,8 +399,8 @@ SNMP Agent:
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
-      --start-oid=1.3.6.1.2.1.2 --stop-oid=1.3.6.1.2.1.3 \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
+      --start-object=1.3.6.1.2.1.2 --stop-object=1.3.6.1.2.1.3 \
       --output-file=data/redis.snmprec \
       --variation-module=redis \
       --variation-module-options=host:127.0.0.1,port:6379,db:0,key-spaces-id:1111, \
@@ -388,7 +408,7 @@ SNMP Agent:
     Scanning "variation" directory for variation modules...
     Variation module "redis" loaded
     SNMP version 2c, Community name: public
-    Querying UDP/IPv4 agent at 195.218.195.228:161
+    Querying UDP/IPv4 agent at 192.0.2.1:161
     Initializing variation module...
     redis: using key-spaces-id 1111
     Variation module "redis" initialization OK
@@ -412,7 +432,7 @@ SNMP Agent:
     OIDs dumped: 603, elapsed: 329.22 sec, rate: 1.83 OIDs/sec
 
 By this point you'd get the *data/redis.snmprec* file where *redis* module
-is configured for OID subtree (taken from the *--start-oid* parameter):
+is configured for OID subtree (taken from the *--start-object* parameter):
 
 .. code-block:: bash
 
