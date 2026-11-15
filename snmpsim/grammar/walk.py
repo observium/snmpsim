@@ -148,18 +148,28 @@ class WalkGrammar(abstract.AbstractGrammar):
 
         return bytes(int(y, 16) for y in value.split(" "))
 
-    @staticmethod
-    def _hex_string_filter(value):
-        # .1.3.6.1.2.1.3.1.1.2.2.1.172.30.1.30 = Hex-STRING: 00 C0 FF 43 CE 45   [...C.E]
-        match = re.match(r"^([0-9a-fA-F]{2}(\s+[0-9a-fA-F]{2})*)\s+\[", value)
-        if match:
-            return [int(y, 16) for y in match.group(1).split(" ")]
-        elif " " in value:
-            return [int(y, 16) for y in value.split(" ")]
-        else:
-            # This could be the format returned by some unknown windows snmpwalk tool:
-            # .1.3.6.1.2.1.2.2.1.6.1 = HEX-STRING: 00029929AE3C
-            return [int(value[i : i + 2], 16) for i in range(0, len(value), 2)]
+    @classmethod
+    def _hex_string_filter(cls, value):
+        octets = []
+
+        # a long value takes several lines, sixteen octets on each
+        for row in value.split("\n"):
+            row = row.strip(cls.WHITESPACE)
+
+            # .1.3.6.1.2.1.3.1.1.2.2.1.172.30.1.30 = Hex-STRING: 00 C0 FF 43 CE 45   [...C.E]
+            match = re.match(r"^([0-9a-fA-F]{2}(\s+[0-9a-fA-F]{2})*)\s+\[", row)
+            if match:
+                row = match.group(1)
+
+            if " " in row:
+                octets.extend(int(y, 16) for y in row.split(" ") if y)
+
+            else:
+                # This could be the format returned by some unknown windows snmpwalk tool:
+                # .1.3.6.1.2.1.2.2.1.6.1 = HEX-STRING: 00029929AE3C
+                octets.extend(int(row[i : i + 2], 16) for i in range(0, len(row), 2))
+
+        return octets
 
     @staticmethod
     def _gauge_filter(value):
@@ -187,6 +197,50 @@ class WalkGrammar(abstract.AbstractGrammar):
             return match.group(1)
 
         return value
+
+    # what a record of a walk starts with: an OID, in numbers or by name
+    RECORD_START = re.compile(
+        r"(?:\.?[0-9]+(?:\.[0-9]+)+|\.?iso(?:\.[0-9]+)+|[\w\-]+::\S+) = ", re.ASCII
+    )
+
+    # the type of a value that may go on for more lines, and its beginning
+    WRAPPING_VALUE = re.compile(
+        r"[^\n]*? = (?:Wrong Type \(should be [^\n]*?\): )?"
+        r"(STRING|Hex-STRING): ?(.*)",
+        re.ASCII | re.DOTALL | re.IGNORECASE,
+    )
+
+    HEX_ROW = re.compile(
+        r"[0-9a-fA-F]{2}(?:[ \t]+[0-9a-fA-F]{2})*[ \t]*(?:\[.*)?", re.ASCII | re.DOTALL
+    )
+
+    QUOTED_STRING = re.compile(r'"(?:[^"\\]|\\.)*"', re.DOTALL)
+
+    def continues(self, record, line):
+        """Tell if `line` carries on with the value `record` ends in.
+
+        That takes a record that is still open: a quoted STRING whose
+        closing quote has not come yet, or a Hex-STRING followed by a
+        line of nothing but hex octets. A line that starts a record of
+        its own never continues the one before it, so a string cut short
+        costs that one value and not the rest of the walk.
+        """
+        match = self.WRAPPING_VALUE.match(record.decode("iso-8859-1"))
+        if not match:
+            return False
+
+        tag, value = match.groups()
+        value = value.strip(self.WHITESPACE)
+        line = line.decode("iso-8859-1")
+
+        if tag.upper() == "HEX-STRING":
+            return bool(self.HEX_ROW.fullmatch(line.strip(self.WHITESPACE)))
+
+        # snmpwalk puts a backslash before the quotes inside the string
+        if not value.startswith('"') or self.QUOTED_STRING.fullmatch(value):
+            return False
+
+        return not self.RECORD_START.match(line)
 
     def parse(self, line):
         filters = {
@@ -224,7 +278,7 @@ class WalkGrammar(abstract.AbstractGrammar):
         if value.startswith("No more variables left in this MIB View"):
             value = "STRING: "
 
-        match = re.match(r"^(\w+(?:[\-\ ]\w+)?:)\ ?(.*)", value, re.ASCII)
+        match = re.match(r"^(\w+(?:[\-\ ]\w+)?:)\ ?(.*)", value, re.ASCII | re.DOTALL)
         if match:
             tag = match.group(1)
             value = match.group(2)

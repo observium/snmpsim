@@ -26,7 +26,6 @@ from snmpsim.record import mvc
 from snmpsim.record import sap
 from snmpsim.record import snmprec
 from snmpsim.record import walk
-from snmpsim.record.search.file import get_record
 
 
 class SnmprecRecordMixIn:
@@ -249,7 +248,10 @@ def main():
         line_no = 0
 
         while True:
-            line, rec_line_no, _ = get_record(input_file, line_no)
+            # the record type knows how many lines a record of it takes
+            line, rec_line_no, _ = RECORD_TYPES[args.source_record_type].read_record(
+                input_file, line_no
+            )
 
             if not line:
                 break

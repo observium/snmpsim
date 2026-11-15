@@ -10,11 +10,20 @@ from pyasn1.type import univ
 from snmpsim.error import SnmpsimError
 from snmpsim.grammar import dump
 from snmpsim.record import abstract
+from snmpsim.record.search.file import get_record
 
 
 class DumpRecord(abstract.AbstractRecord):
     grammar = dump.DumpGrammar()
     ext = "dump"
+
+    def read_record(self, file_obj, line_no=None, offset=0):
+        """Read the next record of a file that is being converted.
+
+        One line is one record here; formats that spread a record over
+        several lines override this.
+        """
+        return get_record(file_obj, line_no, offset)
 
     def evaluate_oid(self, oid):
         return univ.ObjectIdentifier(oid)
