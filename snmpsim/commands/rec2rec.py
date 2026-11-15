@@ -287,6 +287,10 @@ def main():
                 )
             )
 
+        file_no = args.input_files.index(input_file)
+
+        # the last line read so far: what a record took and what came
+        # ahead of it, comments and blank lines, are all counted
         line_no = 0
 
         while True:
@@ -302,17 +306,13 @@ def main():
                 if not args.quiet:
                     sys.stderr.write(
                         "# Losing comment at lines %s..%s (input file #"
-                        "%s)\r\n"
-                        % (
-                            line_no + 1,
-                            rec_line_no - 1,
-                            args.input_files.index(input_file),
-                        )
+                        "%s)\r\n" % (line_no + 1, rec_line_no - 1, file_no)
                     )
 
-                line_no = rec_line_no
-
                 lost_comments += 1
+
+            # a record is told the line it starts on, and may take more
+            line_no = rec_line_no + line.count(b"\n") - line.endswith(b"\n")
 
             backdoor = {}
 
@@ -322,10 +322,13 @@ def main():
                 )
 
             except error.SnmpsimError as exc:
+                where = "at line %s (input file #%s)" % (rec_line_no, file_no)
+
                 if args.ignore_broken_records:
                     if not args.quiet:
                         sys.stderr.write(
-                            "# Skipping broken record <%s>: " "%s\r\n" % (line, exc)
+                            "# Skipping broken record <%s> %s: "
+                            "%s\r\n" % (line, where, exc)
                         )
                     broken_count += 1
                     continue
@@ -333,7 +336,7 @@ def main():
                 else:
                     # what stopped the conversion is said even to --quiet
                     sys.stderr.write(
-                        "ERROR: broken record <%s>: " "%s\r\n" % (line, exc)
+                        "ERROR: broken record <%s> %s: %s\r\n" % (line, where, exc)
                     )
 
                     # what was written ahead of it stays written
