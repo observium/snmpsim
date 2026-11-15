@@ -246,7 +246,9 @@ def main():
         "one value is overridden by the command line, an option that can be "
         "given more than once (--data-dir, the endpoints) gets the values of "
         "both, and --agent-udpv4-endpoint in one with --agent-udpv6-endpoint "
-        "in the other is an error, as it is on one command line",
+        "in the other is an error, as it is on one command line. A switch "
+        "the file turns on (--daemonize, --quiet and the like) cannot be "
+        "turned off from the command line",
     )
 
     # The file can hold the required options, so it has to be read before

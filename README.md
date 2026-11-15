@@ -99,9 +99,10 @@ Most items were also filed upstream; those link to their pull request:
 * `snmpsim-command-responder-lite` takes `--args-from-file`, with the same file format as the
   full responder (`--option=value` items separated by whitespace) and any of its options allowed
   in the file; the command line overrides the file for an option that takes one value and adds
-  to it for a repeatable one such as `--data-dir`; before, the option existed only in the full
-  responder and the lite one rejected it as "unrecognized arguments", so hundreds of endpoints
-  had to fit on one command line
+  to it for a repeatable one such as `--data-dir`, and cannot switch off an on/off option such
+  as `--daemonize` that the file sets; before, the option existed only in the full responder and
+  the lite one rejected it as "unrecognized arguments", so hundreds of endpoints had to fit on
+  one command line
 * The lite responder and `snmpsim-record-traffic` no longer depend on pysnmp's last camelCase
   leftover: both called `api.decodeMessageVersion`, a pre-7 alias of
   `verdec.decode_message_version`, and without it the responder answers nothing and the

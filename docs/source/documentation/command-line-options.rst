@@ -388,7 +388,10 @@ by the command line. An option that can be given more than once
 *--debug-asn1*) is not: the values of the file and of the command line
 add up. *--agent-udpv4-endpoint* and *--agent-udpv6-endpoint* exclude
 each other, so one of them in the file and the other on the command line
-is an error.
+is an error. The on/off switches (*--daemonize*, *--quiet*, *--v2c-arch*,
+*--v3-only*, *--force-index-rebuild*, *--validate-data*) have no "off"
+form, so one that the file sets cannot be switched off from the command
+line.
 *snmpsim-command-responder* reads from the file the options that configure
 its SNMP engines (*--v3-engine-id*, *--data-dir*, *--agent-udpv4-endpoint*
 and the like) and adds them after those of the command line.
