@@ -197,32 +197,15 @@ V3_USERS = {
 
 
 @pytest.fixture(scope="module")
-def v3_agent():
+def v3_agent(responder_process):
     """A responder of its own, knowing one USM user per security level"""
-    responder = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "snmpsim.commands.responder",
-            f"--data-dir={DATA_DIR}",
-            f"--agent-udpv4-endpoint=127.0.0.1:{V3_PORT_NUMBER}",
-        ]
-        + [option for options in V3_USERS.values() for option in options],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    # Allow some time for the responder to come up; the recorder retries
-    time.sleep(1)
-
-    try:
-        assert responder.poll() is None, "the responder did not start"
-
-        yield f"127.0.0.1:{V3_PORT_NUMBER}"
-
-    finally:
-        responder.terminate()
-        responder.wait(timeout=30)
+    with responder_process(
+        f"--data-dir={DATA_DIR}",
+        *[option for options in V3_USERS.values() for option in options],
+        port=V3_PORT_NUMBER,
+        oid="1.3.6.1.2.1.1.1.0",
+    ) as endpoint:
+        yield endpoint
 
 
 def _record(monkeypatch, output_file, endpoint, *options):

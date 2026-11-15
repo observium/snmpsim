@@ -1,8 +1,4 @@
-import asyncio
 import os
-import sys
-import threading
-import time
 
 import pytest
 from pysnmp.hlapi.asyncio import (
@@ -18,10 +14,7 @@ from pysnmp.hlapi.asyncio import (
 )
 from pysnmp.proto import rfc1902
 
-from snmpsim.commands.responder import main as responder_main
-
-# one responder serves every test of the module, so it has to outlive them all
-TIME_OUT = int(os.getenv("SNMPSIM_TEST_TIMEOUT", "15")) + 5
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT_NUMBER = 1642
 
 V1, V2C = 0, 1
@@ -38,32 +31,14 @@ LAST = "1.3.6.1.4.1.99999.3.8.0"
 
 
 @pytest.fixture(scope="module", autouse=True)
-def responder():
-    original_argv = sys.argv
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    sys.argv = [
-        "responder.py",
-        "--data-dir=%s" % os.path.join(base_dir, "data", "error"),
-        "--agent-udpv4-endpoint=127.0.0.1:%d" % PORT_NUMBER,
-        "--timeout=%d" % TIME_OUT,
-    ]
-
-    def target():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            responder_main()
-        finally:
-            loop.close()
-
-    app_thread = threading.Thread(target=target)
-    app_thread.start()
-    time.sleep(1)
-
-    yield
-
-    sys.argv = original_argv
-    app_thread.join(timeout=TIME_OUT)
+def responder(responder_process):
+    # one responder serves every test of the module
+    with responder_process(
+        "--data-dir=%s" % os.path.join(BASE_DIR, "data", "error"),
+        port=PORT_NUMBER,
+        oid=FIRST,
+    ):
+        yield
 
 
 async def request(command, version, *var_binds):
