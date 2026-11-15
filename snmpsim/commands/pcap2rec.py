@@ -181,6 +181,7 @@ def main():
     contexts = {}
 
     stats = {
+        "packets read": 0,
         "UDP packets": 0,
         "IP packets": 0,
         "bad packets": 0,
@@ -571,7 +572,14 @@ def main():
         return pkt
 
     def handle_snmp_message(d, t, private={}):
-        msg_ver = verdec.decode_message_version(d["data"])
+        try:
+            msg_ver = verdec.decode_message_version(d["data"])
+
+        except (PySnmpError, PyAsn1Error, TypeError):
+            # Not SNMP: a payload that is not BER at all comes back from
+            # pysnmp as a TypeError as readily as an error of its own
+            stats["bad packets"] += 1
+            return
 
         if msg_ver in api.PROTOCOL_MODULES:
             p_mod = api.PROTOCOL_MODULES[msg_ver]
@@ -642,11 +650,23 @@ def main():
                     stats["OIDs seen"] += 1
 
     def handle_packet(pktlen, data, timestamp):
+        stats["packets read"] += 1
+
         if not data:
             stats["empty packets"] += 1
             return
 
-        handle_snmp_message(parse_packet(data), timestamp)
+        try:
+            packet = parse_packet(data)
+
+        except (IndexError, struct.error, OSError):
+            # cut short, or never was IPv4
+            stats["bad packets"] += 1
+            return
+
+        handle_snmp_message(packet, timestamp)
+
+    rc = 0
 
     try:
         if args.listen_interface:
@@ -664,153 +684,182 @@ def main():
             for packet in capture:
                 handle_packet(*packet)
 
-    except (TypeError, KeyboardInterrupt):
+    except KeyboardInterrupt:
         log.info("Shutting down process...")
 
-    finally:
-        data_file_handler = SnmprecRecord()
+    except Exception as exc:
+        # What the packets before this one held is still worth writing out,
+        # but the recording is not the whole capture and the caller must know
+        log.error(
+            "packet %s: %s: %s, the packets after it are not read"
+            % (stats["packets read"], exc.__class__.__name__, exc)
+        )
+        rc = 1
 
-        for context in contexts:
-            ext = os.path.extsep
-            ext += RECORD_TYPES[args.destination_record_type].ext
+    data_file_handler = SnmprecRecord()
 
-            filename = os.path.join(args.output_dir, context + ext)
+    for context in contexts:
+        oids = sorted(contexts[context])
 
-            if not args.quiet:
-                log.info("Creating simulation context %s at %s" % (context, filename))
+        if not oids:
+            # all its OIDs fell outside --start-object..--stop-object
+            continue
 
-            os.makedirs(os.path.dirname(filename), exist_ok=True)
+        ext = os.path.extsep
+        ext += RECORD_TYPES[args.destination_record_type].ext
 
-            record = RECORD_TYPES[args.destination_record_type]
+        filename = os.path.join(args.output_dir, context + ext)
 
-            try:
-                output_file = record.open(filename, "wb")
+        if not args.quiet:
+            log.info("Creating simulation context %s at %s" % (context, filename))
 
-            except OSError as exc:
-                log.error(f"writing {filename}: {exc}")
-                return 1
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
 
-            count = total = iteration = 0
-            time_offset = 0
-            req_time = time.time()
+        record = RECORD_TYPES[args.destination_record_type]
 
-            oids = sorted(contexts[context])
-            oids.append(oids[-1])  # duplicate last OID to trigger stopFlag
+        try:
+            output_file = record.open(filename, "wb")
 
-            while True:
-                for oid in oids:
-                    timeline, values = contexts[context][oid]
+        except OSError as exc:
+            log.error(f"writing {filename}: {exc}")
+            return 1
 
-                    value = values[
-                        min(len(values) - 1, bisect.bisect_left(timeline, time_offset))
-                    ]
+        count = total = iteration = 0
+        time_offset = 0
+        req_time = time.time()
 
-                    if value.tagSet in (
-                        rfc1905.NoSuchObject.tagSet,
-                        rfc1905.NoSuchInstance.tagSet,
-                        rfc1905.EndOfMibView.tagSet,
-                    ):
-                        stats["SNMP exceptions"] += 1
-                        continue
+        while True:
+            # What the agent was answering at this point of the capture
 
-                    # remove value enumeration
+            snapshot = []
 
-                    if value.tagSet == Integer32.tagSet:
-                        value = unconstrained.Integer32(value)
+            for oid in oids:
+                timeline, values = contexts[context][oid]
 
-                    if value.tagSet == Unsigned32.tagSet:
-                        value = unconstrained.Unsigned32(value)
+                value = values[
+                    min(len(values) - 1, bisect.bisect_left(timeline, time_offset))
+                ]
 
-                    if value.tagSet == Bits.tagSet:
-                        value = OctetString(value)
+                if value.tagSet in (
+                    rfc1905.NoSuchObject.tagSet,
+                    rfc1905.NoSuchInstance.tagSet,
+                    rfc1905.EndOfMibView.tagSet,
+                ):
+                    stats["SNMP exceptions"] += 1
+                    continue
 
-                    # Build .snmprec record
+                # remove value enumeration
 
-                    ctx = {
-                        "origOid": oid,
-                        "origValue": value,
-                        "count": count,
-                        "total": total,
-                        "iteration": iteration,
-                        "reqTime": req_time,
-                        "startOID": args.start_object,
-                        "stopOID": args.stop_object,
-                        "stopFlag": oids.index(oid) == len(oids) - 1,
-                        "variationModule": variation_module,
-                    }
+                if value.tagSet == Integer32.tagSet:
+                    value = unconstrained.Integer32(value)
 
-                    try:
-                        line = data_file_handler.format(oid, value, **ctx)
+                if value.tagSet == Unsigned32.tagSet:
+                    value = unconstrained.Unsigned32(value)
 
-                    except error.MoreDataNotification as exc:
-                        count = 0
-                        iteration += 1
+                if value.tagSet == Bits.tagSet:
+                    value = OctetString(value)
 
-                        moreDataNotification = exc
-                        if "period" in moreDataNotification:
-                            time_offset += moreDataNotification["period"]
-                            log.info(
-                                "%s OIDs dumped, advancing time window to "
-                                "%.2f sec(s)..." % (total, time_offset)
-                            )
-                        break
+                snapshot.append((oid, value))
 
-                    except error.NoDataNotification:
-                        pass
+            # A recorder walking an agent learns that the walk is over from
+            # one more response, and passes it on with the stop flag set.
+            # Here the last record plays that part: it is formatted once
+            # more, flagged, for a variation module to close the pass or ask
+            # for another one. Nothing is written for it.
 
-                    except error.SnmpsimError as exc:
-                        log.error(exc)
-                        continue
+            for position, (oid, value) in enumerate(snapshot + snapshot[-1:]):
+                # Build .snmprec record
 
-                    else:
-                        output_file.write(line)
+                ctx = {
+                    "origOid": oid,
+                    "origValue": value,
+                    "count": count,
+                    "total": total,
+                    "iteration": iteration,
+                    "reqTime": req_time,
+                    "startOID": args.start_object,
+                    "stopOID": args.stop_object,
+                    "stopFlag": position == len(snapshot),
+                    "variationModule": variation_module,
+                }
 
-                        count += 1
-                        total += 1
+                try:
+                    line = data_file_handler.format(oid, value, **ctx)
 
-                else:
+                except error.MoreDataNotification as exc:
+                    count = 0
+                    iteration += 1
+
+                    moreDataNotification = exc
+                    if "period" in moreDataNotification:
+                        time_offset += moreDataNotification["period"]
+                        log.info(
+                            "%s OIDs dumped, advancing time window to "
+                            "%.2f sec(s)..." % (total, time_offset)
+                        )
                     break
 
-            output_file.flush()
-            output_file.close()
+                except error.NoDataNotification:
+                    pass
 
-        if variation_module:
-            log.info('Shutting down variation module "%s"...' % args.variation_module)
+                except error.SnmpsimError as exc:
+                    log.error(exc)
+                    continue
 
-            handler = variation_module["shutdown"]
+                else:
+                    if ctx["stopFlag"]:
+                        # a module that formats the flagged record as any
+                        # other must not get the last OID written twice
+                        continue
 
-            try:
-                handler(options=args.variation_module_options, mode="recording")
+                    output_file.write(line)
 
-            except Exception as exc:
-                log.error(
-                    'Variation module "%s" shutdown FAILED: '
-                    "%s" % (args.variation_module, exc)
-                )
+                    count += 1
+                    total += 1
 
             else:
-                log.info('Variation module "%s" shutdown OK' % args.variation_module)
+                break
 
-        if args.listen_interface:
-            log.info(
-                """\
+        output_file.flush()
+        output_file.close()
+
+    if variation_module:
+        log.info('Shutting down variation module "%s"...' % args.variation_module)
+
+        handler = variation_module["shutdown"]
+
+        try:
+            handler(options=args.variation_module_options, mode="recording")
+
+        except Exception as exc:
+            log.error(
+                'Variation module "%s" shutdown FAILED: '
+                "%s" % (args.variation_module, exc)
+            )
+
+        else:
+            log.info('Variation module "%s" shutdown OK' % args.variation_module)
+
+    if args.listen_interface:
+        log.info(
+            """\
 PCap statistics:
     packets snooped: %s
     packets dropped: %s
     packets dropped: by interface %s\
     """
-                % capture.stats()
-            )
+            % capture.stats()
+        )
 
-        log.info(
-            """\
+    log.info(
+        """\
 SNMP statistics:
     %s\
     """
-            % "    ".join(["%s: %s\r\n" % kv for kv in stats.items()])
-        )
+        % "    ".join(["%s: %s\r\n" % kv for kv in stats.items()])
+    )
 
-    return 0
+    return rc
 
 
 if __name__ == "__main__":
