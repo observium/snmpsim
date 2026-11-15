@@ -44,6 +44,10 @@ from snmpsim.reporting.manager import ReportingManager
 # securityModel of the User-based Security Model, RFC 3411 section 5
 USM_SECURITY_MODEL = 3
 
+# msgVersion on the wire, which is also the ID of the message processing
+# model handling it, to the name the version goes by
+SNMP_VERSIONS = {0: "1", 1: "2c", 3: "3"}
+
 AUTH_PROTOCOLS = {
     "MD5": config.USM_AUTH_HMAC96_MD5,
     "SHA": config.USM_AUTH_HMAC96_SHA,
@@ -436,11 +440,28 @@ def main():
         help="Options for a specific variation module",
     )
 
-    parser.add_argument(
+    # at most one of these: each of them leaves a single way to be asked
+    version_group = parser.add_mutually_exclusive_group()
+
+    version_group.add_argument(
         "--v3-only",
         action="store_true",
         help="Trip legacy SNMP v1/v2c support to gain a little lesser memory "
         "footprint",
+    )
+
+    version_group.add_argument(
+        "--v1-only",
+        action="store_true",
+        help="Answer SNMPv1 requests only. SNMPv2c and SNMPv3 requests get no "
+        "response, as from an agent configured for SNMPv1 alone",
+    )
+
+    version_group.add_argument(
+        "--v2c-only",
+        action="store_true",
+        help="Answer SNMPv2c requests only. SNMPv1 and SNMPv3 requests get no "
+        "response, as from an agent configured for SNMPv2c alone",
     )
 
     parser.add_argument(
@@ -864,6 +885,17 @@ configured automatically based on simulation data file paths relative to
     if snmp_args and snmp_args[-1][0] != "end-of-options":
         snmp_args.append(("end-of-options", ""))
 
+    if args.v1_only:
+        served_versions = {"1"}
+
+    elif args.v2c_only:
+        served_versions = {"2c"}
+
+    else:
+        # --v3-only keeps its meaning: no community is configured for the
+        # recordings, the processing models stay
+        served_versions = None
+
     snmp_engine = None
     timeout = 0  # Initialize timeout before the loop
 
@@ -1017,6 +1049,16 @@ configured automatically based on simulation data file paths relative to
                     % local_max_message_size
                 )
 
+                log.info(
+                    "SNMP versions served: %s"
+                    % ", ".join(
+                        sorted(
+                            SNMP_VERSIONS[int(model_id)]
+                            for model_id in snmp_engine.message_processing_subsystems
+                        )
+                    )
+                )
+
                 log.info("--- Transport configuration")
 
                 if not agent_udpv4_endpoints and not agent_udpv6_endpoints:
@@ -1126,6 +1168,14 @@ configured automatically based on simulation data file paths relative to
                 return 1
 
             config.add_context(snmp_engine, "")
+
+            if served_versions:
+                # A message of a version the engine has no processing model
+                # for is counted in snmpInBadVersions and dropped, nothing
+                # goes back to the manager.
+                for model_id in list(snmp_engine.message_processing_subsystems):
+                    if SNMP_VERSIONS[int(model_id)] not in served_versions:
+                        del snmp_engine.message_processing_subsystems[model_id]
 
         elif opt[0] == "--v3-context-engine-id":
             v3_context_engine_ids.append((univ.OctetString(hexValue=opt[1]), []))
