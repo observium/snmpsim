@@ -21,6 +21,7 @@ from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.carrier.asyncio.dgram import udp6
 from pysnmp.carrier.asyncio.dispatch import AsyncioDispatcher
 from pysnmp.proto import api
+from pysnmp.proto.api import verdec
 from pysnmp.proto import rfc1902
 from pysnmp.proto import rfc1905
 
@@ -411,7 +412,7 @@ def main():
     ):
         """v2c arch command responder request handling callback"""
         while whole_msg:
-            msg_ver = api.decodeMessageVersion(whole_msg)
+            msg_ver = verdec.decode_message_version(whole_msg)
 
             if msg_ver in api.PROTOCOL_MODULES:
                 p_mod = api.PROTOCOL_MODULES[msg_ver]

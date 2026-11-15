@@ -24,6 +24,7 @@ from pysnmp import debug as pysnmp_debug
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.error import PySnmpError
 from pysnmp.proto import api
+from pysnmp.proto.api import verdec
 from pysnmp.proto import rfc1905
 from pysnmp.proto.rfc1902 import Bits
 from pysnmp.proto.rfc1902 import Integer32
@@ -570,7 +571,7 @@ def main():
         return pkt
 
     def handle_snmp_message(d, t, private={}):
-        msg_ver = api.decodeMessageVersion(d["data"])
+        msg_ver = verdec.decode_message_version(d["data"])
 
         if msg_ver in api.PROTOCOL_MODULES:
             p_mod = api.PROTOCOL_MODULES[msg_ver]
