@@ -25,10 +25,21 @@ class SapGrammar(abstract.AbstractGrammar):
         "Counter64": unconstrained.Counter64,
     }
 
+    # ASCII only: str.strip() would also take 0x85 and 0xa0, which end
+    # many UTF-8 and code page strings, for white space
+    WHITESPACE = " \t\n\r\x0b\x0c"
+
     @staticmethod
     def _stringFilter(value):
         if value[:2] == "0x":
-            value = [int(value[x : x + 2], 16) for x in range(2, len(value[2:]) + 2, 2)]
+            try:
+                value = [
+                    int(value[x : x + 2], 16) for x in range(2, len(value[2:]) + 2, 2)
+                ]
+
+            except ValueError:
+                # 1.3.6.1.2.1.1.5.0, OctetString, 0x73ZZ
+                raise error.SnmpsimError("broken hex string <%s>" % value)
 
         return value
 
@@ -37,7 +48,8 @@ class SapGrammar(abstract.AbstractGrammar):
 
         try:
             oid, tag, value = (
-                x.strip() for x in line.decode("iso-8859-1").split(",", 2)
+                x.strip(self.WHITESPACE)
+                for x in line.decode("iso-8859-1").split(",", 2)
             )
 
         except Exception as exc:
@@ -46,6 +58,6 @@ class SapGrammar(abstract.AbstractGrammar):
         else:
             if oid and tag:
                 handler = filters.get(tag, lambda x: x)
-                return oid, tag, handler(value.strip())
+                return oid, tag, handler(value)
 
             raise error.SnmpsimError("broken record <%s>" % line)

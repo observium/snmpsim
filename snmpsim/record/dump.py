@@ -10,11 +10,23 @@ from pyasn1.type import univ
 from snmpsim.error import SnmpsimError
 from snmpsim.grammar import dump
 from snmpsim.record import abstract
+from snmpsim.record.search.file import get_record
 
 
 class DumpRecord(abstract.AbstractRecord):
     grammar = dump.DumpGrammar()
     ext = "dump"
+
+    # how to get a file whose OIDs can be read, where there is a way
+    oid_hint = ""
+
+    def read_record(self, file_obj, line_no=None, offset=0):
+        """Read the next record of a file that is being converted.
+
+        One line is one record here; formats that spread a record over
+        several lines override this.
+        """
+        return get_record(file_obj, line_no, offset)
 
     def evaluate_oid(self, oid):
         return univ.ObjectIdentifier(oid)
@@ -43,8 +55,24 @@ class DumpRecord(abstract.AbstractRecord):
         return oid, tag, value
 
     def evaluate(self, line, **context):
-        oid, tag, value = self.grammar.parse(line)
-        oid = self.evaluate_oid(oid)
+        # whatever is wrong with a line, it is a broken record to the
+        # caller, who skips it or stops; anything else is a crash
+        try:
+            oid, tag, value = self.grammar.parse(line)
+
+        except SnmpsimError:
+            raise
+
+        except Exception as exc:
+            raise SnmpsimError("value is not what its type takes: %s" % exc)
+
+        try:
+            oid = self.evaluate_oid(oid)
+
+        except Exception as exc:
+            raise SnmpsimError(
+                "OID %r is not in numbers%s: %s" % (oid, self.oid_hint, exc)
+            )
 
         if context.get("oidOnly"):
             value = None

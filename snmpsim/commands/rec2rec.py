@@ -26,7 +26,6 @@ from snmpsim.record import mvc
 from snmpsim.record import sap
 from snmpsim.record import snmprec
 from snmpsim.record import walk
-from snmpsim.record.search.file import get_record
 
 
 class SnmprecRecordMixIn:
@@ -232,9 +231,51 @@ def main():
             sys.stderr.write("ERROR: %s\r\n" % exc)
             return 1
 
+    # Sorting is the only thing that takes all the records at once. Without
+    # it each record is written as soon as it is read, so that the size of
+    # a conversion is not bound by memory. Dropping duplicates only takes
+    # remembering the OIDs seen so far.
     records_list = []
+    unique_indices = set()
+    write_failed = False
+
+    def write_record(oid, value, backdoor):
+        """Write one record out; False once the output cannot be written."""
+        nonlocal written_count, duplicate_count, variation_count
+
+        if args.deduplicate_records:
+            if oid in unique_indices:
+                if not args.quiet:
+                    sys.stderr.write("# Skipping duplicate record " "<%s>\r\n" % oid)
+
+                duplicate_count += 1
+
+                return True
+
+            unique_indices.add(oid)
+
+        try:
+            args.output_file.write(
+                RECORD_TYPES[args.destination_record_type].format(
+                    oid, value, backdoor=backdoor, nohex=args.escaped_strings
+                )
+            )
+
+        except Exception as exc:
+            sys.stderr.write("ERROR: record not written: %s\r\n" % exc)
+            return False
+
+        written_count += 1
+
+        if backdoor:
+            variation_count += 1
+
+        return True
 
     for input_file in args.input_files:
+        if write_failed:
+            break
+
         if not args.quiet:
             sys.stderr.write(
                 "# Input file #%s, processing records from %s till "
@@ -249,7 +290,10 @@ def main():
         line_no = 0
 
         while True:
-            line, rec_line_no, _ = get_record(input_file, line_no)
+            # the record type knows how many lines a record of it takes
+            line, rec_line_no, _ = RECORD_TYPES[args.source_record_type].read_record(
+                input_file, line_no
+            )
 
             if not line:
                 break
@@ -287,10 +331,13 @@ def main():
                     continue
 
                 else:
-                    if not args.quiet:
-                        sys.stderr.write(
-                            "ERROR: broken record <%s>: " "%s\r\n" % (line, exc)
-                        )
+                    # what stopped the conversion is said even to --quiet
+                    sys.stderr.write(
+                        "ERROR: broken record <%s>: " "%s\r\n" % (line, exc)
+                    )
+
+                    # what was written ahead of it stays written
+                    args.output_file.flush()
 
                     return 1
 
@@ -303,43 +350,18 @@ def main():
                 skipped_count += 1
                 continue
 
-            records_list.append((oid, value, backdoor))
+            if args.sort_records:
+                records_list.append((oid, value, backdoor))
 
-    if args.sort_records:
-        records_list.sort(key=lambda x: x[0])
+            elif not write_record(oid, value, backdoor):
+                write_failed = True
+                break
 
-    unique_indices = set()
+    records_list.sort(key=lambda x: x[0])
 
     for record in records_list:
-        if args.deduplicate_records:
-            if record[0] in unique_indices:
-                if not args.quiet:
-                    sys.stderr.write(
-                        "# Skipping duplicate record " "<%s>\r\n" % record[0]
-                    )
-
-                duplicate_count += 1
-
-                continue
-
-            else:
-                unique_indices.add(record[0])
-
-        try:
-            args.output_file.write(
-                RECORD_TYPES[args.destination_record_type].format(
-                    record[0], record[1], backdoor=record[2], nohex=args.escaped_strings
-                )
-            )
-
-        except Exception as exc:
-            sys.stderr.write("ERROR: record not written: %s\r\n" % exc)
+        if not write_record(*record):
             break
-
-        written_count += 1
-
-        if record[2]:
-            variation_count += 1
 
     if not args.quiet:
         sys.stderr.write(
