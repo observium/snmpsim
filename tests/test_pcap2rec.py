@@ -120,3 +120,50 @@ def test_pcap2rec_builds_recording_from_capture(monkeypatch, tmp_path):
         "1.3.6.1.2.1.1.5.0": "device-1",
         "1.3.6.1.2.1.1.6.0": "Server room",
     }
+
+
+def test_pcap2rec_decodes_version_by_current_name(monkeypatch, tmp_path):
+    """A capture converts without pysnmp's camelCase version decoder.
+
+    `pysnmp.proto.api.decodeMessageVersion` is a leftover alias of
+    `verdec.decode_message_version`; the converter must not depend on it.
+    """
+    capture_file = tmp_path / "snmp.pcap"
+    output_dir = tmp_path / "data"
+
+    write_capture(
+        str(capture_file),
+        [
+            build_udp_frame(
+                build_snmp_response("public", [("1.3.6.1.2.1.1.5.0", "device1")])
+            )
+        ],
+    )
+
+    monkeypatch.delattr("pysnmp.proto.api.decodeMessageVersion")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "snmpsim-record-traffic",
+            f"--capture-file={capture_file}",
+            f"--output-dir={output_dir}",
+            "--quiet",
+        ],
+    )
+
+    assert pcap2rec_main() == 0
+
+    recordings = [
+        os.path.join(root, name)
+        for root, _, names in os.walk(output_dir)
+        for name in names
+        if name.endswith(".snmprec")
+    ]
+
+    assert len(recordings) == 1, f"expected one recording, got {recordings}"
+
+    with open(recordings[0]) as recording:
+        records = set(recording.read().splitlines())
+
+    assert records == {"1.3.6.1.2.1.1.5.0|4|device1"}

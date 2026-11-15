@@ -117,3 +117,115 @@ async def test_lite_responder_serves_v2c(run_app_in_background):
     finally:
         if snmpEngine.transport_dispatcher:
             snmpEngine.transport_dispatcher.close_dispatcher()
+
+
+LANE_PORT_NUMBER = 1660
+
+
+@pytest.fixture
+def lane_port():
+    """Start the next responder on a port of its own.
+
+    The responder of an earlier test keeps serving its port from a daemon
+    thread, so a second one has to listen elsewhere.
+    """
+    sys.argv = [
+        f"--agent-udpv4-endpoint=127.0.0.1:{LANE_PORT_NUMBER}"
+        if arg.startswith("--agent-udpv4-endpoint=")
+        else arg
+        for arg in sys.argv
+    ]
+
+
+@pytest.mark.asyncio
+async def test_lite_responder_decodes_version_by_current_name(
+    monkeypatch, lane_port, run_app_in_background
+):
+    """A GET is answered without pysnmp's camelCase version decoder.
+
+    `pysnmp.proto.api.decodeMessageVersion` is a leftover alias of
+    `verdec.decode_message_version`; the responder must not depend on it.
+    """
+    monkeypatch.delattr("pysnmp.proto.api.decodeMessageVersion")
+
+    snmpEngine = SnmpEngine()
+
+    try:
+        transport = await UdpTransportTarget.create(
+            ("127.0.0.1", LANE_PORT_NUMBER), timeout=TIME_OUT, retries=0
+        )
+
+        errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
+            snmpEngine,
+            CommunityData("public", mpModel=1),
+            transport,
+            ContextData(),
+            ObjectType(ObjectIdentity("1.3.6.1.2.1.1.1.0")),
+        )
+
+        assert errorIndication is None, f"Error: {errorIndication}"
+        assert errorStatus == 0, f"Error status: {errorStatus}"
+        assert varBinds[0][1].prettyPrint() == "Test device"
+
+    finally:
+        if snmpEngine.transport_dispatcher:
+            snmpEngine.transport_dispatcher.close_dispatcher()
+
+
+ARGS_FILE_PORT_NUMBER = 1661
+
+
+@pytest.fixture
+def args_file(tmp_path):
+    """Leave nothing but `--args-from-file` on the command line."""
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "agent")
+
+    path = tmp_path / "responder.args"
+    path.write_text(
+        f"--data-dir={data_dir}\n"
+        f"--agent-udpv4-endpoint=127.0.0.1:{ARGS_FILE_PORT_NUMBER}\n"
+    )
+
+    sys.argv = ["responder_lite.py", f"--args-from-file={path}"]
+
+
+@pytest.mark.asyncio
+async def test_lite_responder_reads_options_from_file(args_file, run_app_in_background):
+    """Options kept in a file configure the responder as if typed in.
+
+    The file has the format the full responder reads: `--option=value`
+    items separated by whitespace.
+    """
+    snmpEngine = SnmpEngine()
+
+    try:
+        transport = await UdpTransportTarget.create(
+            ("127.0.0.1", ARGS_FILE_PORT_NUMBER), timeout=TIME_OUT, retries=0
+        )
+
+        errorIndication, errorStatus, errorIndex, varBinds = await get_cmd(
+            snmpEngine,
+            CommunityData("public", mpModel=1),
+            transport,
+            ContextData(),
+            ObjectType(ObjectIdentity("1.3.6.1.2.1.1.1.0")),
+        )
+
+        assert errorIndication is None, f"Error: {errorIndication}"
+        assert errorStatus == 0, f"Error status: {errorStatus}"
+        assert varBinds[0][1].prettyPrint() == "Test device"
+
+    finally:
+        if snmpEngine.transport_dispatcher:
+            snmpEngine.transport_dispatcher.close_dispatcher()
+
+
+def test_lite_responder_reports_unreadable_args_file(tmp_path, capsys):
+    """A missing options file is an error message, not a traceback."""
+    missing = tmp_path / "no-such.args"
+
+    sys.argv = ["responder_lite.py", f"--args-from-file={missing}"]
+
+    assert responder_main() == 1
+
+    assert "ERROR: file %s opening failure" % missing in capsys.readouterr().err

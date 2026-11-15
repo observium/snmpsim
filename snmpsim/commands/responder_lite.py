@@ -21,6 +21,7 @@ from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.carrier.asyncio.dgram import udp6
 from pysnmp.carrier.asyncio.dispatch import AsyncioDispatcher
 from pysnmp.proto import api
+from pysnmp.proto.api import verdec
 from pysnmp.proto import rfc1902
 from pysnmp.proto import rfc1905
 
@@ -235,7 +236,37 @@ def main():
         help="SNMP agent UDP/IPv6 address to listen on ([name]:port)",
     )
 
-    args = parser.parse_args()
+    parser.add_argument(
+        "--args-from-file",
+        metavar="<FILE>",
+        type=str,
+        help="Read command-line options from this file, as whitespace-separated "
+        "--option=value items. Can be useful when command-line is too long. "
+        "Options given on the command line take precedence",
+    )
+
+    # The file can hold the required options, so it has to be read before
+    # the command line is checked for them.
+    file_helper = argparse.ArgumentParser(add_help=False)
+    file_helper.add_argument("--args-from-file")
+
+    args_from_file = file_helper.parse_known_args()[0].args_from_file
+
+    file_args = []
+
+    if args_from_file:
+        try:
+            with open(args_from_file) as fl:
+                file_args = fl.read().split()
+
+        except Exception as exc:
+            sys.stderr.write(
+                "ERROR: file %s opening failure: %s\r\n" % (args_from_file, exc)
+            )
+            parser.print_usage(sys.stderr)
+            return 1
+
+    args = parser.parse_args(file_args + sys.argv[1:])
 
     if args.debug:
         pysnmp_debug.set_logger(pysnmp_debug.Debug(*args.debug))
@@ -411,7 +442,7 @@ def main():
     ):
         """v2c arch command responder request handling callback"""
         while whole_msg:
-            msg_ver = api.decodeMessageVersion(whole_msg)
+            msg_ver = verdec.decode_message_version(whole_msg)
 
             if msg_ver in api.PROTOCOL_MODULES:
                 p_mod = api.PROTOCOL_MODULES[msg_ver]

@@ -362,6 +362,29 @@ engines created afterwards (by *--v3-engine-id* option) up to the next
 
    Binding ports less than 1024 on UNIX requires superuser privileges.
 
+**--args-from-file**
+++++++++++++++++++++
+
+Command-line options could be stored in a file and passed through this
+option. File could be easier to manage, and does not impose any limit on the
+length of the command line.
+
+The file holds *--option=value* items separated by spaces or line breaks:
+
+.. code-block:: bash
+
+   $ cat responder.args
+   --data-dir=/usr/local/share/snmpsim/data
+   --agent-udpv4-endpoint=127.0.0.1:1024
+   --agent-udpv4-endpoint=127.0.0.1:1025
+   $ snmpsim-command-responder-lite --args-from-file=responder.args
+
+*snmpsim-command-responder-lite* reads any of its options from the file;
+an option given on the command line as well takes precedence.
+*snmpsim-command-responder* reads from the file the options that configure
+its SNMP engines (*--v3-engine-id*, *--data-dir*, *--agent-udpv4-endpoint*
+and the like) and adds them after those of the command line.
+
 Full version command responder options
 --------------------------------------
 
@@ -370,13 +393,6 @@ it is capable of handling all SNMP versions i.e. 1, 2c qnd 3.
 
 Full version of SNMP command responder understand all options of the lite
 version, plus the following SNMPv3-specific options.
-
-**--args-from-file**
-++++++++++++++++++++
-
-All command-line options to *snmpsim-command-responder* could be stored in a
-file and passes through this option. File could be easier to manage, and does
-not impose any limit on the length of the command line.
 
 **--v3-only**
 +++++++++++++
