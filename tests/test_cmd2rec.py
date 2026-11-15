@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -116,23 +115,12 @@ def test_summary_rate_is_over_all_oids():
     )
 
 
-def test_recording_with_multiplex_dumps_oids(run_app_in_background, tmp_path):
-    """A variation module is told which OID the recording starts at.
-
-    The recorder handed that over under a name no module reads, so the
-    multiplex, sql and redis modules failed on the first OID and the
-    recording came out empty.
-    """
-    output_file = tmp_path / "recorded.snmprec"
-    snapshots_dir = tmp_path / "snapshots"
-
-    # multiplex leaves its snapshot to be flushed when the recorder exits,
-    # so the recorder gets a process of its own
-    recorder = subprocess.run(
+def _record_with_multiplex(monkeypatch, output_file, snapshots_dir):
+    monkeypatch.setattr(
+        sys,
+        "argv",
         [
-            sys.executable,
-            "-m",
-            "snmpsim.commands.cmd2rec",
+            "snmpsim-record-commands",
             f"--agent-udpv4-endpoint=127.0.0.1:{PORT_NUMBER}",
             "--community=public",
             "--start-object=1.3.6.1.2.1",
@@ -141,12 +129,30 @@ def test_recording_with_multiplex_dumps_oids(run_app_in_background, tmp_path):
             # two colons, so a drive letter stays part of the path on Windows
             f"--variation-module-options=dir::{snapshots_dir.as_posix()}",
         ],
-        capture_output=True,
-        text=True,
-        timeout=60,
     )
 
-    assert recorder.returncode == 0, recorder.stderr
+    assert cmd2rec_main() == 0
+
+
+def test_recording_with_multiplex_dumps_oids(
+    run_app_in_background, monkeypatch, tmp_path, caplog
+):
+    """A variation module is told which OID the recording starts at.
+
+    The recorder handed that over under a name no module reads, so the
+    multiplex, sql and redis modules failed on the first OID and the
+    recording came out empty.
+
+    The snapshot is complete by the time the recorder returns, too: multiplex
+    closed it only between iterations, so after the last one it was whatever
+    the interpreter got around to flushing on its way out - nothing at times.
+    """
+    caplog.set_level(logging.DEBUG)
+
+    output_file = tmp_path / "recorded.snmprec"
+    snapshots_dir = tmp_path / "snapshots"
+
+    _record_with_multiplex(monkeypatch, output_file, snapshots_dir)
 
     # the recording itself is one record sending the responder to the snapshots
     with open(output_file, "rb") as recording:
@@ -159,7 +165,7 @@ def test_recording_with_multiplex_dumps_oids(run_app_in_background, tmp_path):
     # ...and the snapshot holds everything the agent serves
     snapshots = sorted(snapshots_dir.iterdir())
 
-    assert len(snapshots) == 1
+    assert [snapshot.name for snapshot in snapshots] == ["00000.snmprec"]
 
     with open(snapshots[0], "rb") as snapshot:
         dumped = [line.split("|")[0] for line in snapshot.read().decode().splitlines()]
@@ -172,10 +178,51 @@ def test_recording_with_multiplex_dumps_oids(run_app_in_background, tmp_path):
         "1.3.6.1.2.1.2.2.1.5.1",
     ]
 
-    summary = [line for line in recorder.stderr.splitlines() if "elapsed:" in line]
+    summary = [line for line in caplog.messages if "elapsed:" in line]
 
     assert len(summary) == 1
     assert summary[0].startswith("OIDs dumped: 1, ")
+
+
+MULTIPLEX_PORT_NUMBER = 1690
+
+
+@pytest.mark.parametrize("snapshot_name", ["00000.snmprec", "00000..snmprec"])
+def test_multiplex_recording_is_served(
+    run_app_in_background,
+    responder_process,
+    get_from_responder,
+    monkeypatch,
+    tmp_path,
+    snapshot_name,
+):
+    """What multiplex has recorded, the responder serves.
+
+    Snapshots used to be named with two dots, "00000..snmprec", which the
+    responder could not make a number of; those already on disk are served
+    as well.
+    """
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    snapshots_dir = tmp_path / "snapshots"
+
+    _record_with_multiplex(monkeypatch, data_dir / "public.snmprec", snapshots_dir)
+
+    (snapshots_dir / "00000.snmprec").rename(snapshots_dir / snapshot_name)
+
+    with responder_process(
+        f"--data-dir={data_dir}",
+        port=MULTIPLEX_PORT_NUMBER,
+        # outside of the recorded subtree, so the snapshot is not opened yet
+        oid="1.3.6.1.4.1.1.0",
+    ):
+        error_indication, error_status, var_binds = get_from_responder(
+            MULTIPLEX_PORT_NUMBER, "1.3.6.1.2.1.1.1.0"
+        )
+
+    assert error_indication is None
+    assert not error_status, error_status.prettyPrint()
+    assert var_binds[0][1].asOctets() == b"Test device"
 
 
 V3_PORT_NUMBER = 1630
@@ -197,32 +244,15 @@ V3_USERS = {
 
 
 @pytest.fixture(scope="module")
-def v3_agent():
+def v3_agent(responder_process):
     """A responder of its own, knowing one USM user per security level"""
-    responder = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "snmpsim.commands.responder",
-            f"--data-dir={DATA_DIR}",
-            f"--agent-udpv4-endpoint=127.0.0.1:{V3_PORT_NUMBER}",
-        ]
-        + [option for options in V3_USERS.values() for option in options],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    # Allow some time for the responder to come up; the recorder retries
-    time.sleep(1)
-
-    try:
-        assert responder.poll() is None, "the responder did not start"
-
-        yield f"127.0.0.1:{V3_PORT_NUMBER}"
-
-    finally:
-        responder.terminate()
-        responder.wait(timeout=30)
+    with responder_process(
+        f"--data-dir={DATA_DIR}",
+        *[option for options in V3_USERS.values() for option in options],
+        port=V3_PORT_NUMBER,
+        oid="1.3.6.1.2.1.1.1.0",
+    ) as endpoint:
+        yield endpoint
 
 
 def _record(monkeypatch, output_file, endpoint, *options):

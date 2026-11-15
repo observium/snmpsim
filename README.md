@@ -19,6 +19,17 @@ Most items were also filed upstream; those link to their pull request:
   OID to the module under a name none of them reads, so `--variation-module=multiplex`, `sql`
   and `redis` failed on the first OID and left an empty recording; it is passed as `startOID`
   now, the name the modules expect
+* The `multiplex` module closes the snapshot it records when the recorder is done. It did so
+  only on a stop record, which a walk to the end of the MIB never produces, so the only
+  snapshot of such a recording was left open and could come out empty next to a recording
+  that looked fine
+* `multiplex` snapshots are named `00000.snmprec`, not `00000..snmprec`: the responder could
+  not make a number of the two-dot name, so what the module recorded it would not serve.
+  Snapshots already recorded under the old name are served as well, and give way to one
+  recorded since under the new name
+* `multiplex` serves the snapshot whose turn it is. It kept the snapshot numbers as the system
+  listed the files, in no particular order, and looked them up as if they were sorted, so
+  with several snapshots the wrong one could be served, depending on the file system
 * `snmpsim-record-commands` records over SNMPv3: `--v3-user` alone now selects protocol version
   3 (noAuthNoPriv, authNoPriv and authPriv, GETNEXT or GETBULK), and a v3 recording of the test
   agent is byte-for-byte the v2c one. `--protocol-version` used to accept only `1` and `2c`, so

@@ -110,12 +110,35 @@ def variate(oid, tag, value, **context):
             for ext in RECORD_SET:
                 if not fl.endswith(ext):
                     continue
-                ident = int(os.path.basename(fl)[: -len(ext) - 1])
+                # recordings made before the name was put right have two
+                # dots in it: "00000..snmprec"
+                name = os.path.basename(fl)[: -len(ext) - 1]
+                ident = int(name.rstrip(os.path.extsep))
                 datafile = os.path.join(d, fl)
+
+                # ...and one recorded over since then has the snapshot
+                # under both names, the old one being out of date
+                taken = recordContext["dirmap"].get(ident)
+
+                if taken and name.endswith(os.path.extsep):
+                    taken, datafile = datafile, taken
+
+                if taken:
+                    log.info(
+                        "multiplex: ignoring %s, snapshot %s is "
+                        "%s" % (taken, ident, datafile)
+                    )
+
+                    if taken == os.path.join(d, fl):
+                        continue
+
+                    del recordContext["parsermap"][taken]
+
                 recordContext["dirmap"][ident] = datafile
                 recordContext["parsermap"][datafile] = RECORD_SET[ext]
 
-        recordContext["keys"] = list(recordContext["dirmap"])
+        # looked up by bisection, and a directory is listed in no order
+        recordContext["keys"] = sorted(recordContext["dirmap"])
 
         recordContext["bounds"] = (
             min(recordContext["keys"]),
@@ -316,9 +339,11 @@ def record(oid, tag, value, **context):
 
         dstRecordType = moduleContext.get("recordtype", "snmprec")
 
-        ext = os.path.extsep + RECORD_SET[dstRecordType].ext
-
-        snmprecFile = "%.5d%s%s" % (moduleContext["filenum"], os.path.extsep, ext)
+        snmprecFile = "%.5d%s%s" % (
+            moduleContext["filenum"],
+            os.path.extsep,
+            RECORD_SET[dstRecordType].ext,
+        )
 
         snmprecfile = os.path.join(moduleContext["dir"], snmprecFile)
 
@@ -349,4 +374,7 @@ def record(oid, tag, value, **context):
 
 
 def shutdown(**context):
-    pass
+    # a walk which is over without a stop record leaves the snapshot open
+    if "file" in moduleContext:
+        moduleContext["file"].close()
+        del moduleContext["file"]
