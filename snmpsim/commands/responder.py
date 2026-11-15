@@ -898,7 +898,9 @@ configured automatically based on simulation data file paths relative to
     if args.daemonize:
         # The daemon changes into "/". Whatever was given relative to the
         # directory we are started from has to be found from there as well.
-        args.pid_file = os.path.abspath(args.pid_file)
+        # No pid file is written for an empty name, which has to stay empty.
+        if args.pid_file:
+            args.pid_file = os.path.abspath(args.pid_file)
 
         if args.cache_dir:
             args.cache_dir = os.path.abspath(args.cache_dir)
@@ -907,9 +909,7 @@ configured automatically based on simulation data file paths relative to
             os.path.abspath(path) for path in args.variation_modules_dir
         ]
 
-        if args.logging_method[0] == "file" and len(args.logging_method) > 1:
-            args.logging_method[1] = os.path.abspath(args.logging_method[1])
-
+        # The log file is open by then, the reports are written later on.
         if len(args.reporting_method) > 1:
             args.reporting_method[1] = os.path.abspath(args.reporting_method[1])
 
@@ -960,7 +960,7 @@ configured automatically based on simulation data file paths relative to
 
     if args.daemonize:
         try:
-            startup = daemon.daemonize(args.pid_file)
+            startup = daemon.daemonize(args.pid_file, wait=True)
 
         except Exception as exc:
             sys.stderr.write("ERROR: cant daemonize process: %s\r\n" % exc)
