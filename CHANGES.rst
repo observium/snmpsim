@@ -3,9 +3,18 @@
 Revision 2026.11.1, unreleased
 ------------------------------
 
-Changes carried by the Observium fork. None of them has been sent to the
-upstream project yet.
+Changes carried by snmpsim-ng.
 
+- Pointed the README, the licence and the package metadata at this project.
+  The README explains why the package is called ``snmpsim-ng``, installs
+  from tagged releases rather than from ``master``, and no longer sends
+  readers to the other release line's site, pull requests or bug tracker;
+  ``LICENSE.txt`` keeps the earlier copyright notices, as the BSD licence
+  requires, and adds the current one. Removed what was left over from that
+  line: the sponsorship link (``.github/FUNDING.yml``), editor settings
+  (``.vscode``), an outdated ``TODO.txt``, the setuptools ``MANIFEST.in``,
+  which hatchling does not read, and a pre-commit configuration whose
+  formatter disagreed with the ``black`` the CI checks against.
 - Told variation modules which OID a recording starts at.
   ``snmpsim-record-commands`` handed the start OID to a module's ``record``
   handler under a name none of them reads, so

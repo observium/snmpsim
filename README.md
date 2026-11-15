@@ -3,17 +3,35 @@
 [![GitHub license](https://img.shields.io/badge/license-BSD-blue.svg)](https://raw.githubusercontent.com/observium/snmpsim/master/LICENSE.txt)
 
 This is a pure-Python, open source and free implementation of SNMP agents simulator
-distributed under 2-clause [BSD license](https://www.pysnmp.com/snmpsim/license.html).
+distributed under the 2-clause [BSD license](LICENSE.txt).
 
-> **This is Observium's fork of [lextudio/snmpsim](https://github.com/lextudio/snmpsim).**
-> It carries fixes for recordings that the upstream responder refuses to serve, and adds a
-> lint tool for recording repositories. It is distributed as **`snmpsim-ng`**; the package
-> named `snmpsim` on PyPI is the upstream release, which does **not** contain these changes -
-> see [Installation](#installation) for how to install this fork. Every code change here is also filed upstream; this README is not.
+> **snmpsim-ng** is a maintained line of snmpsim, the SNMP agent simulator, kept by the
+> developers of [Observium](https://www.observium.org/). It carries fixes for recordings that
+> the other release line refuses to serve, brings the recorders and the lite responder back to
+> life, and adds a lint tool for recording repositories. The package named `snmpsim` on PyPI
+> is a different release line, which does **not** contain these changes - see
+> [Installation](#installation).
 
-## What this fork adds
+## Why the name snmpsim-ng
 
-Most items were also filed upstream; those link to their pull request:
+The project started as a fork of [lextudio/snmpsim](https://github.com/lextudio/snmpsim),
+itself a continuation of Ilya Etingof's original. Until 2026.11.0 it was installed under the
+same name, `snmpsim`, with the same version numbers, which made two different packages look
+like one:
+
+* the name `snmpsim` on PyPI belongs to the other release line, so this one could never be
+  published there under it
+* an installation could not tell which of the two it had - `snmpsim 1.2.2` was either
+* the next version here would have been `1.2.3`, the number the other line is most likely to
+  give its own next release
+
+So it is distributed as `snmpsim-ng` and numbered by the calendar, `YYYY.M.N`, which sorts
+above any `1.x` or `2.x`. The Python module and the `snmpsim-*` commands keep their names, so
+scripts and recordings work unchanged.
+
+## What snmpsim-ng adds
+
+Compared with the release it was forked from:
 
 * Recording through a variation module works again. `snmpsim-record-commands` handed the start
   OID to the module under a name none of them reads, so `--variation-module=multiplex`, `sql`
@@ -118,11 +136,10 @@ Most items were also filed upstream; those link to their pull request:
   leftover: both called `api.decodeMessageVersion`, a pre-7 alias of
   `verdec.decode_message_version`, and without it the responder answers nothing and the
   converter writes no recording without saying why
-* Its own package name and version line: the fork installs as `snmpsim-ng` and is numbered
-  by the calendar, `2026.11.0` for the first release. It used to call itself `snmpsim
-  1.2.2`, the very name and number of the upstream release it no longer matches, and its
-  next version would have been `1.2.3`, the number upstream is most likely to use next. The
-  `snmpsim` module and the `snmpsim-*` commands keep their names
+* Its own package name and version line: it installs as `snmpsim-ng` and is numbered by the
+  calendar, `2026.11.0` for the first release - see
+  [Why the name snmpsim-ng](#why-the-name-snmpsim-ng). The `snmpsim` module and the
+  `snmpsim-*` commands keep their names
 * `snmpsim-record-commands` reports its progress as the number of OIDs recorded so far,
   `OIDs dumped: 300`, rather than `0/300` - the `0` was the pass of a variation module
   that walks repeatedly, and it is now shown only for one. The closing rate is every OID
@@ -144,41 +161,32 @@ Most items were also filed upstream; those link to their pull request:
   OID (`6|0`) is served as `0.0`, which is byte for byte what the device put on the wire;
   values which cannot be repaired answer `noSuchInstance` on GET and are stepped over on
   GETNEXT/GETBULK, so one broken line no longer truncates the rest of the walk
-  ([#14](https://github.com/lextudio/snmpsim/pull/14))
 * `snmpsim-lint-records`, which checks a recording file or a whole directory by actually
   encoding every value, and exits non-zero on errors, so a broken recording is found before
-  it turns into a mystery timeout ([#14](https://github.com/lextudio/snmpsim/pull/14))
+  it turns into a mystery timeout
 * `--daemonize` works again: the event loop is created after the fork rather than before it
-  ([#15](https://github.com/lextudio/snmpsim/pull/15))
 * `pysmi` and `cryptography` are declared as dependencies - both are imported at runtime, and
   without them a fresh installation cannot start
-  ([#16](https://github.com/lextudio/snmpsim/pull/16))
 * Trailing spaces are preserved in escaped values, so an `IpAddress` ending in `.32` (the
   byte `0x20`) is no longer cut short and dropped
-  ([#12](https://github.com/lextudio/snmpsim/pull/12))
 * `snmpsim-command-responder-lite` runs again. It aborted at startup on pysnmp 7, and behind
   that crash every request path was broken as well, including the IPv6 endpoint and the
   index context shared with the full responder
-  ([#17](https://github.com/lextudio/snmpsim/pull/17))
 * `snmpsim-record-commands` and `snmpsim-record-traffic` work again. The first one used to
   record nothing and hang; the second could not start at all, since it required a capture
   library which has not been installable for years - capture files are now read directly,
   and that library is needed only for live capture off an interface
-  ([#18](https://github.com/lextudio/snmpsim/pull/18))
-* Here the recorder walks agents through pysnmp's `hlapi`, which its maintainer confirmed is
-  now the only supported way to walk one ([pysnmp#251](https://github.com/lextudio/pysnmp/issues/251)) -
-  the pull request above carries the smaller fix, written against the low-level API, so that
-  upstream has less to review
+* The recorder walks agents through pysnmp's `hlapi`, the supported way to walk one in
+  pysnmp 7
 * A recording filed under the requester's source address is served again. The command
   responders hooked into a pysnmp method which was renamed in 7.x, so the hook - and with it
   address-based selection - had been dead code, and every client got the plain recording
-  ([#20](https://github.com/lextudio/snmpsim/pull/20))
 * A GETBULK response is cut short to fit into a single, unfragmented UDP datagram, the way
   real agents behave. Recordings with long values answered with several kilobytes at once -
   3171 octets for `-Cr64` on an EndRun Tempus LX - and where a fragment of that reply did not
   reach the manager, the walk stalled with a timeout at the same OID every time. The limit is
   `--max-message-size`, 1472 octets by default; the same change makes `--max-var-binds` work
-  again ([#21](https://github.com/lextudio/snmpsim/pull/21))
+  again
 * No submodule to check out: the CI helper scripts lived in a third-party repository, and the
   workflow now runs `uv` and `pytest` directly, so a plain `git clone` is all it takes to
   build and test this
@@ -203,7 +211,6 @@ Most items were also filed upstream; those link to their pull request:
   backend Python 3.13 made the default, which fsyncs every write: 5.0s against 10.9s for the
   index of a 35 MB recording, and a smaller index at that. On Debian and Ubuntu gdbm comes
   from the `python3-gdbm` package; without it nothing changes
-  ([#19](https://github.com/lextudio/snmpsim/pull/19))
 
 ## The original author
 
@@ -214,8 +221,8 @@ original project is [etingof/snmpsim](https://github.com/etingof/snmpsim).
 
 Everything this simulator is remains his design: the `.snmprec` format, recording a live
 agent and replaying it, the variation modules, serving thousands of agents out of one
-process. What came after him — LeXtudio's releases upstream, and the fixes in this fork — is
-maintenance on top of that.
+process. What came after him — the releases of other maintainers, and the work in
+snmpsim-ng — is maintenance on top of that.
 
 Ilya died in 2022. Thank you, Ilya, for a tool that a great many people still test their
 monitoring against, years later.
@@ -243,47 +250,65 @@ monitoring against, years later.
 
 Python 3.10 or newer is required.
 
-### From this repository
+### From a release
 
-This fork is distributed as `snmpsim-ng`. It is not on PyPI yet, so install it straight from
-git. With `pipx`, which keeps
-the simulator in its own environment and puts its commands on your `PATH`:
+Releases are published on the [Releases](https://github.com/observium/snmpsim/releases) page,
+each with a wheel and a source archive and tagged with its version. Install the current one
+with `pipx`, which keeps the simulator in an environment of its own and puts its commands on
+your `PATH`:
+
+```bash
+pipx install "git+https://github.com/observium/snmpsim.git@2026.11.0"
+```
+
+or from the release's wheel, without git:
+
+```bash
+pipx install https://github.com/observium/snmpsim/releases/download/2026.11.0/snmpsim_ng-2026.11.0-py3-none-any.whl
+```
+
+With `pip`, into the environment of your choice, or as a `uv` tool, the same specifiers work:
+
+```bash
+pip install "git+https://github.com/observium/snmpsim.git@2026.11.0"
+```
+
+```bash
+uv tool install "git+https://github.com/observium/snmpsim.git@2026.11.0"
+```
+
+Replace `2026.11.0` with the release you want. snmpsim-ng is not on PyPI yet, and
+`pip install snmpsim` installs the other release line, which has none of the changes listed
+under [What snmpsim-ng adds](#what-snmpsim-ng-adds).
+
+### The development version
+
+`master` carries what is going into the next release; see the topmost section of
+[CHANGES.rst](CHANGES.rst). Install it by naming the branch instead of a release:
 
 ```bash
 pipx install "git+https://github.com/observium/snmpsim.git@master"
 ```
 
-With `pip`, into the environment of your choice:
-
-```bash
-pip install "git+https://github.com/observium/snmpsim.git@master"
-```
-
-Replace `@master` with any branch or commit to pin a particular revision, for example
-`@8a244ea`.
-
-If you use `uv`, the same specifier works as a tool install:
-
-```bash
-uv tool install "git+https://github.com/observium/snmpsim.git@master"
-```
+Any commit works the same way, for example `@8c804dc`.
 
 ### Updating
 
-git is not a package index, so an installation from it has no version to compare against and
-nothing upgrades by itself. Install over the top instead — the same command, with the flag
-which says "yes, replace what is there":
+An installation from git or from a wheel has no package index to compare against, so nothing
+upgrades by itself. Install the newer release over the top, with the flag which says "yes,
+replace what is there" - in the commands below, put the release you are moving to in place of
+`2026.11.0`; a wheel URL takes `--force` the same way:
 
 ```bash
-pipx install --force "git+https://github.com/observium/snmpsim.git@master"
+pipx install --force "git+https://github.com/observium/snmpsim.git@2026.11.0"
 ```
 
 ```bash
-pip install --upgrade --force-reinstall "git+https://github.com/observium/snmpsim.git@master"
+pip install --upgrade --force-reinstall "git+https://github.com/observium/snmpsim.git@2026.11.0"
 ```
 
 ```bash
-uv tool install --force "git+https://github.com/observium/snmpsim.git@master"
+uv tool install --force "git+https://github.com/observium/snmpsim.git@2026.11.0"
 ```
 
 `pipx` keeps packages added with `pipx inject` across a `--force` reinstall, and dependencies
@@ -291,7 +316,7 @@ are re-resolved, so a newer pysnmp arrives with it.
 
 #### Coming from an installation named `snmpsim`
 
-Before 2026.11.0 the fork installed under the upstream name, `snmpsim`. A reinstall does not
+Before 2026.11.0 snmpsim-ng installed under the name `snmpsim`. A reinstall does not
 replace that one: the new name is a different package, which ships the same `snmpsim` module
 and the same commands. `pipx` would not touch the `snmpsim-*` links already on the `PATH`,
 so they kept running the old environment, and `pip` would leave two packages writing over
@@ -339,21 +364,12 @@ default. Lower it to keep the loop tight:
 SNMPSIM_TEST_TIMEOUT=3 pytest tests
 ```
 
-Two workflows run on every push. `build-test.yml`, inherited from upstream, builds the
-package and runs the suite on Linux, macOS and Windows across all supported Python versions.
-`tests.yml` runs the same suite on Linux only, but plainly - no coverage and, more to the
-point, no retries, which is how it catches failures the retrying workflow lets through.
+Two workflows run on every push to `master` and on pull requests, unless the change touches
+documentation only. `build-test.yml` builds the package and runs the suite on Linux, macOS
+and Windows across all supported Python versions. `tests.yml` runs the same suite on Linux
+only, but plainly - no coverage and, more to the point, no retries, which is how it catches
+failures the retrying workflow lets through.
 
-<details>
-<summary>Installing the upstream release from PyPI instead</summary>
-
-`pip install snmpsim` fetches the package LeXtudio publishes, which is **not** this fork
-(`snmpsim-ng`): it
-contains none of the fixes listed at the top of this file, so recordings which trip over any
-of them behave there as they did before. Use it only if you specifically want the upstream
-release.
-
-</details>
 
 ## Commands
 
@@ -363,7 +379,7 @@ Installing the package puts these commands on your `PATH`:
 |---|---|
 | `snmpsim-command-responder` | The simulator itself: serves recordings over SNMPv1/v2c/v3 |
 | `snmpsim-command-responder-lite` | Lighter responder: SNMPv1/v2c only, no SNMPv3 |
-| `snmpsim-lint-records` | Checks recordings for values which cannot be served (fork only) |
+| `snmpsim-lint-records` | Checks recordings for values which cannot be served (snmpsim-ng only) |
 | `snmpsim-manage-records` | Converts, sorts, deduplicates, filters and repairs recording files |
 | `snmpsim-record-commands` | Builds a recording by querying a live SNMP agent |
 | `snmpsim-record-mibs` | Builds a recording from MIB files |
@@ -411,10 +427,10 @@ all. The exit status is non-zero when there are errors, so this works as a repos
 You can immediately generate simulation data file by querying existing SNMP agent:
 
 ``` bash
-$ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
+$ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
     --output-file=./data/public.snmprec
 SNMP version 2c, Community name: public
-Querying UDP/IPv4 agent at 128.203.82.143:161
+Querying UDP/IPv4 agent at 192.0.2.1:161
 Agent response timeout: 3.00 secs, retries: 3
 Sending initial GETNEXT request for 1.3.6 (stop at <end-of-mib>)....
 OIDs dumped: 182, elapsed: 11.97 sec, rate: 15.20 OIDs/sec, errors: 0
@@ -446,20 +462,20 @@ key-value stores and other sources of information.
 
 ## Documentation
 
-Detailed information on SNMP simulator usage could be found at
-[snmpsim site](https://www.pysnmp.com/snmpsim/). It documents the upstream project; the
-additions listed at the top of this file are covered by their pull requests and by
-`--help` of the commands themselves.
+The reference documentation is kept as Sphinx sources in [docs/source](docs/source); a site
+of its own for snmpsim-ng is being prepared. Until then, each command's `--help` covers its
+options, including the ones snmpsim-ng added, and [CHANGES.rst](CHANGES.rst) says what
+changed in each release.
 
 ## Who maintains this
 
-This fork is maintained by the developers of [Observium](https://www.observium.org/), the
+snmpsim-ng is maintained by the developers of [Observium](https://www.observium.org/), the
 network monitoring platform, who run it in production: a public simulator serving a
 repository of about 1300 device recordings, which Observium is tested against. Fixes here
 come from that use — every one of them was something a real recording of a real device ran
 into.
 
-So questions about this fork, about `.snmprec` recordings, or about simulating a device you
+So questions about snmpsim-ng, about `.snmprec` recordings, or about simulating a device you
 are trying to monitor are welcome:
 
 * [open an issue](https://github.com/observium/snmpsim/issues) in this repository
@@ -470,12 +486,6 @@ are trying to monitor are welcome:
   record and where to send it
 * [Observium documentation](https://docs.observium.org/) and [website](https://www.observium.org/)
 
-## Getting help with the simulator itself
-
-For the simulator in general, rather than this fork, the upstream project is
-[lextudio/snmpsim](https://github.com/lextudio/snmpsim), and it asks for bug reports at
-[lextudio/pysnmp](https://github.com/lextudio/pysnmp/issues).
-
 ## Feedback and collaboration
 
 Bug reports, fixes, suggestions, improvements, and your pull requests are very
@@ -483,4 +493,5 @@ welcome!
 
 Copyright (c) 2010-2019, [Ilya Etingof](mailto:etingof@gmail.com).
 Copyright (c) 2022-2026, [LeXtudio Inc.](mailto:support@lextudio.com).
+Copyright (c) 2026, Mikhail Stupalov.
 All rights reserved.

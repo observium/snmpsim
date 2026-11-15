@@ -22,3 +22,6 @@ build/
 venv*
 *.komodoproject
 .uv-cache/
+
+# working notes, not part of the package
+docs/superpowers/

@@ -58,7 +58,7 @@ master_doc = "index"
 
 # General information about the project.
 project = "SNMP Simulator"
-copyright = "2010-2019, Ilya Etingof. © Copyright 2022-2026, LeXtudio Inc."
+copyright = "2010-2019, Ilya Etingof. © Copyright 2022-2026, LeXtudio Inc. © Copyright 2026, Mikhail Stupalov"
 author = "LeXtudio Inc. <support@lextudio.com>"
 
 # The version info for the project you're documenting, acts as replacement for

@@ -9,7 +9,6 @@ on:
       - "docs/**"
       - "LICENSE.txt"
       - "THANKS.txt"
-      - "TODO.txt"
   pull_request:
     paths-ignore: *docs
   workflow_dispatch:

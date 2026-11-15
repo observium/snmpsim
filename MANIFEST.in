@@ -1,4 +1,0 @@
-include *.txt *.md *.sh
-recursive-include data *.snmprec *.snmpwalk *.sapwalk *.txt
-recursive-include variation *.py
-recursive-include docs *.rst *.py *.svg
