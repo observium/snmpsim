@@ -50,3 +50,68 @@ def test_opaque_float_survives_the_snmprec_round_trip():
     oid, value = SnmprecRecord().evaluate(record.encode() + b"\n")
 
     assert bytes(value) == bytes.fromhex("9f780442c80000")
+
+
+SYSNAME = "1.3.6.1.2.1.1.5.0"
+
+
+def walk_value_octets(line):
+    oid, value = WalkRecord().evaluate(line)
+    return bytes(value)
+
+
+@pytest.mark.parametrize(
+    "octets",
+    [
+        "Привет".encode("utf-8"),
+        "Привет".encode("cp1251"),
+        # ends in 0xa0 and 0x85, which are white space once read as Latin-1
+        "voilà".encode("utf-8"),
+        "Далее…".encode("cp1251"),
+    ],
+)
+def test_walk_string_keeps_utf8_bytes(octets):
+    line = b'.%s = STRING: "%s"\n' % (SYSNAME.encode(), octets)
+
+    assert walk_value_octets(line) == octets
+
+
+@pytest.mark.parametrize(
+    "octets",
+    ["voilà".encode("utf-8"), "Далее…".encode("cp1251")],
+)
+def test_walk_unquoted_string_keeps_trailing_high_bytes(octets):
+    line = b".%s = STRING: %s\r\n" % (SYSNAME.encode(), octets)
+
+    assert walk_value_octets(line) == octets
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "cp1251"])
+def test_walk_hex_string_keeps_non_ascii_bytes(encoding):
+    octets = "Привет".encode(encoding)
+    line = b".%s = Hex-STRING: %s\n" % (SYSNAME.encode(), octets.hex(" ").encode())
+
+    assert walk_value_octets(line) == octets
+
+
+def test_walk_hex_string_ignores_non_ascii_bytes_in_its_text_column():
+    # snmpwalk -OT prints the octets once more as text after the hex digits
+    octets = "Привет".encode("utf-8")
+    line = b".%s = Hex-STRING: %s   [%s]\n" % (
+        SYSNAME.encode(),
+        octets.hex(" ").upper().encode(),
+        octets,
+    )
+
+    assert walk_value_octets(line) == octets
+
+
+def test_walk_non_ascii_string_reaches_snmprec_as_the_same_octets():
+    octets = "Привет".encode("utf-8")
+    line = b'.%s = STRING: "%s"\n' % (SYSNAME.encode(), octets)
+
+    oid, value = WalkRecord().evaluate(line)
+    record = SnmprecRecord().format(oid, value)
+    oid, value = SnmprecRecord().evaluate(record)
+
+    assert bytes(value) == octets

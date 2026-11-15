@@ -33,6 +33,10 @@ class WalkGrammar(abstract.AbstractGrammar):
         "TIMETICKS:": unconstrained.TimeTicks,  # this is made up
     }
 
+    # ASCII only: str.strip() would also take 0x85 and 0xa0, which end
+    # many UTF-8 and code page strings, for white space
+    WHITESPACE = " \t\n\r\x0b\x0c"
+
     @staticmethod
     def _integer_filter(value):
         try:
@@ -194,11 +198,12 @@ class WalkGrammar(abstract.AbstractGrammar):
             "TIMETICKS:": self._time_ticks_filter,
         }
 
-        # drop possible 8-bits
-        line = line.decode("ascii", "ignore").encode()
-
+        # Latin-1 maps every octet to the character of the same number,
+        # so the value handlers get the octets of the walk back unchanged
         try:
-            oid, value = line.decode("iso-8859-1").strip().split(" = ", 1)
+            oid, value = (
+                line.decode("iso-8859-1").strip(self.WHITESPACE).split(" = ", 1)
+            )
 
         except Exception:
             raise error.SnmpsimError("broken record <%s>" % line)
@@ -212,7 +217,7 @@ class WalkGrammar(abstract.AbstractGrammar):
         if value.startswith("No more variables left in this MIB View"):
             value = "STRING: "
 
-        match = re.match(r"^(\w+(?:[\-\ ]\w+)?:)\ ?(.*)", value)
+        match = re.match(r"^(\w+(?:[\-\ ]\w+)?:)\ ?(.*)", value, re.ASCII)
         if match:
             tag = match.group(1)
             value = match.group(2)
@@ -236,6 +241,6 @@ class WalkGrammar(abstract.AbstractGrammar):
             if tag == "Network Address:":
                 tag = "IpAddress:"
 
-            return oid, tag.upper(), handler(value.strip())
+            return oid, tag.upper(), handler(value.strip(self.WHITESPACE))
 
         raise error.SnmpsimError("broken record <%s>" % line)
