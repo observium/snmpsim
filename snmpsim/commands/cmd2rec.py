@@ -644,7 +644,7 @@ def main():
                 "total": state["total"],
                 "iteration": state["iteration"],
                 "reqTime": state["reqTime"],
-                "args.start_object": args.start_object,
+                "startOID": args.start_object,
                 "stopOID": args.stop_object,
                 "stopFlag": stop_flag,
                 "variationModule": variation_module,

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -112,3 +113,64 @@ def test_summary_rate_is_over_all_oids():
     assert cmd2rec._summary_message(total=0, elapsed=0, errors=1) == (
         "OIDs dumped: 0, elapsed: 0.00 sec, rate: 0.00 OIDs/sec, errors: 1"
     )
+
+
+def test_recording_with_multiplex_dumps_oids(run_app_in_background, tmp_path):
+    """A variation module is told which OID the recording starts at.
+
+    The recorder handed that over under a name no module reads, so the
+    multiplex, sql and redis modules failed on the first OID and the
+    recording came out empty.
+    """
+    output_file = tmp_path / "recorded.snmprec"
+    snapshots_dir = tmp_path / "snapshots"
+
+    # multiplex leaves its snapshot to be flushed when the recorder exits,
+    # so the recorder gets a process of its own
+    recorder = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "snmpsim.commands.cmd2rec",
+            f"--agent-udpv4-endpoint=127.0.0.1:{PORT_NUMBER}",
+            "--community=public",
+            "--start-object=1.3.6.1.2.1",
+            f"--output-file={output_file}",
+            "--variation-module=multiplex",
+            f"--variation-module-options=dir:{snapshots_dir.as_posix()}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert recorder.returncode == 0, recorder.stderr
+
+    # the recording itself is one record sending the responder to the snapshots
+    with open(output_file, "rb") as recording:
+        records = recording.read().decode("iso-8859-1").splitlines()
+
+    assert records == [
+        f"1.3.6.1.2.1|:multiplex|dir={snapshots_dir.as_posix()},period=10.00"
+    ]
+
+    # ...and the snapshot holds everything the agent serves
+    snapshots = sorted(snapshots_dir.iterdir())
+
+    assert len(snapshots) == 1
+
+    with open(snapshots[0], "rb") as snapshot:
+        dumped = [line.split("|")[0] for line in snapshot.read().decode().splitlines()]
+
+    assert dumped == [
+        "1.3.6.1.2.1.1.1.0",
+        "1.3.6.1.2.1.1.2.0",
+        "1.3.6.1.2.1.1.3.0",
+        "1.3.6.1.2.1.2.2.1.2.1",
+        "1.3.6.1.2.1.2.2.1.5.1",
+    ]
+
+    summary = [line for line in recorder.stderr.splitlines() if "elapsed:" in line]
+
+    assert len(summary) == 1
+    assert summary[0].startswith("OIDs dumped: 1, ")
