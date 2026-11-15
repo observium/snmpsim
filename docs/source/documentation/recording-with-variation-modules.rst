@@ -40,7 +40,8 @@ change law is not linear, custom approximation function should be used
 instead.
 
 The numeric module supports the following comma-separated key:value
-options whilst running in recording mode:
+options whilst running in recording mode. The defaults are the same
+whether some other option is given or none at all:
 
 * *taglist* - a dash-separated list of *.snmprec* tags indicating SNMP
   value types to apply numeric module to.
@@ -53,16 +54,24 @@ options whilst running in recording mode:
   - 67 - TimeTicks
   - 70 - Counter64
 
-  Default is empty list.
+  Default is all of them: *2-65-66-67-70*.
 
-* *iterations* - number of recording cycles to run over the same
-  portion of SNMP agent MIB. There's no point in values
-  beyond 2 for purposes of modelling approximation function.
-  Default is 1.
-* *period* - Agent walk period in seconds. Default is 10 seconds.
+* *iterations* - whether to walk the same portion of SNMP agent MIB
+  a second time. With *0* the Agent is walked once, and each value is
+  recorded as *initial=<value>* (with *rate=100* added for TimeTicks
+  and *rate=0* for Integer). With any other number the Agent is walked
+  twice: the value seen by the first walk is recorded as *initial*, and
+  how fast it changed until the second walk as *rate*, in units per
+  second. Two walks are all a linear function takes, so a number larger
+  than *1* does not add walks: *iterations:5* does what *iterations:1*
+  does. Default is *0*.
+* *period* - the pause between the end of the first walk and the start
+  of the second one, in seconds. Not used with a single walk.
+  Default is 10 seconds.
 * *addon* - a single *.snmprec* record scope *key=value* parameter for the
   *numeric* module to be used whilst running in variation mode.
-  Multiple add-on parameters can be used. Default is empty.
+  Multiple add-on parameters can be used. Add-on parameters are written
+  only when the Agent is walked twice. Default is empty.
 
 Examples
 ++++++++
@@ -98,7 +107,7 @@ tool will be used.
         numeric...OK
     OIDs dumped: 224, elapsed: 15.53 sec, rate: 14.42 OIDs/sec
 
-In the above example we have run two iterations against a subset of
+In the above example we have walked twice over a subset of
 Managed Objects at an Agent requesting numeric module to configure
 itself into generated *.snmprec* data for Counter32-typed objects (ID 65).
 

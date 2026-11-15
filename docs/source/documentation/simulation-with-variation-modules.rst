@@ -164,17 +164,18 @@ The law and rate of changing is configurable. This module is per-OID
 stateful and configurable.
 
 The numeric module accepts the following comma-separated key=value parameters
-in ``.snmprec`` value field:
+in ``.snmprec`` value field. Every one of them has a default, so the field
+may as well be left empty:
 
 * ``min`` - the minimum value ever stored and returned by this module.
   Default is ``0``.
 * ``max`` - the maximum value ever stored and returned by this module.
   Default is ``2**32 - 1`` or ``2**64 - 1`` (``Counter64`` type).
 * ``initial`` - initial value. Default is ``min``.
-* ``atime`` - if present, uses current time (UNIX time, seconds) for value
-  generation, not Simulator uptime.
-* ``wrap`` - if present, a generated value exceeding ``max`` starts over
-  from ``min``. Otherwise it freezes at ``max``.
+* ``atime`` - if set to ``1``, uses current time (UNIX time, seconds) for
+  value generation, not Simulator uptime. Default is ``0``.
+* ``wrap`` - if set to ``1``, a generated value exceeding ``max`` starts over
+  from ``min``. Otherwise it freezes at ``max``. Default is ``0``.
 * ``function`` - defines elapsed-time-to-generated-value relationship. Can be
   any of reasonably suitable mathematical function from the
   math module such as ``sin``, ``log``, ``sqrt`` etc. The function is called
@@ -189,14 +190,16 @@ in ``.snmprec`` value field:
   between the requests. Default is ``0``.
 * ``deviation`` - random deviation maximum, a whole number. Default is ``0``
   which means no deviation.
-* ``cumulative`` - if present, sums up previous value with the newly
+* ``cumulative`` - if set to ``1``, sums up previous value with the newly
   generated one. This is important when simulating ``COUNTER`` values.
+  Default is ``0``.
 
 .. note::
 
-   ``atime``, ``wrap`` and ``cumulative`` are switched on by the key being
-   there, whatever its value: ``wrap=0`` wraps just like ``wrap=1`` does.
-   Leave the key out to keep the feature off.
+   ``atime``, ``wrap`` and ``cumulative`` are flags: ``0`` switches the
+   feature off, the same as leaving the key out, and any other number
+   switches it on. The value can not be omitted: write ``wrap=1``, not
+   just ``wrap``.
 
 This module generates values by execution of the following formula:
 

@@ -34,6 +34,9 @@ INTEGER_TYPES = {
     rfc1902.Integer.tagSet,
 }
 
+# settings that switch a feature on or off, the rest are numbers to compute with
+FLAGS = "atime", "wrap", "cumulative"
+
 
 def init(**context):
     if context["mode"] == "variating":
@@ -45,49 +48,52 @@ def init(**context):
         # record with half of the options applied
         moduleContext["settings"] = {}
 
-        if context["options"]:
-            settings = {}
+        settings = {}
 
-            for x in split(context["options"], ","):
-                # only the first colon separates the key: a value may
-                # contain colons of its own
-                k, separator, v = x.partition(":")
+        # no options at all is the same as every option left out: the
+        # defaults below apply either way
+        options = split(context["options"], ",") if context["options"] else []
 
-                if not separator:
-                    raise error.SnmpsimError(
-                        'numeric: option "%s" is not in key:value form' % x
-                    )
+        for x in options:
+            # only the first colon separates the key: a value may
+            # contain colons of its own
+            k, separator, v = x.partition(":")
 
-                if k == "addon":
-                    settings.setdefault(k, []).append(v)
+            if not separator:
+                raise error.SnmpsimError(
+                    'numeric: option "%s" is not in key:value form' % x
+                )
 
-                else:
-                    settings[k] = v
+            if k == "addon":
+                settings.setdefault(k, []).append(v)
 
-            if "iterations" in settings:
-                try:
-                    iterations = int(settings["iterations"])
+            else:
+                settings[k] = v
 
-                except ValueError:
-                    raise error.SnmpsimError(
-                        'numeric: option "iterations:%s" is not a whole number'
-                        % settings["iterations"]
-                    )
-
-                # no reason for more than one
-                settings["iterations"] = 1 if iterations else 0
-
+        if "iterations" in settings:
             try:
-                settings["period"] = float(settings.get("period", 10.0))
+                iterations = int(settings["iterations"])
 
             except ValueError:
                 raise error.SnmpsimError(
-                    'numeric: option "period:%s" is not a number' % settings["period"]
+                    'numeric: option "iterations:%s" is not a whole number'
+                    % settings["iterations"]
                 )
 
-            settings.setdefault("taglist", "2-65-66-67-70")
+            # no reason for more than one
+            settings["iterations"] = 1 if iterations else 0
 
-            moduleContext["settings"] = settings
+        try:
+            settings["period"] = float(settings.get("period", 10.0))
+
+        except ValueError:
+            raise error.SnmpsimError(
+                'numeric: option "period:%s" is not a number' % settings["period"]
+            )
+
+        settings.setdefault("taglist", "2-65-66-67-70")
+
+        moduleContext["settings"] = settings
 
 
 def variate(oid, tag, value, **context):
@@ -98,11 +104,19 @@ def variate(oid, tag, value, **context):
         return context["origOid"], tag, context["errorStatus"]
 
     if "settings" not in recordContext:
-        recordContext["settings"] = dict([split(x, "=") for x in split(value, ",")])
+        # a record may carry no parameters at all: it runs on the defaults
+        recordContext["settings"] = dict(
+            [split(x, "=") for x in split(value, ",") if x]
+        )
 
         for k in recordContext["settings"]:
             if k != "function":
                 recordContext["settings"][k] = float(recordContext["settings"][k])
+
+        # a flag set to zero is off, the same as a flag left out
+        for k in FLAGS:
+            if not recordContext["settings"].get(k):
+                recordContext["settings"].pop(k, None)
 
         if "min" not in recordContext["settings"]:
             recordContext["settings"]["min"] = 0
