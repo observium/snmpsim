@@ -520,7 +520,11 @@ parameters in *.snmprec* value field:
 
 .. note::
 
-   Optional tag modifier in :ref:`.snmprec file <snmprec>` is ignored by this variation module.
+   The optional tag modifier of the :ref:`.snmprec file <snmprec>` tells how
+   *value* and the constants of *vlist* are written, just as it does on a
+   plain record: with the *x* modifier they are hex digits, with the *e*
+   modifier they are strings with Python escapes. *hexvalue* is hex digits
+   whatever the modifier.
 
 Examples
 ~~~~~~~~
@@ -545,6 +549,15 @@ allows only values of 1 and 2 to be SET:
     1.3.6.1.2.1.1.3.0|2:writecache|value=42,vlist=lt:1:wrongvalue:gt:2:wrongvalue
 
 Any other SET values will result in SNNP WrongValue error in response.
+
+Values that are not plain text are written in hex, by putting the *x*
+modifier on the tag. The first record below serves the IP address
+10.17.0.25, the second one the string ``ABC``:
+
+.. code-block:: bash
+
+    1.3.6.1.2.1.4.20.1.1.10.17.0.25|64x:writecache|value=0a110019
+    1.3.6.1.2.1.1.6.0|4x:writecache|value=414243
 
 .. note::
 

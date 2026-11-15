@@ -36,6 +36,18 @@ ERROR_TYPES = {
 }
 
 
+RECORD = SnmprecRecord()
+
+
+def evaluate(tag, value):
+    """Build SNMP value from its text as the tag of the record tells.
+
+    The tag may carry an encoding flag: `x` for hex digits, `e` for a
+    string with Python escapes - just like on a plain .snmprec record.
+    """
+    return RECORD.evaluate_value(None, tag, value)[2]
+
+
 def init(**context):
     moduleContext["settings"] = {}
 
@@ -71,9 +83,7 @@ def variate(oid, tag, value, **context):
                 vl = recordContext["settings"]["vlist"][3:]
                 recordContext["settings"]["vlist"] = vl
 
-                type_tag, _ = SnmprecRecord.unpack_tag(tag)
-
-                v = SnmprecGrammar.TAG_MAP[type_tag](v)
+                v = evaluate(tag, v)
 
                 if o not in vlist:
                     vlist[o] = {}
@@ -166,11 +176,7 @@ def variate(oid, tag, value, **context):
         )
 
     elif "value" in recordContext["settings"]:
-        return (
-            oid,
-            tag,
-            moduleContext[oid]["type"].clone(recordContext["settings"]["value"]),
-        )
+        return oid, tag, evaluate(tag, recordContext["settings"]["value"])
 
     else:
         return oid, tag, context["errorStatus"]
