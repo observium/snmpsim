@@ -229,7 +229,11 @@ def test_refused_statement_does_not_reconnect(counting_driver, database):
 
 
 def test_refused_statement_undoes_the_request_it_failed(module, database):
-    """Checking the connection rolls back what the failed SET left open."""
+    """A failed SET takes the message's earlier variable bindings with it.
+
+    They were answered already but not committed; the rollback that keeps
+    the connection usable discards them.
+    """
     variate(module, FIRST, set_to=rfc1902.OctetString("half"), vars_remaining=1)
 
     with pytest.raises(sqlite3.OperationalError, match="no such table"):
@@ -247,6 +251,165 @@ def test_refused_statement_undoes_the_request_it_failed(module, database):
 
     assert variate(module, FIRST) == (FIRST, "4", "first")
     assert stored(database, FIRST) == ("4", "first")
+
+
+class Connection:
+    """A sqlite3 connection that tells when it was rolled back."""
+
+    def __init__(self, conn, rollback_error=None):
+        self._conn = conn
+        self._rollback_error = rollback_error
+        self.rollbacks = 0
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def rollback(self):
+        self.rollbacks += 1
+
+        if self._rollback_error:
+            raise self._rollback_error
+
+        self._conn.rollback()
+
+
+@pytest.fixture
+def spying_driver(counting_driver):
+    """The counting driver, handing out connections that report rollbacks."""
+    connect = counting_driver.connect
+    counting_driver.rollback_error = None
+
+    def spying_connect(**params):
+        conn = Connection(connect(**params), counting_driver.rollback_error)
+        counting_driver.connections[-1] = conn
+        return conn
+
+    counting_driver.connect = spying_connect
+
+    return counting_driver
+
+
+def start(driver, database, extra=""):
+    ctx = load()
+    ctx["init"](
+        options="dbtype:%s,database:%s%s" % (driver.__name__, database, extra),
+        mode="variating",
+    )
+
+    return ctx
+
+
+def set_in(module, table, oid, value, vars_remaining=0):
+    return module["variate"](
+        oid,
+        "4",
+        table,
+        origOid=rfc1902.ObjectName(oid),
+        origValue=rfc1902.OctetString(value),
+        errorStatus=rfc1905.noSuchInstance,
+        setFlag=True,
+        nextFlag=False,
+        varsRemaining=vars_remaining,
+    )
+
+
+def test_statement_refused_on_the_new_connection_is_rolled_back(
+    spying_driver, database
+):
+    """The retry can fail too, and its connection is the one that is kept."""
+    ctx = start(spying_driver, database, ",dbtable:nosuchtable")
+
+    try:
+        drop_connection(ctx)
+
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            variate(ctx, FIRST)
+
+        first, second = spying_driver.connections
+
+        assert ctx["moduleContext"]["dbConn"] is second
+        assert second.rollbacks == 1
+
+    finally:
+        ctx["shutdown"](mode="variating")
+
+
+def test_error_about_the_data_is_rolled_back_without_reconnecting(
+    spying_driver, database
+):
+    """An error outside the connection's classes still ends the transaction."""
+    conn = sqlite3.connect(database)
+    conn.execute(
+        "CREATE TABLE picky (oid text, tag text, "
+        "value text check (value != 'bad'), maxaccess text)"
+    )
+    conn.commit()
+    conn.close()
+
+    ctx = start(spying_driver, database)
+
+    try:
+        set_in(ctx, "picky", FIRST, "good", vars_remaining=1)
+
+        with pytest.raises(sqlite3.IntegrityError):
+            set_in(ctx, "picky", SECOND, "bad")
+
+        (conn,) = spying_driver.connections
+
+        assert conn.rollbacks == 1
+        assert ctx["moduleContext"]["dbConn"] is conn
+
+        # the first variable binding of the message went with the second
+        assert conn.execute("select count(*) from picky").fetchone() == (0,)
+
+        assert variate(ctx, FIRST) == (FIRST, "4", "first")
+
+    finally:
+        ctx["shutdown"](mode="variating")
+
+
+@pytest.mark.parametrize(
+    "rollback_error", [AttributeError("rollback"), sqlite3.NotSupportedError()]
+)
+def test_driver_without_rollback_is_judged_by_the_probe(
+    spying_driver, database, rollback_error
+):
+    """DB-API makes rollback() optional: lacking it is not a dead connection."""
+    spying_driver.rollback_error = rollback_error
+
+    ctx = start(spying_driver, database, ",dbtable:nosuchtable")
+
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            variate(ctx, FIRST)
+
+        assert len(spying_driver.connections) == 1
+
+        # a connection that is gone is still found out and replaced
+        drop_connection(ctx)
+
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            variate(ctx, FIRST)
+
+        assert len(spying_driver.connections) == 2
+
+    finally:
+        ctx["shutdown"](mode="variating")
+
+
+def test_rollback_failing_otherwise_means_a_dead_connection(spying_driver, database):
+    spying_driver.rollback_error = sqlite3.OperationalError("server has gone away")
+
+    ctx = start(spying_driver, database, ",dbtable:nosuchtable")
+
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            variate(ctx, FIRST)
+
+        assert len(spying_driver.connections) == 2
+
+    finally:
+        ctx["shutdown"](mode="variating")
 
 
 def test_broken_dsn_fails_at_start(tmp_path):

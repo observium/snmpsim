@@ -157,8 +157,14 @@ upstream project yet.
   error is reported as before and the next request tries again, so the
   database is picked up as soon as it is back. If the connection answers, the
   statement itself was refused (no such table, bad SQL): the error is
-  reported on the connection the module has, with the failed request's
-  transaction rolled back, and nothing is reconnected.
+  reported on the connection the module has and nothing is reconnected. The
+  same goes for a passing error on a connection that is alive - sqlite's
+  "database is locked", a MySQL deadlock or lock wait timeout: it is
+  reported, not retried on a new connection.
+  Whatever the database error, the transaction of the failed request is
+  rolled back, so that PostgreSQL does not refuse everything that follows;
+  the earlier variable bindings of the same SET message, answered already
+  but not committed, are discarded with it.
 - Made the lite responder read its options from a file. Only
   ``snmpsim-command-responder`` had ``--args-from-file``;
   ``snmpsim-command-responder-lite --args-from-file=ips.txt`` stopped with

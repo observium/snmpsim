@@ -16,7 +16,9 @@
 # once more on a new connection, so a restarted or idle-disconnecting
 # database server does not leave the module answering errors until the
 # simulator restarts. A request the database itself refuses (no such table,
-# bad SQL) is reported on the connection it has.
+# bad SQL) is reported on the connection it has. Either way the failed
+# request's transaction is rolled back, and with it the earlier variable
+# bindings of the same SET message.
 #
 from snmpsim import error
 from snmpsim import log
@@ -130,16 +132,41 @@ def _connection_errors():
     return tuple(getattr(db, name) for name in names if hasattr(db, name))
 
 
-def _connection_alive(db_conn):
-    """Tell if the connection still answers, after a request failed on it.
+def _rollback(db_conn):
+    """Drop what a failed request left of its transaction, if that can be done.
 
-    The failed request's transaction is rolled back first: PostgreSQL
-    refuses every statement, this one included, until it is, and the
-    request is reported as failed anyway.
+    PostgreSQL refuses every statement of a transaction after one of them
+    failed, so a connection that is kept has to be rolled back whatever the
+    error was. With it go the earlier variable bindings of the same SET
+    message, answered but not committed yet.
     """
     try:
         db_conn.rollback()
 
+    except Exception:  # no transactions, or no connection: nothing to drop
+        pass
+
+
+def _connection_alive(db_conn):
+    """Tell if the connection still answers, after a request failed on it.
+
+    The failed request's transaction is rolled back first, or PostgreSQL
+    would refuse the probe as well. DB-API lets a driver go without
+    rollback(); one that has none, or does not support it, is judged by
+    the probe alone.
+    """
+    db = moduleContext["db"]
+
+    try:
+        db_conn.rollback()
+
+    except (AttributeError, getattr(db, "NotSupportedError", AttributeError)):
+        pass
+
+    except Exception:
+        return False
+
+    try:
         cursor = db_conn.cursor()
         cursor.execute("select 1")
         cursor.fetchall()
@@ -173,10 +200,17 @@ def variate(oid, tag, value, **context):
     else:
         raise error.SnmpsimError("variation module not initialized")
 
+    db_error = getattr(moduleContext["db"], "Error", Exception)
+
     try:
         return _variate(db_conn, oid, tag, value, **context)
 
-    except _connection_errors() as exc:
+    except db_error as exc:
+        if not isinstance(exc, _connection_errors()):
+            # the data is at fault, the connection stays
+            _rollback(db_conn)
+            raise
+
         if _connection_alive(db_conn):
             # the statement is at fault: a new connection would refuse it too
             raise
@@ -187,7 +221,14 @@ def variate(oid, tag, value, **context):
         )
 
     # once only: whatever fails on a new connection is for the caller
-    return _variate(_reconnect(), oid, tag, value, **context)
+    db_conn = _reconnect()
+
+    try:
+        return _variate(db_conn, oid, tag, value, **context)
+
+    except db_error:
+        _rollback(db_conn)
+        raise
 
 
 def _variate(db_conn, oid, tag, value, **context):

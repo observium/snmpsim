@@ -933,8 +933,15 @@ the request once. Should that fail as well, the error is reported and
 the next request tries anew, so the Simulator picks the database up
 again as soon as it is back. When the connection answers, the database
 refused the statement itself - the table does not exist, for one - and
-the error is reported without reconnecting. Either way, changes of a
-SET that were not committed when the request failed are lost.
+the error is reported without reconnecting. An error that would pass
+on its own, like a locked database or a deadlock, is reported as well
+and not retried.
+
+The transaction is rolled back after every database error, on the
+first attempt and on the repeated one. A SET message is committed at
+its last variable binding, so when one of them fails the earlier ones
+of the same message are discarded, although they were answered
+already.
 
 Simulation data configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
