@@ -112,8 +112,28 @@ def variate(oid, tag, value, **context):
                     continue
                 # recordings made before the name was put right have two
                 # dots in it: "00000..snmprec"
-                ident = int(os.path.basename(fl)[: -len(ext)].rstrip(os.path.extsep))
+                name = os.path.basename(fl)[: -len(ext) - 1]
+                ident = int(name.rstrip(os.path.extsep))
                 datafile = os.path.join(d, fl)
+
+                # ...and one recorded over since then has the snapshot
+                # under both names, the old one being out of date
+                taken = recordContext["dirmap"].get(ident)
+
+                if taken and name.endswith(os.path.extsep):
+                    taken, datafile = datafile, taken
+
+                if taken:
+                    log.info(
+                        "multiplex: ignoring %s, snapshot %s is "
+                        "%s" % (taken, ident, datafile)
+                    )
+
+                    if taken == os.path.join(d, fl):
+                        continue
+
+                    del recordContext["parsermap"][taken]
+
                 recordContext["dirmap"][ident] = datafile
                 recordContext["parsermap"][datafile] = RECORD_SET[ext]
 

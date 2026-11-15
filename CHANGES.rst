@@ -14,16 +14,18 @@ upstream project yet.
   handler now gets it as ``startOID``, the name those modules and
   ``snmpsim-record-traffic`` already use.
 - Made the ``multiplex`` variation module close the snapshot it is recording
-  when the recorder shuts it down. It closed a snapshot only before starting
-  the next one, so the last one - the only one of a plain recording - stayed
-  open, and whether what was written to it reached the disk was left to the
-  interpreter exiting: at times the snapshot came out empty next to a
-  recording that looked fine.
+  when the recorder shuts it down. It closed a snapshot only on a stop
+  record, which a walk to the end of the MIB never produces, so the only
+  snapshot of such a recording stayed open, and whether what was written to
+  it reached the disk was left to the interpreter exiting: at times the
+  snapshot came out empty next to a recording that looked fine.
 - Fixed the name ``multiplex`` gives to a snapshot: it was
   ``00000..snmprec``, with two dots, which the responder could not turn into
   a number, so a recording made by the module was not served by it. Snapshots
   are named ``00000.snmprec`` now, as documented, and those already recorded
-  under the old name are served as well.
+  under the old name are served as well - unless the directory was recorded
+  into again and has the snapshot under both names, where the new one is
+  served and the old one is logged as ignored.
 - Fixed ``snmpsim-record-commands`` not being able to record over SNMPv3. It
   took ``--v3-user`` and the other USM options, but ``--protocol-version``
   accepted only ``1`` and ``2c``, so they were never used: given a v3 user the
