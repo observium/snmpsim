@@ -1,7 +1,267 @@
-.. current-version: 2026.11.1 (managed by bump2version)
+.. current-version: 2026.11.2 (managed by bump2version)
+
+Revision 2026.11.2, unreleased
+------------------------------
+
+Changes carried by snmpsim-ng.
+
+- Made ``snmpsim-command-responder`` stop when it cannot bind an endpoint.
+  pysnmp 7 binds a UDP endpoint in a task of the event loop, and the
+  responder never looked at how that task ended: with the port taken by
+  another process, or an address the host does not have, it logged
+  ``Listening at UDP/IPv4 endpoint 127.0.0.1:1161`` all the same, kept
+  running and answered nothing. The responder now waits for every bind
+  before it says it is listening; an endpoint that failed is logged by name
+  with the error of the system, e.g. ``failed to bind UDP/IPv4 endpoint
+  127.0.0.1:1161: [Errno 48] Address already in use``, and the process exits
+  with status 1.
+- Added the ``--v1-only`` and ``--v2c-only`` options to the command responder.
+  The responder answered SNMPv1, SNMPv2c and SNMPv3 on every endpoint whatever
+  device it simulated, so an agent that speaks one version could not be
+  simulated: a manager falling back from v2c to v1 got an answer either way.
+  With ``--v1-only`` only SNMPv1 requests are answered, with ``--v2c-only``
+  only SNMPv2c ones; a request of any other version gets no response at all
+  (no error and no SNMPv3 report), the manager times out as it does with a
+  real single-version agent. The two options and ``--v3-only`` are mutually
+  exclusive, giving two of them is a command-line error. The versions each
+  SNMP engine serves are logged at startup.
+- Added the ``--v3-auth-key-type`` and ``--v3-priv-key-type`` options to the
+  command responder. It took every ``--v3-auth-key`` and ``--v3-priv-key``
+  for a passphrase, so a USM user of which only the key is known (as it
+  stands in a device configuration) could not be simulated: the key was
+  hashed once more and no manager could authenticate. The new options take
+  ``passphrase`` (the default), ``master`` (the hashed passphrase) or
+  ``localized`` (the master key hashed with the engine ID); master and
+  localized keys are given in hex, with or without the leading ``0x``, e.g.
+  ``--v3-engine-id=80004fb805736e6d7073696d01 --v3-user=wallace
+  --v3-auth-proto=SHA --v3-auth-key-type=localized
+  --v3-auth-key=0x6fa2b85a0b067e30a4d2ee88afb33bb3f05da1e4``. A localized
+  key only fits the ``--v3-engine-id`` it was made for. A key that is not
+  hexadecimal or not of the size the protocol takes (16 octets where SHA
+  takes 20) stops the responder with a message naming the user.
+- Fixed SNMPv3 GETBULK responses ignoring the message size the manager is
+  able to receive. Every SNMPv3 request carries ``msgMaxSize``, but the
+  responder filled the response up to its own ``--max-message-size`` (1472
+  octets by default) and pysnmp then silently dropped whatever was larger
+  than the manager had asked for: a manager announcing 484 octets, the
+  smallest size the protocol allows, got nothing but timeouts from a table
+  of 200-octet rows. The repetitions are now cut to the smaller of
+  ``--max-message-size`` and the manager's ``msgMaxSize``, so that manager
+  gets one row in a 353-octet message and walks the whole table. SNMPv1 and
+  SNMPv2c responses, which carry no such field, are unchanged.
+- Fixed the error-index of a request in which a variable other than the last
+  one fails. pysnmp's command responder points error-index at the first
+  variable unless the failed one is the last of the request, so
+  ``snmpget -v2c ... OID1 OID2 OID3`` with ``OID2`` served by the ``error``
+  variation module (``status=noSuchName``) reported ``Failed object: OID1``.
+  The responder now sends the error response itself and error-index is 2;
+  the same holds for GETNEXT, SET and GETBULK (where the index counts from
+  the start of the request) over SNMPv1, SNMPv2c and SNMPv3.
+- Fixed ``noSuchObject``, ``noSuchInstance`` and ``endOfMib`` of the ``error``
+  variation module, which came out as ``genErr`` on every SNMP version.
+  SNMPv2 has no such error-status, these are values of a variable: on GET,
+  GETNEXT and GETBULK an SNMPv2c or SNMPv3 manager now gets error-status 0,
+  the exception in the var-bind of that variable and the values of the other
+  variables, and an SNMPv1 manager gets ``noSuchName`` pointing at the
+  variable. On SET they are reported as before (``notWritable`` for the
+  first two).
+- ``--daemonize`` of ``snmpsim-command-responder`` reports whether the daemon
+  started: the process which was started stays until the daemon has built its
+  indexes and bound its endpoints, and exits with 0 then, or with 1 if the
+  daemon ended before that (a port in use, a pid file which cannot be
+  written). Until it is ready the daemon keeps the standard error it was
+  started with, so the reason is seen by whoever started it. Before, the
+  parent exited with 0 right after ``fork()`` whatever happened next.
+  Relative ``--data-dir``, ``--cache-dir``, ``--variation-modules-dir``,
+  ``--pid-file`` and the reports directory of ``--reporting-method`` are taken
+  from the directory the responder was started in, not from ``/`` where the
+  daemon changes to. An empty ``--pid-file=`` still means no pid file.
+  ``snmpsim-command-responder-lite --daemonize`` is unchanged: its parent
+  exits right after the fork.
+- The command responder rescans its data directories on SIGHUP. A recording
+  put into a data directory used to be served after a restart only, and one
+  taken away kept its community name, every request for it failing at the
+  file which was not there; SIGHUP itself ended a daemon and killed a
+  responder running in the foreground. Now a recording which appeared is
+  indexed and gets its community and context names, one which is gone loses
+  them and has its files closed, the others are not touched and are served
+  all the while: with an index of 400000 records being built, the slowest
+  answer from another recording took 140 ms. A recording which cannot be
+  indexed is reported and left out, a directory which cannot be read leaves
+  everything as it was. POSIX only; ``snmpsim-command-responder-lite`` is
+  unchanged.
+- Fixed the responder serving a changed recording from a stale index left
+  in the cache by another DBM backend. The dbm modules keep an index of the
+  same name in different files (``<name>.dbm`` for gdbm and sqlite3,
+  ``<name>.dbm.db`` or ``.dir``/``.pag`` for ndbm, ``.dat``/``.dir``/``.bak``
+  for dumb), and ``dbm.open()`` looks for ndbm's first: with an old
+  ``<name>.dbm.db`` in the cache the recording was re-indexed into
+  ``<name>.dbm`` on every start and still answered from the old file, so new
+  OIDs were missing. Building an index now removes every file any backend
+  could take for that name, the index is opened with the backend that built
+  it, and an index found next to another backend's files is rebuilt once.
+- The responder keeps the most recently used data files open. Open files
+  were held in a queue of 31 and the one opened first was closed, however
+  recently it had been asked for: polled in turn, A, B, C, A, D with room
+  for three closed A and left B open, so with some 1300 recordings polled
+  round-robin nearly every request closed one data file and reopened
+  another, index included. A recording that failed to open was queued
+  again on every request and each time pushed a good file out, and the
+  "Closing" log line named the file being opened rather than the one
+  closed. Now the file closed is the one nobody asked for the longest, each
+  file is counted once, a file that cannot be opened closes nobody, and the
+  log names the file that was closed. The new ``--max-open-data-files``
+  option of ``snmpsim-command-responder`` and
+  ``snmpsim-command-responder-lite`` sets how many are kept; the default is
+  half of the soft ``RLIMIT_NOFILE`` less a reserve of 64 descriptors, 256
+  at most (256 with a limit of 1024, 96 with macOS's 256, and 256 where
+  there is no such limit, as on Windows).
+- The responder no longer formats request and response var-binds for log
+  lines that are not printed, and no longer calls ``stat()`` on the data file
+  for every request. With ``--log-level error`` or ``--logging-method null``
+  every request still had each of its values and OIDs turned into text for
+  the two INFO lines ("Request var-binds: ...", "Response var-binds: ..."),
+  which were then dropped; they are now built only when INFO is printed, and
+  read the same as before. An open data file is checked for changes at most
+  once a second instead of on every lookup, so 100 requests within a second
+  cost one ``stat()``, not 100. An edited recording is still reopened and
+  reindexed, up to a second later than before.
+- The responder builds missing and out of date indexes in several processes
+  before it configures its SNMP engines, so a start over an empty cache no
+  longer indexes some 1300 recordings one after another. The new
+  ``--index-workers N`` option of ``snmpsim-command-responder`` sets how many
+  (default: the CPUs the process may use, 8 at most; 1 builds them one by
+  one as before). A recording that fails to index is reported and does not
+  stop the others. An index is now built as ``<name>.dbm.part`` and renamed
+  once complete, so a build cut short by a kill, Ctrl-C or a dead worker no
+  longer leaves half an index that is served as up to date.
+- Fixed ``snmpsim-record-commands`` exiting with 0 after a failed recording.
+  ``main()`` returned from inside a ``finally`` block, which dropped whatever
+  the walk had raised: a variation module whose ``record`` handler raised left
+  a short recording and exit code 0, and Python 3.14 printed
+  ``SyntaxWarning: 'return' in a 'finally' block`` on every start. An
+  exception from the walk is now logged as ``Recording FAILED`` and the exit
+  code is 1. The exit code is 1 as well when a variation module fails to
+  initialize (the recorder stops before the walk instead of walking the agent
+  with a module that refuses every record), when a module refuses a record
+  with an error, and when a module fails to shut down.
+- Fixed ``snmpsim-record-commands`` never telling a variation module that a
+  walk had reached the end of the MIB. The module was told that a pass was
+  over only when the walk ran into ``--stop-object``, so without that option
+  ``--variation-module=multiplex`` with ``iterations:3`` made one snapshot
+  instead of three, and ``numeric`` with ``iterations`` wrote an empty
+  recording, both with exit code 0. The recorder now reports the end of the
+  walk to the module itself and walks again for as many iterations as were
+  asked for.
+- Fixed the end of a recording made by ``snmpsim-record-traffic``. The last
+  OID of every recording was written twice: a capture of ``sysDescr.0`` and
+  ``sysName.0`` gave three records, ``sysName.0`` being there two times. The
+  record that marks the end of a pass was never flagged as such either, so
+  the ``iterations`` of the ``numeric`` and ``multiplex`` variation modules
+  never moved on to the next time window of the capture. A UDP payload that
+  is not BER made pysnmp raise a ``TypeError``, which was taken for a request
+  to shut down: the conversion stopped at that packet, wrote what it had and
+  exited with code 0; a truncated frame, an ARP frame or an empty datagram
+  ended it with a traceback. Packets that are not SNMP are now counted as
+  bad packets and passed over, an unexpected error is reported with the
+  number of the packet and exit code 1 after writing what was read before
+  it, and a context whose OIDs all fall outside the range of
+  ``--start-object`` and ``--stop-object`` no longer ends the run with an
+  ``IndexError``.
+- An empty value is told from a missing one in every data file format. In a
+  ``.dump`` or ``.MVC`` file a record such as ``1.3.6.1.2.1.1.5.0|6|`` ran
+  into an IndexError and was reported as broken, so an empty string was
+  lost; an empty OBJECT IDENTIFIER (``|5|``) passed and was converted into a
+  record no responder can serve. In a ``.snmprec`` file an empty hex number
+  (``|2x|``, ``|65x|``, ``|66x|``, ``|67x|``, ``|70x|``) built a value with
+  nothing in it, and ``snmpsim-manage-records`` stopped with ``record not
+  written: Attempted "__hash__" operation on ASN.1 schema object`` even
+  under ``--ignore-broken-records``. Now an empty value of a string type is
+  a zero-length string, and an empty value of any other type is a broken
+  record: reported, and skipped under ``--ignore-broken-records``.
+- Fixed the line numbers reported by ``snmpsim-manage-records``. The line
+  counter moved only when a comment was met, so every record without a
+  comment ahead of it was taken to start on line 1 again: a comment on
+  line 2 of a ``.snmprec`` was reported as "Losing comment at lines 1..1",
+  later ones were off by the number of records read in between, and the
+  lines a wrapped snmpwalk value continues on were not counted at all.
+  Every line is counted now, and the "Skipping broken record" and
+  "ERROR: broken record" messages name the line the record starts on,
+  e.g. "at line 7 (input file #0)".
+- The ``numeric`` variation module applied its recording defaults only when
+  some other option was given: ``--variation-module=numeric`` on its own left
+  the settings empty and the recording came out as plain values, as if the
+  module was not there. The defaults (``period`` of 10 seconds, ``taglist`` of
+  ``2-65-66-67-70``) now apply with or without other options. While
+  simulating, ``atime``, ``wrap`` and ``cumulative`` were switched on by the
+  key being present, so ``wrap=0`` wrapped and ``cumulative=0`` accumulated;
+  a flag set to ``0`` is now off and any other number is on. A record with an
+  empty value field (``65:numeric|``) raised ``ValueError`` instead of running
+  on the defaults. The documentation of the ``iterations`` recording option
+  now says what the module does: ``0``, the default, is a single walk
+  recording initial values, any other number is two walks with the rate
+  computed between them, however large the number.
+- Fixed ``snmpsim-record-mibs`` giving unrelated rows to tables that describe
+  the same things. Every table got its own random indexes, so a table that
+  ``AUGMENTS`` another one, or repeats its ``INDEX`` clause, did not line up
+  with it: IF-MIB came out with ``ifTable`` rows 3, 4, 12, ... and ``ifXTable``
+  rows 4, 6, 11, ..., that is interfaces with counters and no names next to
+  interfaces with names and no counters. Tables indexed by the same columns
+  now reuse the indexes generated for the first of them, also across the MIB
+  modules given in one run; tables with a different set of index columns
+  still get rows of their own.
+- Fixed ``snmpsim-record-mibs`` generating values the MIB does not permit and
+  then asking for them at the terminal. The tool made up a number from
+  ``--integer32-range`` (0..32 by default) or a few words from the string
+  pool, tried it against the object's constraints up to 5000 times and then
+  prompted, so ``INTEGER { standby(40), active(50), failed(60) }``,
+  ``Integer32 (1000..2000)``, ``OCTET STRING (SIZE (6))``, ``MacAddress`` and
+  any ``BITS`` object never got a value: IF-MIB stopped at ``ifPhysAddress``
+  to ask, and with stdin closed the question was printed for ever. Values
+  are now drawn from the constraints: a member of the enumeration, a number
+  from the permitted ranges (narrowed to the range given on the command line
+  where the two overlap), a string of a permitted size, random octets where
+  the DISPLAY-HINT shows numbers, a set of the named bits. A number is
+  written as it goes on the wire, a ``d-2`` DISPLAY-HINT no longer multiplies
+  it by 100. An object no value can be made for is reported once on stderr
+  and left out, a table whose index has no value is left out as a whole, and
+  the rest of the MIB is generated; nothing is asked unless
+  ``--manual-values`` is given, and there the end of the input ends the
+  questions.
+- Made the documentation sources describe snmpsim-ng. They were still set up
+  for the release line this project was forked from: published at its
+  address, naming its company as the author, opening with an announcement of
+  another product, linking its repository and tracker, loading its analytics
+  and advertising on every page, and buildable only with its fork of
+  sphinx-sitemap. The examples no longer record from a public demo agent but
+  from the documentation address 192.0.2.1. The quick start installs from
+  git, on POSIX and on Windows, and serves a five-line data file the reader
+  writes, instead of a recording from the ``snmpsim-data`` package, which
+  requires ``snmpsim`` 1.x and so installs the other release line. The Sphinx
+  packages moved from the ``dev`` extra to a ``docs`` extra of their own.
+- Documented what snmpsim-ng changed in the reference pages, not only here
+  and in the README. The command-line reference had no word on the
+  recorder's ``--protocol-version`` and SNMPv3 options, gave
+  ``--reporting-method`` without its dumping period, and listed search paths
+  such as ``/usr/snmpsim/data`` and ``\Document and Settings`` that are not
+  searched; the page on ``snmpwalk`` files still said multi-line values are
+  not coped with. It now has sections for ``snmpsim-record-commands``,
+  ``snmpsim-manage-records`` and ``snmpsim-lint-records``, and the pages on
+  data files show a recording over SNMPv3, a converted walk with wrapped
+  values, non-ASCII strings and Opaque floats, and what a broken record ends
+  a conversion with. A new page, "Migrating from snmpsim", covers the package
+  name, removing an installation named ``snmpsim`` first, the calendar
+  version numbers, and what answers differently from snmpsim 1.2.2. Options
+  the pages named but no command takes were put right: ``--start-oid`` and
+  ``--stop-oid`` are ``--start-object`` and ``--stop-object``,
+  ``--max-varbinds`` is ``--max-var-binds``, ``--manual-value`` is
+  ``--manual-values``, and ``--agent-udpv4-endpoints-list`` never existed -
+  it is ``--args-from-file``. The options this release adds are described
+  there as well: ``--v1-only``, ``--v2c-only``, ``--v3-auth-key-type``,
+  ``--v3-priv-key-type``, ``--index-workers`` and ``--max-open-data-files``.
 
 Revision 2026.11.1, released on Nov 15, 2026
-------------------------------
+--------------------------------------------
 
 Changes carried by snmpsim-ng.
 

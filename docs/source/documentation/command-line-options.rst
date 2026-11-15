@@ -338,6 +338,21 @@ manager which does not receive every fragment sees the request time out.
 The default is *1472* - the Ethernet MTU less the IP and UDP headers. Raise it
 towards *65507* to let responses fill a whole datagram.
 
+**--max-open-data-files**
++++++++++++++++++++++++++
+
+How many data files the responder keeps open at once. When one more has to be
+opened, the one that has not been asked for the longest is closed; it is
+reopened, index included, on the next request for it. Each open data file
+takes two file descriptors, the recording and its index, so the number has to
+stay below half of what the system lets the process open (``ulimit -n``).
+
+The default is half of the soft limit on open files (``RLIMIT_NOFILE``) less
+a reserve of 64 descriptors, *256* at most: 256 with a limit of 1024, 96 with
+a limit of 256, and 256 where there is no such limit, as on Windows. Raise the
+limit and this option together when more recordings than that are polled in
+turn.
+
 **--transport-id-offset**
 +++++++++++++++++++++++++
 
@@ -434,7 +449,8 @@ by the command line. An option that can be given more than once
 add up. *--agent-udpv4-endpoint* and *--agent-udpv6-endpoint* exclude
 each other, so one of them in the file and the other on the command line
 is an error. The on/off switches (*--daemonize*, *--quiet*, *--v2c-arch*,
-*--v3-only*, *--force-index-rebuild*, *--validate-data*) have no "off"
+*--v3-only*, *--v1-only*, *--v2c-only*, *--force-index-rebuild*,
+*--validate-data*) have no "off"
 form, so one that the file sets cannot be switched off from the command
 line.
 *snmpsim-command-responder* reads from the file the options that configure
@@ -458,6 +474,38 @@ protocols. With the *--v3-only* flag in effect, SNMPv1/v2c agents will
 not be configured what saves a bit of memory and startup time.
 
 Default is to configure SNMPv1/v2c and SNMPv3.
+
+**--v1-only** & **--v2c-only**
+++++++++++++++++++++++++++++++
+
+Make the responder speak a single SNMP version, the way an agent configured
+for that version alone does. With *--v1-only* only SNMPv1 requests are
+answered, with *--v2c-only* only SNMPv2c ones. A request of any other version
+gets no response at all - no error and no SNMPv3 report - so the manager
+times out.
+
+.. code-block:: bash
+
+   snmpsim-command-responder --v2c-only --data-dir=./data \
+       --agent-udpv4-endpoint=127.0.0.1:1161
+
+*--v1-only*, *--v2c-only* and *--v3-only* exclude each other: giving two of
+them is a command-line error. The versions each SNMP engine serves are logged
+at startup.
+
+Default is to answer SNMPv1, SNMPv2c and SNMPv3.
+
+**--index-workers**
++++++++++++++++++++
+
+How many processes build data file indices at startup. Before the SNMP
+engines are configured, the responder looks through all its data directories
+and builds the indices that are missing or out of date in this many processes
+at once. A recording that fails to index is reported and does not stop the
+others. With *--index-workers=1* indices are built one by one, each when its
+data file is set up.
+
+The default is the number of CPUs the process may use, *8* at most.
 
 **--v3-engine-id**
 ++++++++++++++++++
@@ -510,6 +558,36 @@ SNMP USM message authentication key.
 
     Must be 8 or more characters.
 
+.. _usm-key-types:
+
+**--v3-auth-key-type**
+++++++++++++++++++++++
+
+What *--v3-auth-key* holds:
+
+* *passphrase* - the passphrase of the user, 8 or more characters. The
+  responder hashes it into the key and localizes the key to its SNMP engine
+  ID.
+* *master* - the master key, that is the passphrase already hashed with the
+  authentication protocol, but not yet localized.
+* *localized* - the master key hashed with the SNMP engine ID, as it stands
+  in the configuration of a device. A localized key only fits the
+  *--v3-engine-id* it was made for, so give that option as well.
+
+Master and localized keys are given in hex, with or without the leading
+*0x*, and must be of the size the protocol takes (16 octets for MD5, 20 for
+SHA and so on). A key that is not hexadecimal or of another size stops the
+responder with a message naming the user.
+
+.. code-block:: bash
+
+   snmpsim-command-responder --v3-engine-id=80004fb805736e6d7073696d01 \
+       --v3-user=wallace --v3-auth-proto=SHA --v3-auth-key-type=localized \
+       --v3-auth-key=0x6fa2b85a0b067e30a4d2ee88afb33bb3f05da1e4 \
+       --data-dir=./data --agent-udpv4-endpoint=127.0.0.1:1161
+
+The default is *passphrase*.
+
 **--v3-auth-proto**
 +++++++++++++++++++
 
@@ -541,6 +619,16 @@ SNMP USM message encryption key.
 .. note::
 
     Must be 8 or more characters.
+
+**--v3-priv-key-type**
+++++++++++++++++++++++
+
+What *--v3-priv-key* holds: *passphrase* (the default), *master* or
+*localized*, with the same meaning and the same hex notation as
+:ref:`--v3-auth-key-type <usm-key-types>`. A master privacy key is made by
+the hash of the user's authentication protocol and has its size; a localized
+one must be at least as long as the key the privacy protocol takes (16 octets
+for AES, for instance).
 
 **--v3-priv-proto**
 +++++++++++++++++++
