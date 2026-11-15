@@ -379,8 +379,16 @@ The file holds *--option=value* items separated by spaces or line breaks:
    --agent-udpv4-endpoint=127.0.0.1:1025
    $ snmpsim-command-responder-lite --args-from-file=responder.args
 
-*snmpsim-command-responder-lite* reads any of its options from the file;
-an option given on the command line as well takes precedence.
+*snmpsim-command-responder-lite* reads any of its options from the file,
+as if they stood ahead of those of the command line. An option that takes
+a single value (*--log-level*, *--cache-dir* and the like) is overridden
+by the command line. An option that can be given more than once
+(*--data-dir*, *--agent-udpv4-endpoint*, *--agent-udpv6-endpoint*,
+*--variation-modules-dir*, *--variation-module-options*, *--debug*,
+*--debug-asn1*) is not: the values of the file and of the command line
+add up. *--agent-udpv4-endpoint* and *--agent-udpv6-endpoint* exclude
+each other, so one of them in the file and the other on the command line
+is an error.
 *snmpsim-command-responder* reads from the file the options that configure
 its SNMP engines (*--v3-engine-id*, *--data-dir*, *--agent-udpv4-endpoint*
 and the like) and adds them after those of the command line.

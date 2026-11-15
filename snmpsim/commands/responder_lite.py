@@ -242,11 +242,17 @@ def main():
         type=str,
         help="Read command-line options from this file, as whitespace-separated "
         "--option=value items. Can be useful when command-line is too long. "
-        "Options given on the command line take precedence",
+        "The file is read ahead of the command line: an option that takes "
+        "one value is overridden by the command line, an option that can be "
+        "given more than once (--data-dir, the endpoints) gets the values of "
+        "both, and --agent-udpv4-endpoint in one with --agent-udpv6-endpoint "
+        "in the other is an error, as it is on one command line",
     )
 
     # The file can hold the required options, so it has to be read before
-    # the command line is checked for them.
+    # the command line is checked for them. Its items go ahead of the
+    # command line and the two are parsed as one: the last value wins for an
+    # option that holds one, and the options that append collect both.
     file_helper = argparse.ArgumentParser(add_help=False)
     file_helper.add_argument("--args-from-file")
 

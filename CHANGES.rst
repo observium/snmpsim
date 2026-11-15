@@ -165,9 +165,16 @@ upstream project yet.
   "unrecognized arguments", so a list of endpoints too long for a command line
   could not be served by it. The lite responder now takes the same option and
   the same file format, ``--option=value`` items separated by whitespace. Any
-  of its options can be kept in the file, the required endpoints included, and
-  an option also given on the command line takes precedence. A file that
-  cannot be read is reported and the responder exits with status 1.
+  of its options can be kept in the file, the required endpoints included.
+  The file is read as if its items stood ahead of the command line: for an
+  option that takes one value the command line wins, while the options that
+  can be given more than once (``--data-dir``, ``--agent-udpv4-endpoint``,
+  ``--agent-udpv6-endpoint``, ``--variation-modules-dir``,
+  ``--variation-module-options``, ``--debug``, ``--debug-asn1``) get the
+  values of both. IPv4 endpoints in the file with IPv6 ones on the command
+  line, or the other way round, are refused the way they are on a single
+  command line. A file that cannot be read is reported and the responder
+  exits with status 1.
 - Switched the lite responder and ``snmpsim-record-traffic`` to decoding the
   SNMP message version through
   ``pysnmp.proto.api.verdec.decode_message_version`` instead of the camelCase
