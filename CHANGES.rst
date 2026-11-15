@@ -13,6 +13,17 @@ upstream project yet.
   OID, the failure was only logged, and the recording came out empty. The
   handler now gets it as ``startOID``, the name those modules and
   ``snmpsim-record-traffic`` already use.
+- Made the ``multiplex`` variation module close the snapshot it is recording
+  when the recorder shuts it down. It closed a snapshot only before starting
+  the next one, so the last one - the only one of a plain recording - stayed
+  open, and whether what was written to it reached the disk was left to the
+  interpreter exiting: at times the snapshot came out empty next to a
+  recording that looked fine.
+- Fixed the name ``multiplex`` gives to a snapshot: it was
+  ``00000..snmprec``, with two dots, which the responder could not turn into
+  a number, so a recording made by the module was not served by it. Snapshots
+  are named ``00000.snmprec`` now, as documented, and those already recorded
+  under the old name are served as well.
 - Fixed ``snmpsim-record-commands`` not being able to record over SNMPv3. It
   took ``--v3-user`` and the other USM options, but ``--protocol-version``
   accepted only ``1`` and ``2c``, so they were never used: given a v3 user the

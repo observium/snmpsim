@@ -110,7 +110,9 @@ def variate(oid, tag, value, **context):
             for ext in RECORD_SET:
                 if not fl.endswith(ext):
                     continue
-                ident = int(os.path.basename(fl)[: -len(ext) - 1])
+                # recordings made before the name was put right have two
+                # dots in it: "00000..snmprec"
+                ident = int(os.path.basename(fl)[: -len(ext)].rstrip(os.path.extsep))
                 datafile = os.path.join(d, fl)
                 recordContext["dirmap"][ident] = datafile
                 recordContext["parsermap"][datafile] = RECORD_SET[ext]
@@ -316,9 +318,11 @@ def record(oid, tag, value, **context):
 
         dstRecordType = moduleContext.get("recordtype", "snmprec")
 
-        ext = os.path.extsep + RECORD_SET[dstRecordType].ext
-
-        snmprecFile = "%.5d%s%s" % (moduleContext["filenum"], os.path.extsep, ext)
+        snmprecFile = "%.5d%s%s" % (
+            moduleContext["filenum"],
+            os.path.extsep,
+            RECORD_SET[dstRecordType].ext,
+        )
 
         snmprecfile = os.path.join(moduleContext["dir"], snmprecFile)
 
@@ -349,4 +353,7 @@ def record(oid, tag, value, **context):
 
 
 def shutdown(**context):
-    pass
+    # a walk which is over without a stop record leaves the snapshot open
+    if "file" in moduleContext:
+        moduleContext["file"].close()
+        del moduleContext["file"]
