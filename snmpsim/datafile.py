@@ -6,6 +6,7 @@
 #
 # Simulation data file management tools
 #
+import collections
 import os
 import stat
 
@@ -28,14 +29,67 @@ from snmpsim.reporting.manager import ReportingManager
 SELF_LABEL = "self"
 
 
+# never more data files than this are kept open, whatever the process may open
+MAX_OPEN_FILES = 256
+
+# descriptors left to everything that is not a data file: sockets, logs, the
+# modules and the files variation modules open
+RESERVED_DESCRIPTORS = 64
+
+
+def default_max_open_files():
+    """Tell how many data files to keep open unless told otherwise.
+
+    An open data file holds two descriptors, the recording and its index, so
+    half of what the process may open, less a reserve, is the most that fits.
+    Where the limit cannot be asked for, as on Windows, or there is none, the
+    answer is `MAX_OPEN_FILES`.
+    """
+    try:
+        import resource
+
+        soft_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+
+    except (ImportError, AttributeError, OSError, ValueError):
+        return MAX_OPEN_FILES
+
+    if soft_limit == resource.RLIM_INFINITY or soft_limit < 0:
+        return MAX_OPEN_FILES
+
+    return max(1, min(MAX_OPEN_FILES, (soft_limit - RESERVED_DESCRIPTORS) // 2))
+
+
+def open_files_limit(text):
+    """Read a number of data files to keep open off the command line."""
+    max_open_files = int(text)
+
+    if max_open_files < 1:
+        raise ValueError("at least one data file has to be kept open")
+
+    return max_open_files
+
+
+def set_max_open_files(max_open_files):
+    """Keep at most this many data files open, closing those over it now."""
+    if max_open_files < 1:
+        raise SnmpsimError(
+            "At least one data file has to be kept open, not %s" % max_open_files
+        )
+
+    DataFile.max_open_files = max_open_files
+    DataFile.close_idle()
+
+
 class AbstractLayout:
     layout = "?"
 
 
 class DataFile(AbstractLayout):
     layout = "text"
-    opened_queue = []
-    max_queue_entries = 31  # max number of open text and index files
+    # open data files, the one asked for the longest ago first; a data file
+    # is in here once, and only while it is open
+    _opened = collections.OrderedDict()
+    max_open_files = default_max_open_files()  # each has a text and an index file
     max_broken_records = 100  # max number of broken records skipped in a row
 
     def __init__(self, textFile, textParser, variationModules):
@@ -49,20 +103,58 @@ class DataFile(AbstractLayout):
         return self
 
     def close(self):
+        DataFile._opened.pop(self, None)
         self._record_index.close()
 
+    @classmethod
+    def close_idle(cls, keep=None):
+        """Close the files asked for the longest ago until the rest fits.
+
+        The file being served is passed as `keep`: it is the most recently
+        used one, and is not closed even when there is room for none.
+        """
+        opened = DataFile._opened
+
+        while len(opened) > cls.max_open_files:
+            data_file = next(iter(opened))
+
+            if data_file is keep:
+                break
+
+            log.info(
+                "Closing %s, the least recently used of %d open data files"
+                % (data_file, len(opened))
+            )
+
+            data_file.close()
+
     def get_handles(self):
-        if not self._record_index.is_open():
-            if len(DataFile.opened_queue) > self.max_queue_entries:
-                log.info("Closing %s" % self)
-                DataFile.opened_queue[0].close()
-                del DataFile.opened_queue[0]
+        opened = DataFile._opened
 
-            DataFile.opened_queue.append(self)
+        kept_open = self._record_index.is_open() and self in opened
 
+        if not kept_open:
             log.info("Opening %s" % self)
 
-        return self._record_index.get_handles()
+        try:
+            # a file that is open is reopened by this if it has changed
+            handles = self._record_index.get_handles()
+
+        except Exception:
+            # whatever was opened before it failed must not stay open, and
+            # a file that cannot be served takes nobody's place
+            self.close()
+            raise
+
+        opened[self] = True
+        opened.move_to_end(self)
+
+        if not kept_open:
+            # only now: a file that fails to open closes nobody, at the price
+            # of one file over the limit for a moment
+            self.close_idle(keep=self)
+
+        return handles
 
     def process_var_binds(self, var_binds, **context):
         rsp_var_binds = []
