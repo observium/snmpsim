@@ -8,48 +8,56 @@ import os
 import sys
 import tempfile
 
-if sys.platform[:3] == "win":
-    variation = [
-        os.path.join(os.environ["HOMEPATH"], "SNMP Simulator", "Variation"),
-        os.path.join(os.environ["APPDATA"], "SNMP Simulator", "Variation"),
-        os.path.join(os.environ["PROGRAMFILES"], "SNMP Simulator", "Variation"),
-        os.path.join(os.path.split(__file__)[0], "variation"),
-    ]
-    data = [
-        os.path.join(os.environ["HOMEPATH"], "SNMP Simulator", "Data"),
-        os.path.join(os.environ["APPDATA"], "SNMP Simulator", "Data"),
-        os.path.join(os.environ["PROGRAMFILES"], "SNMP Simulator", "Data"),
-        os.path.join(os.path.split(__file__)[0], "data"),
-    ]
 
-elif sys.platform == "darwin":
-    variation = [
-        os.path.join(os.environ["HOME"], ".snmpsim", "variation"),
-        os.path.join("/", "usr", "local", "share", "snmpsim", "variation"),
-        os.path.join(sys.prefix, "snmpsim", "variation"),
-        os.path.join(sys.prefix, "share", "snmpsim", "variation"),
-        os.path.join(os.path.split(__file__)[0], "variation"),
-    ]
-    data = [
-        os.path.join(os.environ["HOME"], ".snmpsim", "data"),
-        os.path.join("/", "usr", "local", "share", "snmpsim", "data"),
-        os.path.join(sys.prefix, "snmpsim", "data"),
-        os.path.join(sys.prefix, "share", "snmpsim", "data"),
-        os.path.join(os.path.split(__file__)[0], "data"),
-    ]
+def _windows_home():
+    """Return the home directory of the current Windows user, if there is one.
 
-else:
-    variation = [
-        os.path.join(os.environ["HOME"], ".snmpsim", "variation"),
-        os.path.join(sys.prefix, "snmpsim", "variation"),
-        os.path.join(sys.prefix, "share", "snmpsim", "variation"),
-        os.path.join(os.path.split(__file__)[0], "variation"),
-    ]
-    data = [
-        os.path.join(os.environ["HOME"], ".snmpsim", "data"),
-        os.path.join(sys.prefix, "snmpsim", "data"),
-        os.path.join(sys.prefix, "share", "snmpsim", "data"),
-        os.path.join(os.path.split(__file__)[0], "data"),
-    ]
+    `HOMEPATH` alone carries no drive letter, so it only counts together
+    with `HOMEDRIVE`. Services may run with none of these set.
+    """
+    home = os.environ.get("USERPROFILE")
+    if home:
+        return home
+
+    drive = os.environ.get("HOMEDRIVE")
+    path = os.environ.get("HOMEPATH")
+    if drive and path:
+        return drive + path
+
+
+def _search_path(kind):
+    """Return the directories searched for `kind`: "variation" or "data".
+
+    Directories hanging off an environment variable that is not set are
+    left out rather than failing the import.
+    """
+    bundled = os.path.join(os.path.split(__file__)[0], kind)
+
+    if sys.platform[:3] == "win":
+        roots = [
+            _windows_home(),
+            os.environ.get("APPDATA"),
+            os.environ.get("PROGRAMFILES"),
+        ]
+        dirs = [
+            os.path.join(root, "SNMP Simulator", kind.capitalize())
+            for root in roots
+            if root
+        ]
+
+    else:
+        home = os.environ.get("HOME")
+        dirs = [os.path.join(home, ".snmpsim", kind)] if home else []
+        dirs += [
+            os.path.join("/", "usr", "local", "share", "snmpsim", kind),
+            os.path.join(sys.prefix, "snmpsim", kind),
+            os.path.join(sys.prefix, "share", "snmpsim", kind),
+        ]
+
+    return dirs + [bundled]
+
+
+variation = _search_path("variation")
+data = _search_path("data")
 
 cache = os.path.join(tempfile.gettempdir(), "snmpsim")
