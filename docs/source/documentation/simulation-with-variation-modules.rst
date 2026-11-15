@@ -710,6 +710,19 @@ the UNIX date command instructing it to report elapsed UNIX epoch time.
 Note *.snmprec* tag values -- executed program's stdout will be casted into
 appropriate type depending of tag indication.
 
+The line ending a program finishes its output with is not a part of the
+value: one trailing line feed, along with the carriage return in front of
+it if there is one, is dropped. So *echo hello* makes the five octets of
+*hello*, and a hex-encoded value needs no *echo -n*:
+
+.. code-block:: bash
+
+    1.3.6.1.2.1.25.1.2.0|4x:subprocess|echo 07e30307001b01152b0000
+
+Nothing else is trimmed. Whatever precedes that one line ending, be it
+spaces or another line ending, is passed on as it is: a program that prints
+*a* followed by two line feeds returns *a* followed by one.
+
 .. _variate-notification:
 
 Notification module
