@@ -5,8 +5,8 @@
 # License: https://www.pysnmp.com/snmpsim/license.html
 #
 import re
+import struct
 
-from pyasn1.codec.ber import encoder
 from pyasn1.type import univ
 from pysnmp.proto import rfc1902
 
@@ -80,7 +80,14 @@ class WalkGrammar(abstract.AbstractGrammar):
 
         if opaque_tag.startswith("FLOAT: "):
             # .1.3.6.1.4.1.6574.4.3.1.1.0 = Opaque: Float: 100.000000
-            return encoder.encode(univ.Real(float(value[7:])))
+            # net-snmp sends it as sub-tag 9f78 followed by four octets
+            # of IEEE 754 single precision
+            return b"\x9f\x78\x04" + struct.pack(">f", float(value))
+
+        elif opaque_tag.startswith("DOUBLE: "):
+            # .1.3.6.1.4.1.2021.10.1.6.5 = Opaque: Double: 1.5
+            # sub-tag 9f79 followed by eight octets of double precision
+            return b"\x9f\x79\x08" + struct.pack(">d", float(value))
 
         elif opaque_tag.startswith("UINT64: "):
             # .1.3.6.1.4.1.2021.10.1.6.2 = Opaque: UInt64: 18446744073709551614
