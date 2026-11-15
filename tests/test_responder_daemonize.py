@@ -27,6 +27,7 @@ PORT = 1675
 BUSY_PORT = 1676
 LITE_PORT = 1677
 NO_PID_FILE_PORT = 1678
+POOL_PORT = 1685
 
 SYS_DESCR = "1.3.6.1.2.1.1.1.0"
 
@@ -132,6 +133,47 @@ def test_relative_paths_are_taken_from_where_the_daemon_was_started(
 
     assert error_indication is not None
     assert not os.path.exists(workdir / "responder.pid")
+
+
+def test_nobody_holds_the_terminal_after_indexes_were_built_in_processes(
+    workdir, get_from_responder
+):
+    """With two indexes to build there is a pool of processes, and with it
+    multiprocessing's resource tracker, which lives as long as the daemon
+    does: it must not have the standard error the daemon was started with.
+    """
+    for name in "first", "second", "third":
+        shutil.copy(DATA_FILE, workdir / "data" / f"{name}.snmprec")
+
+    # is back before the daemon ends, or runs into the deadline
+    started = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "snmpsim.commands.responder",
+            "--daemonize",
+            f"--agent-udpv4-endpoint=127.0.0.1:{POOL_PORT}",
+            f"--timeout={LIFETIME}",
+            "--data-dir=data",
+            "--cache-dir=cache",
+            "--pid-file=responder.pid",
+            "--index-workers=2",
+        ],
+        cwd=workdir,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=DEADLINE,
+        text=True,
+    )
+
+    assert started.returncode == 0, started.stderr
+    assert "Indexing 4 data files in 2 processes" in started.stderr
+
+    error_indication, _, var_binds = get_from_responder(POOL_PORT, SYS_DESCR)
+
+    assert error_indication is None
+    assert var_binds[0][1].asOctets() == b"Test device"
 
 
 def test_port_in_use_is_reported_by_the_process_started(workdir):

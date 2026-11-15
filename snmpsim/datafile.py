@@ -11,6 +11,7 @@ import importlib
 import multiprocessing
 import os
 import stat
+import sys
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from time import monotonic
@@ -220,6 +221,70 @@ def _build_index(
     return lines, None
 
 
+def _start_resource_tracker():
+    """Start multiprocessing's resource tracker off the standard streams.
+
+    The tracker is started with the first process of a pool and lives until
+    this process ends. Like any child it has the standard input, output and
+    error of whoever started it, and it never lets go of them: a daemon
+    which leaves its terminal once it serves would leave the tracker on it,
+    and whoever reads the daemon's output through a pipe would wait for the
+    end of it for as long as the daemon lives. So the tracker is started
+    here, ahead of the pool, with the three of them pointing nowhere for
+    the time that takes. What it would have had to say - a warning about
+    semaphores a killed process left behind - is lost with that.
+
+    Nothing is done where there is no tracker, and a tracker that is running
+    already is left as it is.
+    """
+    if os.name != "posix":
+        return
+
+    try:
+        from multiprocessing import resource_tracker
+
+    except ImportError:
+        return
+
+    saved = []
+
+    try:
+        # what is buffered is written while there is still where to
+        for stream in sys.stdout, sys.stderr:
+            try:
+                stream.flush()
+
+            except Exception:
+                pass
+
+        nowhere = os.open(os.devnull, os.O_RDWR)
+
+        try:
+            for fd in 0, 1, 2:
+                try:
+                    saved.append((fd, os.dup(fd)))
+
+                except OSError:
+                    # closed: there is nothing for the tracker to hold
+                    continue
+
+                os.dup2(nowhere, fd)
+
+        finally:
+            os.close(nowhere)
+
+        resource_tracker.ensure_running()
+
+    except Exception as exc:
+        # the pool starts a tracker of its own then
+        log.debug(f"Resource tracker not started ahead of the pool: {exc}")
+
+    finally:
+        for fd, copy in saved:
+            os.dup2(copy, fd)
+            os.close(copy)
+
+
 def index_data_files(data_files, workers, force_index_build=False, validate_data=False):
     """Build the indexes that are missing or out of date, several at a time.
 
@@ -277,6 +342,8 @@ def index_data_files(data_files, workers, force_index_build=False, validate_data
         # On POSIX it brings multiprocessing's resource tracker with it: one
         # more child, idle, that stays when the pool is gone and ends with
         # this process.
+        _start_resource_tracker()
+
         executor = ProcessPoolExecutor(
             max_workers=workers, mp_context=multiprocessing.get_context("spawn")
         )
