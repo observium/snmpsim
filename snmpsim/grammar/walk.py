@@ -37,6 +37,8 @@ class WalkGrammar(abstract.AbstractGrammar):
     # many UTF-8 and code page strings, for white space
     WHITESPACE = " \t\n\r\x0b\x0c"
 
+    BOM = b"\xef\xbb\xbf"
+
     @staticmethod
     def _integer_filter(value):
         try:
@@ -197,6 +199,11 @@ class WalkGrammar(abstract.AbstractGrammar):
             "NETWORK ADDRESS:": self._net_address_filter,
             "TIMETICKS:": self._time_ticks_filter,
         }
+
+        # a walk saved on Windows may open with a UTF-8 byte order mark,
+        # which would otherwise stick to the first OID
+        if line.startswith(self.BOM):
+            line = line[len(self.BOM) :]
 
         # Latin-1 maps every octet to the character of the same number,
         # so the value handlers get the octets of the walk back unchanged

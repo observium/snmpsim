@@ -1,5 +1,6 @@
 import pytest
 
+from snmpsim.record.sap import SapRecord
 from snmpsim.record.snmprec import SnmprecRecord
 from snmpsim.record.walk import WalkRecord
 
@@ -114,4 +115,34 @@ def test_walk_non_ascii_string_reaches_snmprec_as_the_same_octets():
     record = SnmprecRecord().format(oid, value)
     oid, value = SnmprecRecord().evaluate(record)
 
+    assert bytes(value) == octets
+
+
+def test_walk_file_may_start_with_a_byte_order_mark():
+    # Notepad and PowerShell put one in front of the UTF-8 they save
+    line = b'\xef\xbb\xbf.%s = STRING: "abc"\n' % SYSNAME.encode()
+
+    oid, value = WalkRecord().evaluate(line)
+
+    assert str(oid) == SYSNAME
+    assert bytes(value) == b"abc"
+
+
+def test_walk_string_may_start_with_the_octets_of_a_byte_order_mark():
+    octets = b"\xef\xbb\xbfabc"
+    line = b'.%s = STRING: "%s"\n' % (SYSNAME.encode(), octets)
+
+    assert walk_value_octets(line) == octets
+
+
+@pytest.mark.parametrize(
+    "octets",
+    ["voilà".encode("utf-8"), "Далее…".encode("cp1251")],
+)
+def test_sapwalk_string_keeps_trailing_high_bytes(octets):
+    line = b"%s, OctetString, %s\r\n" % (SYSNAME.encode(), octets)
+
+    oid, value = SapRecord().evaluate(line)
+
+    assert str(oid) == SYSNAME
     assert bytes(value) == octets
