@@ -52,6 +52,10 @@ DBM_FILES = {
     "dbm.dumb": (".dat", ".dir", ".bak"),
 }
 
+# What an index is called while it is being built, before the DBM
+# implementation adds its own to the name.
+PART_SUFFIX = ".part"
+
 
 class RecordIndex:
     # an open data file is looked at for changes no more often than this,
@@ -123,9 +127,9 @@ class RecordIndex:
 
         return True
 
-    @property
-    def _db_files(self):
-        """Every file some DBM implementation could take for this index."""
+    @staticmethod
+    def _files_of(db_file):
+        """Every file some DBM implementation could make of this name."""
         suffixes = []
 
         for backend_suffixes in DBM_FILES.values():
@@ -133,10 +137,20 @@ class RecordIndex:
                 if suffix not in suffixes:
                     suffixes.append(suffix)
 
-        return tuple(self._db_file + suffix for suffix in suffixes)
+        return tuple(db_file + suffix for suffix in suffixes)
 
-    def _remove_db_files(self):
-        for db_file in self._db_files:
+    @property
+    def _db_files(self):
+        """Every file some DBM implementation could take for this index."""
+        return self._files_of(self._db_file)
+
+    @property
+    def _part_file(self):
+        """The name an index is built under until all of it is written."""
+        return self._db_file + PART_SUFFIX
+
+    def _remove_db_files(self, db_file=None):
+        for db_file in self._files_of(db_file or self._db_file):
             try:
                 os.remove(db_file)
 
@@ -151,12 +165,35 @@ class RecordIndex:
                     f"{self._text_file}: {exc}"
                 )
 
-    def _discard_db_files(self):
+    def _discard_db_files(self, db_file=None):
         try:
-            self._remove_db_files()
+            self._remove_db_files(db_file)
 
         except error.SnmpsimError as exc:
             log.error(str(exc))
+
+    def _install_part_files(self):
+        """Put the index that has just been built where it is read from."""
+        # the "n" flag emptied only the files of the implementation the
+        # index was built with: those of the others go as well
+        self._remove_db_files()
+
+        part_files = self._files_of(self._part_file)
+
+        try:
+            for part_file, db_file in zip(part_files, self._db_files):
+                if os.path.exists(part_file):
+                    os.replace(part_file, db_file)
+
+        except OSError as exc:
+            # some of it is in place and some is not: none of it is an index
+            self._discard_db_files(self._part_file)
+            self._discard_db_files()
+
+            raise error.SnmpsimError(
+                f"Failed to put index {self._db_file} of data file "
+                f"{self._text_file} in place: {exc}"
+            )
 
     @property
     def db_file(self):
@@ -228,13 +265,16 @@ class RecordIndex:
 
             errors = []
 
-            # the "n" flag empties only the files of the implementation the
-            # index is built with
-            self._remove_db_files()
+            # The index is built under another name and gets its own when
+            # all of it is written. A build that is cut short - the process
+            # killed, the machine stopped - then leaves nothing that could
+            # be taken for an index: half of one is newer than the data file
+            # just as a whole one is, and would be served from.
+            self._remove_db_files(self._part_file)
 
             while open_flags:
                 try:
-                    db = DBM_BACKEND.open(self._db_file, open_flags)
+                    db = DBM_BACKEND.open(self._part_file, open_flags)
 
                 except Exception as exc:
                     log.debug(
@@ -273,62 +313,70 @@ class RecordIndex:
             offset = 0
             prev_offset = -1
 
-            while True:
-                line, line_no, offset = get_record(text, line_no, offset)
+            try:
+                while True:
+                    line, line_no, offset = get_record(text, line_no, offset)
 
-                if not line:
-                    # reference to last OID in data file
-                    db["last"] = "%d,%d,%d" % (offset, 0, prev_offset)
-                    break
+                    if not line:
+                        # reference to last OID in data file
+                        db["last"] = "%d,%d,%d" % (offset, 0, prev_offset)
+                        break
 
-                try:
-                    oid, tag, val = self._text_parser.grammar.parse(line)
-
-                except Exception as exc:
-                    db.close()
-
-                    self._discard_db_files()
-
-                    raise error.SnmpsimError(
-                        "Data error at %s:%d:" " %s" % (self._text_file, line_no, exc)
-                    )
-
-                if validate_data:
                     try:
-                        self._text_parser.evaluate_oid(oid)
+                        oid, tag, val = self._text_parser.grammar.parse(line)
 
                     except Exception as exc:
-                        db.close()
-
-                        self._discard_db_files()
-
                         raise error.SnmpsimError(
-                            "OID error at %s:%d: %s" % (self._text_file, line_no, exc)
+                            "Data error at %s:%d:"
+                            " %s" % (self._text_file, line_no, exc)
                         )
 
-                    try:
-                        self._text_parser.evaluate_value(
-                            oid, tag, val, dataValidation=True
-                        )
+                    if validate_data:
+                        try:
+                            self._text_parser.evaluate_oid(oid)
 
-                    except Exception as exc:
-                        log.info(
-                            "ERROR at line %s, value %r: " "%s" % (line_no, val, exc)
-                        )
+                        except Exception as exc:
+                            raise error.SnmpsimError(
+                                "OID error at %s:%d: %s"
+                                % (self._text_file, line_no, exc)
+                            )
 
-                # for lines serving subtrees, type is empty in tag field
-                db[oid] = "%d,%d,%d" % (offset, tag[0] == ":", prev_offset)
+                        try:
+                            self._text_parser.evaluate_value(
+                                oid, tag, val, dataValidation=True
+                            )
 
-                if tag[0] == ":":
-                    prev_offset = offset
+                        except Exception as exc:
+                            log.info(
+                                "ERROR at line %s, value %r: "
+                                "%s" % (line_no, val, exc)
+                            )
 
-                else:
-                    prev_offset = -1  # not a subtree - no back reference
+                    # for lines serving subtrees, type is empty in tag field
+                    db[oid] = "%d,%d,%d" % (offset, tag[0] == ":", prev_offset)
 
-                offset += len(line)
+                    if tag[0] == ":":
+                        prev_offset = offset
+
+                    else:
+                        prev_offset = -1  # not a subtree - no back reference
+
+                    offset += len(line)
+
+            except BaseException:
+                # an error in the data or the build cut short: either way
+                # what is written so far is not an index
+                text.close()
+                db.close()
+
+                self._discard_db_files(self._part_file)
+
+                raise
 
             text.close()
             db.close()
+
+            self._install_part_files()
 
             log.info("...%d entries indexed" % line_no)
 

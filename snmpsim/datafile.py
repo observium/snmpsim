@@ -273,7 +273,10 @@ def index_data_files(data_files, workers, force_index_build=False, validate_data
 
     try:
         # a process started afresh shares neither sockets nor an event loop
-        # nor a log with this one, and is what Windows and macOS do anyway
+        # nor a log with this one, and is what Windows and macOS do anyway.
+        # On POSIX it brings multiprocessing's resource tracker with it: one
+        # more child, idle, that stays when the pool is gone and ends with
+        # this process.
         executor = ProcessPoolExecutor(
             max_workers=workers, mp_context=multiprocessing.get_context("spawn")
         )

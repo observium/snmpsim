@@ -325,6 +325,133 @@ def test_workers_that_die_leave_indexing_to_the_caller(
     assert _index_files(cache) == []
 
 
+def _die_halfway(text_file, text_parser, *args):
+    """Build an index as a worker does, and be gone three records into it."""
+    get_record = database.get_record
+
+    def get_some_records(text, line_no, offset):
+        if line_no == 3:
+            os._exit(1)
+
+        return get_record(text, line_no, offset)
+
+    database.get_record = get_some_records
+
+    return datafile._build_index(text_file, text_parser, *args)
+
+
+@pytest.mark.parametrize("backend", BACKENDS, ids=lambda backend: backend.__name__)
+def test_an_index_a_dead_worker_left_half_built_is_built_again(
+    tmp_path, cache, monkeypatch, logged, backend
+):
+    """Half an index is newer than its recording, as a whole one is.
+
+    Workers that die, or are killed with the rest when one of them does,
+    stop in the middle of an index. What they leave must not pass for one:
+    the responder would answer from it for as long as the recording stays
+    unchanged.
+    """
+    monkeypatch.setattr(database, "DBM_BACKEND", backend)
+    monkeypatch.setattr(datafile, "_build_index", _die_halfway)
+
+    recordings = _make_recordings(tmp_path / "data", count=6)
+
+    assert datafile.index_data_files(_data_files(recordings), workers=2) == {}
+
+    for recording in recordings:
+        assert RecordIndex(recording, PARSER).needs_build(), recording
+
+    del logged[:]
+
+    # the caller builds them, over whatever the workers left behind
+    for number, recording in enumerate(recordings):
+        contents = _contents(recording)
+
+        assert len(contents) == 2 + number + 1 + 1, recording
+        assert b"last" in contents
+
+    assert len([line for line in logged if "Building index" in line]) == 6
+
+    # and nothing of what they left is still there
+    assert not [name for name in _index_files(cache) if ".part" in name]
+
+
+class _Interrupted:
+    """A grammar that is interrupted at the third record it is shown."""
+
+    def __init__(self):
+        self.parsed = 0
+
+    def parse(self, line):
+        self.parsed += 1
+
+        if self.parsed == 3:
+            raise KeyboardInterrupt()
+
+        return PARSER.grammar.parse(line)
+
+
+def test_an_interrupted_build_keeps_the_index_there_was(
+    tmp_path, cache, monkeypatch, logged
+):
+    """Ctrl-C in the middle of a rebuild leaves the old index, or none."""
+    (recording,) = _make_recordings(tmp_path / "data", count=1)
+
+    index = RecordIndex(recording, PARSER)
+
+    monkeypatch.setattr(PARSER, "grammar", _Interrupted())
+
+    with pytest.raises(KeyboardInterrupt):
+        index.create()
+
+    assert index.needs_build()
+
+    monkeypatch.undo()
+    monkeypatch.setattr(confdir, "cache", str(cache))
+
+    before = _contents(recording)
+
+    assert b"last" in before
+
+    # built again by force, and interrupted: what was there still is
+    monkeypatch.setattr(PARSER, "grammar", _Interrupted())
+
+    with pytest.raises(KeyboardInterrupt):
+        RecordIndex(recording, PARSER).create(force_index_build=True)
+
+    monkeypatch.undo()
+    monkeypatch.setattr(confdir, "cache", str(cache))
+
+    assert not RecordIndex(recording, PARSER).needs_build()
+    assert _contents(recording) == before
+
+
+def _build_index_slowly(*args):
+    """Build an index as a worker does, and say which process did."""
+    lines, failure = datafile._build_index(*args)
+
+    # long enough for the other processes to come up and take their share
+    time.sleep(0.3)
+
+    return lines + ["built by %d" % os.getpid()], failure
+
+
+def test_indexes_are_built_by_other_processes(tmp_path, cache, monkeypatch, logged):
+    monkeypatch.setattr(datafile, "_build_index", _build_index_slowly)
+
+    recordings = _make_recordings(tmp_path / "data", count=8)
+
+    results = datafile.index_data_files(_data_files(recordings), workers=4)
+
+    assert results == {recording: None for recording in recordings}
+
+    builders = [int(line.split()[-1]) for line in logged if "built by" in line]
+
+    assert len(builders) == 8
+    assert os.getpid() not in builders
+    assert len(set(builders)) > 1
+
+
 def test_the_default_number_of_workers(monkeypatch):
     assert 1 <= datafile.default_index_workers() <= 8
 
