@@ -1,7 +1,7 @@
 .. current-version: 2026.11.0 (managed by bump2version)
 
-Revision 2026.11.0, unreleased
---------------------------------
+Revision 2026.11.0, released on Nov 15, 2026
+----------------------------------------------
 
 Changes carried by the Observium fork. Where a change was also sent to the
 upstream project, its pull request is given.
