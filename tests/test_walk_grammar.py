@@ -8,7 +8,8 @@ from snmpsim.error import SnmpsimError
 
 from snmpsim.record.sap import SapRecord
 from snmpsim.record.snmprec import SnmprecRecord
-from snmpsim.record.walk import WalkRecord
+from snmpsim.record import walk as walk_module
+from snmpsim.record.walk import WalkRecord, can_rewind
 
 OID = "1.3.6.1.4.1.2021.10.1.6.1"
 
@@ -386,7 +387,7 @@ def test_walk_is_read_from_a_pipe():
         sink.write(text + b".%s = INTEGER: 6\n" % IF_DESCR.encode())
 
     with os.fdopen(reader, "rb") as source:
-        assert not source.seekable()
+        assert not can_rewind(source)
         record = WalkRecord()
         lines = [record.read_record(source)[0] for _ in range(4)]
 
@@ -396,6 +397,99 @@ def test_walk_is_read_from_a_pipe():
         6,
     ]
     assert lines[3] == b""
+
+
+class PipeThatSaysItSeeks(io.BufferedReader):
+    """A pipe that says it seeks and whose seek() brings nothing back."""
+
+    def seekable(self):
+        return True
+
+    def tell(self):
+        return 0
+
+    def seek(self, offset, whence=os.SEEK_SET):
+        return 0
+
+
+def test_walk_is_read_from_a_pipe_that_says_it_can_seek():
+    octets = bytes(range(20))
+    reader, writer = os.pipe()
+
+    with os.fdopen(writer, "wb") as sink:
+        sink.write(
+            b".%s = Hex-STRING: %s \n%s \n.%s = STRING: eth0\n"
+            % (
+                IF_PHYS.encode(),
+                octets[:16].hex(" ").upper().encode(),
+                octets[16:].hex(" ").upper().encode(),
+                IF_DESCR.encode(),
+            )
+        )
+
+    with PipeThatSaysItSeeks(io.FileIO(reader, "rb")) as source:
+        assert source.seekable()
+        record = WalkRecord()
+        lines = [record.read_record(source)[0] for _ in range(3)]
+
+    assert lines[1:] == [b".%s = STRING: eth0\n" % IF_DESCR.encode(), b""]
+    assert record.evaluate(lines[0])[1] == octets
+
+
+def test_only_a_regular_file_is_moved_back(tmp_path):
+    walk = tmp_path / "switch.snmpwalk"
+    walk.write_bytes(b"")
+    reader, writer = os.pipe()
+
+    with open(walk, "rb") as source:
+        assert can_rewind(source)
+
+    with os.fdopen(writer, "wb"), os.fdopen(reader, "rb") as source:
+        assert not can_rewind(source)
+
+
+def test_regular_file_behind_a_reader_that_cannot_seek_is_not_moved_back(tmp_path):
+    class Unseekable(io.BufferedReader):
+        def seekable(self):
+            return False
+
+    walk = tmp_path / "switch.snmpwalk"
+    walk.write_bytes(b"")
+
+    with Unseekable(io.FileIO(walk, "rb")) as source:
+        assert not can_rewind(source)
+
+
+def test_what_a_file_is_gets_asked_once_for_all_its_records(tmp_path, monkeypatch):
+    asked = []
+    fstat = os.fstat
+
+    def spy(descriptor):
+        asked.append(descriptor)
+        return fstat(descriptor)
+
+    walk = tmp_path / "switch.snmpwalk"
+    walk.write_bytes(
+        b"".join(b".%s.%d = STRING: eth\n" % (IF_DESCR.encode(), n) for n in range(50))
+    )
+    record = WalkRecord()
+
+    with open(walk, "rb") as source:
+        monkeypatch.setattr(walk_module.os, "fstat", spy)
+        lines = [record.read_record(source)[0] for _ in range(51)]
+        monkeypatch.undo()
+
+    assert all(lines[:50]) and lines[50] == b""
+    assert len(asked) == 1
+
+
+def test_file_without_a_descriptor_is_asked_whether_it_seeks():
+    class Lines:
+        def seekable(self):
+            return False
+
+    assert can_rewind(io.BytesIO())
+    assert not can_rewind(Lines())
 
 
 def test_walk_string_of_many_lines_is_read_in_one_pass():

@@ -4,9 +4,30 @@
 # Copyright (c) 2010-2019, Ilya Etingof <etingof@gmail.com>
 # License: https://www.pysnmp.com/snmpsim/license.html
 #
+import os
+import stat
+
 from snmpsim.grammar import walk
 from snmpsim.record import dump
 from snmpsim.record.search.file import get_record
+
+
+def can_rewind(file_obj):
+    """Tell whether a file can be moved back to a line it has given out.
+
+    seekable() is not the answer: on Windows it is true of a pipe, whose
+    seek() then succeeds and brings nothing back. So only a regular file
+    is moved back, and only if it seeks; a pipe, a FIFO or a console is
+    not, whatever it says. A file without a descriptor, a BytesIO, is
+    taken at its word.
+    """
+    try:
+        mode = os.fstat(file_obj.fileno()).st_mode
+
+    except (AttributeError, OSError, ValueError):
+        return file_obj.seekable()
+
+    return stat.S_ISREG(mode) and file_obj.seekable()
 
 
 class HeldLine:
@@ -35,6 +56,8 @@ class WalkRecord(dump.DumpRecord):
     # MIB names are not resolved here
     oid_hint = " (snmpwalk -On prints them so)"
 
+    # the file being read and, if it cannot be moved back, its held line
+    _input = None
     _pipe = None
 
     def read_record(self, file_obj, line_no=None, offset=0):
@@ -46,17 +69,17 @@ class WalkRecord(dump.DumpRecord):
         line number returned is that of the line the record starts on.
 
         Telling where a record ends takes reading one line past it. A
-        file is moved back to the start of that line; a pipe cannot be,
-        so its line is held for the next call on the same pipe.
+        regular file is moved back to the start of that line; anything
+        else (see can_rewind) cannot be, so its line is held for the
+        next call on the same file. Which of the two a file is gets
+        decided on its first record and kept until its last.
         """
-        if file_obj.seekable():
-            source = file_obj
+        if self._input is not file_obj:
+            # asked once per file, not per record: fstat() is not free
+            self._input = file_obj
+            self._pipe = None if can_rewind(file_obj) else HeldLine(file_obj)
 
-        else:
-            if self._pipe is None or self._pipe.file_obj is not file_obj:
-                self._pipe = HeldLine(file_obj)
-
-            source = self._pipe
+        source = self._pipe or file_obj
 
         record, line_no, offset = get_record(source, line_no, offset)
 
@@ -82,6 +105,6 @@ class WalkRecord(dump.DumpRecord):
             break
 
         if not record:
-            self._pipe = None
+            self._input = self._pipe = None
 
         return b"".join(lines), line_no, offset
