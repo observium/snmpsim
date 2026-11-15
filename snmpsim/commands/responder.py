@@ -442,6 +442,17 @@ def main():
     )
 
     parser.add_argument(
+        "--index-workers",
+        metavar="<N>",
+        type=datafile.index_workers,
+        default=datafile.default_index_workers(),
+        help="Build missing and out of date data file indices in this many "
+        "processes at once before the SNMP engines are configured. 1 builds "
+        "them one by one. Default is the number of CPUs the process may use, "
+        "8 at most (%(default)s here)",
+    )
+
+    parser.add_argument(
         "--args-from-file",
         metavar="<FILE>",
         type=str,
@@ -744,7 +755,11 @@ configured automatically based on simulation data file paths relative to
                     data_file = datafile.DataFile(
                         full_path, text_parser, variation_modules
                     )
-                    data_file.index_text(args.force_index_rebuild, args.validate_data)
+                    data_file.index_text(
+                        # one that has just been built is not built again
+                        args.force_index_rebuild and indexed.get(full_path, True),
+                        args.validate_data,
+                    )
 
                     MibController = controller.MIB_CONTROLLERS[data_file.layout]
                     mib_instrum = MibController(data_file)
@@ -814,6 +829,17 @@ configured automatically based on simulation data file paths relative to
 
     if snmp_args and snmp_args[-1][0] != "end-of-options":
         snmp_args.append(("end-of-options", ""))
+
+    # Build the indices the engines are going to ask for, several at a time
+    with daemon.PrivilegesOf(args.process_user, args.process_group):
+        indexed = datafile.index_data_files(
+            datafile.find_data_files(
+                datafile.configured_data_dirs(snmp_args, confdir.data)
+            ),
+            args.index_workers,
+            args.force_index_rebuild,
+            args.validate_data,
+        )
 
     snmp_engine = None
     timeout = 0  # Initialize timeout before the loop

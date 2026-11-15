@@ -158,22 +158,29 @@ class RecordIndex:
         except error.SnmpsimError as exc:
             log.error(str(exc))
 
-    def _index_needed(self, text_file_time):
-        """Tell if the index on disk cannot be served from, saying why."""
+    @property
+    def db_file(self):
+        """The name the index is built under, less what a DBM adds to it."""
+        return self._db_file
+
+    def needs_build(self):
+        """Tell if create() would build the index, without building it."""
+        return self._why_index_needed(os.stat(self._text_file)[8]) is not None
+
+    def _why_index_needed(self, text_file_time):
+        """Say why the index on disk cannot be served from, None if it can."""
         present = [db_file for db_file in self._db_files if os.path.exists(db_file)]
 
         if not present:
-            log.info(
-                "Index %s does not exist for data file "
-                "%s" % (self._db_file, self._text_file)
+            return "Index {} does not exist for data file {}".format(
+                self._db_file,
+                self._text_file,
             )
-            return True
 
         db_type = dbm.whichdb(self._db_file)
 
         if db_type not in DBM_FILES:
-            log.info("Unsupported index format, rebuilding index %s" % self._db_file)
-            return True
+            return "Unsupported index format, rebuilding index %s" % self._db_file
 
         # only the files of the implementation that will read the index may
         # be there: next to another one's, `dbm.whichdb()` says which it
@@ -183,22 +190,20 @@ class RecordIndex:
         foreign = [db_file for db_file in present if db_file not in own]
 
         if foreign:
-            log.info(
+            return (
                 "Index %s (%s) sits next to the files of another DBM "
                 "implementation (%s), rebuilding"
                 % (self._db_file, db_type, ", ".join(foreign))
             )
-            return True
 
         for db_file in own:
             if db_file in present:
                 if text_file_time < os.stat(db_file)[8]:
-                    return False
+                    return None
 
-                log.info("Index %s out of date" % db_file)
-                return True
+                return "Index %s out of date" % db_file
 
-        return True
+        return "Index %s is incomplete" % self._db_file
 
     def create(self, force_index_build=False, validate_data=False):
         text_file_time = os.stat(self._text_file)[8]
@@ -208,7 +213,12 @@ class RecordIndex:
             log.info("Forced index rebuild %s" % self._db_file)
 
         else:
-            index_needed = self._index_needed(text_file_time)
+            reason = self._why_index_needed(text_file_time)
+
+            index_needed = reason is not None
+
+            if index_needed:
+                log.info(reason)
 
         db_module = None
 
