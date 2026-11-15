@@ -8,14 +8,18 @@
 #
 import argparse
 import functools
+import math
 import os
 import random
+import re
 import sys
 import traceback
 
 from pyasn1.error import PyAsn1Error
+from pyasn1.type import constraint
 from pyasn1.type import univ
 from pysnmp import debug
+from pysnmp.error import PySnmpError
 from pysnmp.proto import rfc1902
 from pysnmp.smi import builder
 from pysnmp.smi import compiler
@@ -42,9 +46,166 @@ RECORD_TYPES = {
 
 DESCRIPTION = (
     "Converts MIB modules into SNMP simulation data files. "
-    "Chooses random values or asks interactively. "
+    "Chooses random values the MIB permits, or asks interactively. "
     "Fills SNMP conceptual tables with consistent indices."
 )
+
+
+# What a constraint leaves of the numbers, as a list of (first, last)
+EVERYTHING = [(-math.inf, math.inf)]
+
+# The types that go on the wire, by tag: what a MIB makes of them (textual
+# conventions, enumerations, refinements) stays in the MIB
+INTEGER_TYPES = {
+    syntax.tagSet: syntax
+    for syntax in (
+        rfc1902.Integer32,
+        rfc1902.Unsigned32,
+        rfc1902.Counter32,
+        rfc1902.TimeTicks,
+        rfc1902.Counter64,
+    )
+}
+
+# Octets of a string that is not text, where the MIB leaves the size open
+BINARY_SIZE = 6
+
+MAX_STRING_SIZE = 65535
+
+
+def _intersect(these, those):
+    return [
+        (max(this[0], that[0]), min(this[1], that[1]))
+        for this in these
+        for that in those
+        if max(this[0], that[0]) <= min(this[1], that[1])
+    ]
+
+
+def _permitted(spec, kind):
+    """Tell what a subtype specification leaves of the numbers.
+
+    The numbers are the values of an object (`kind` is `ValueRangeConstraint`)
+    or the sizes of its values (`ValueSizeConstraint`). A constraint that is
+    not understood permits everything here: the value is still checked
+    against the whole specification once it is drawn.
+    """
+    if isinstance(spec, constraint.ConstraintsIntersection):
+        permitted = EVERYTHING
+
+        for member in spec:
+            permitted = _intersect(permitted, _permitted(member, kind))
+
+        return permitted
+
+    if isinstance(spec, constraint.ConstraintsUnion):
+        permitted = []
+
+        for member in spec:
+            permitted.extend(_permitted(member, kind))
+
+        return permitted if len(spec) else EVERYTHING
+
+    # ValueSizeConstraint is a ValueRangeConstraint, PermittedAlphabetConstraint
+    # is a SingleValueConstraint: the very class is what tells them apart
+    if type(spec) is kind:
+        return [(spec.start, spec.stop)]
+
+    if (
+        type(spec) is constraint.SingleValueConstraint
+        and kind is constraint.ValueRangeConstraint
+    ):
+        values = [value for value in spec if isinstance(value, int)]
+
+        if values:
+            return [(value, value) for value in sorted(values)]
+
+    return EVERYTHING
+
+
+def _pick(permitted):
+    first, last = random.choice(permitted)
+
+    return random.randint(first, last)
+
+
+def _nearest(permitted, wanted):
+    """Return the permitted number nearest to the wanted one, from below first."""
+    below = [min(last, wanted) for first, last in permitted if first <= wanted]
+
+    if below:
+        return max(below)
+
+    return min(first for first, last in permitted)
+
+
+def _guess_integer(syntax, wanted):
+    """Draw a number the syntax permits, from the wanted range where it can."""
+    permitted = _intersect(
+        _permitted(syntax.subtypeSpec, constraint.ValueRangeConstraint),
+        _permitted(
+            INTEGER_TYPES[syntax.tagSet].subtypeSpec, constraint.ValueRangeConstraint
+        ),
+    )
+
+    members = [
+        (member, member)
+        for member in sorted(set(getattr(syntax, "namedValues", {}).values()))
+    ]
+
+    if members:
+        # an enumeration: the range on the command line is not about it
+        return _pick(_intersect(members, permitted) or members)
+
+    if not permitted:
+        raise SnmpsimError("its constraints permit no value")
+
+    return _pick(_intersect(permitted, [wanted]) or permitted)
+
+
+def _is_text(syntax):
+    """Tell if the octets of a string are characters to read.
+
+    A string is text unless its DISPLAY-HINT shows octets as numbers, the
+    way `1x:` shows a MAC address and `2d-1d-1d,1d:1d:1d.1d,1a1d:1d` a date.
+    """
+    hint = getattr(syntax, "displayHint", None) or ""
+
+    return not re.search(r"\d[xdo]", hint)
+
+
+def _guess_string(syntax, words):
+    """Make up a string of a size the syntax permits."""
+    sizes = _intersect(
+        _permitted(syntax.subtypeSpec, constraint.ValueSizeConstraint),
+        [(0, MAX_STRING_SIZE)],
+    )
+
+    if not sizes:
+        raise SnmpsimError("its constraints permit no size")
+
+    if not _is_text(syntax):
+        return bytes(random.randrange(256) for _ in range(_nearest(sizes, BINARY_SIZE)))
+
+    text = " ".join(random.choice(words) for _ in range(random.randrange(1, 10)))
+    text = text.encode("utf-8")
+
+    size = _nearest(sizes, len(text))
+
+    while len(text) < size:
+        text += b" " + random.choice(words).encode("utf-8")
+
+    return text[:size]
+
+
+def _guess_bits(syntax):
+    """Set some of the bits the syntax names."""
+    names = list(syntax.namedValues)
+
+    if not names:
+        return bytes([random.randrange(256)])
+
+    return random.sample(names, random.randint(1, len(names)))
 
 
 def _parse_mib_object(arg, last=False):
@@ -127,7 +288,8 @@ def main():
     parser.add_argument(
         "--manual-values",
         action="store_true",
-        help="Fill all managed objects values interactively",
+        help="Fill all managed objects values interactively. Objects are "
+        "left out once the input ends",
     )
 
     parser.add_argument(
@@ -135,7 +297,7 @@ def main():
         type=int,
         default=5000,
         help="Probe for suitable managed object value this many times "
-        "prior to failing over to manual value specification",
+        "prior to reporting the object and leaving it out",
     )
 
     parser.add_argument(
@@ -269,93 +431,78 @@ def main():
 
             msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
 
-    def get_value(syntax, hint="", automatic_values=args.automatic_values):
-        make_guess = args.automatic_values
+    def plain_value(syntax, val):
+        # remove value enumeration
 
+        if syntax.tagSet == rfc1902.Integer32.tagSet:
+            return rfc1902.Integer32(syntax.clone(val))
+
+        if syntax.tagSet == rfc1902.Unsigned32.tagSet:
+            return rfc1902.Unsigned32(syntax.clone(val))
+
+        if syntax.tagSet == rfc1902.Bits.tagSet:
+            return rfc1902.OctetString(syntax.clone(val))
+
+        return syntax.clone(val)
+
+    def guess_value(syntax):
+        if isinstance(syntax, rfc1902.IpAddress):
+            return syntax.clone(
+                ".".join([str(random.randrange(1, 256)) for x in range(4)])
+            )
+
+        if syntax.tagSet in INTEGER_TYPES:
+            if isinstance(syntax, rfc1902.TimeTicks):
+                wanted = args.timeticks_range
+
+            elif isinstance(syntax, rfc1902.Gauge32):
+                wanted = args.gauge_range
+
+            elif isinstance(syntax, rfc1902.Counter32):
+                wanted = args.counter_range
+
+            elif isinstance(syntax, rfc1902.Unsigned32):
+                wanted = args.unsigned_range
+
+            elif isinstance(syntax, rfc1902.Counter64):
+                wanted = args.counter64_range
+
+            else:
+                wanted = args.integer32_range
+
+            val = _guess_integer(syntax, wanted)
+
+            # The number is the one that goes on the wire: `clone()` of a
+            # textual convention would read it the way its DISPLAY-HINT
+            # shows it, "d-2" turning 40 into 4000
+            syntax.subtypeSpec(val)
+
+            return INTEGER_TYPES[syntax.tagSet](val)
+
+        if isinstance(syntax, rfc1902.Bits):
+            return plain_value(syntax, _guess_bits(syntax))
+
+        if isinstance(syntax, univ.OctetString):
+            # octets, not text, for the same reason: no DISPLAY-HINT parsing
+            return plain_value(syntax, _guess_string(syntax, args.string_pool))
+
+        if isinstance(syntax, univ.ObjectIdentifier):
+            return syntax.clone(
+                ".".join(
+                    ["1", "3", "6", "1", "3"]
+                    + [
+                        "%d" % random.randrange(0, 255)
+                        for x in range(random.randrange(0, 10))
+                    ]
+                )
+            )
+
+        raise SnmpsimError("no way to make up a value of this type")
+
+    def ask_value(syntax, hint):
         val = None
 
         while True:
-            if make_guess:
-                if isinstance(syntax, rfc1902.IpAddress):
-                    val = ".".join([str(random.randrange(1, 256)) for x in range(4)])
-
-                elif isinstance(syntax, rfc1902.TimeTicks):
-                    val = random.randrange(
-                        args.timeticks_range[0], args.timeticks_range[1]
-                    )
-
-                elif isinstance(syntax, rfc1902.Gauge32):
-                    val = random.randrange(args.gauge_range[0], args.gauge_range[1])
-
-                elif isinstance(syntax, rfc1902.Counter32):
-                    val = random.randrange(args.counter_range[0], args.counter_range[1])
-
-                elif isinstance(syntax, rfc1902.Integer32):
-                    val = random.randrange(
-                        args.integer32_range[0], args.integer32_range[1]
-                    )
-
-                elif isinstance(syntax, rfc1902.Unsigned32):
-                    val = random.randrange(
-                        args.unsigned_range[0], args.unsigned_range[1]
-                    )
-
-                elif isinstance(syntax, rfc1902.Counter64):
-                    val = random.randrange(
-                        args.counter64_range[0], args.counter64_range[1]
-                    )
-
-                elif isinstance(syntax, univ.OctetString):
-                    maxWords = 10
-                    val = " ".join(
-                        [
-                            args.string_pool[random.randrange(0, len(args.string_pool))]
-                            for i in range(random.randrange(1, maxWords))
-                        ]
-                    )
-
-                elif isinstance(syntax, univ.ObjectIdentifier):
-                    val = ".".join(
-                        ["1", "3", "6", "1", "3"]
-                        + [
-                            "%d" % random.randrange(0, 255)
-                            for x in range(random.randrange(0, 10))
-                        ]
-                    )
-
-                elif isinstance(syntax, rfc1902.Bits):
-                    val = [
-                        random.randrange(0, 256) for x in range(random.randrange(0, 9))
-                    ]
-
-                else:
-                    val = "?"
-
-            # remove value enumeration
-
-            try:
-                if syntax.tagSet == rfc1902.Integer32.tagSet:
-                    return rfc1902.Integer32(syntax.clone(val))
-
-                if syntax.tagSet == rfc1902.Unsigned32.tagSet:
-                    return rfc1902.Unsigned32(syntax.clone(val))
-
-                if syntax.tagSet == rfc1902.Bits.tagSet:
-                    return rfc1902.OctetString(syntax.clone(val))
-
-                return syntax.clone(val)
-
-            except PyAsn1Error as exc:
-                if make_guess == 1:
-                    sys.stderr.write(
-                        "*** Inconsistent value: %s\r\n*** See constraints and "
-                        "suggest a better one for:\r\n" % exc
-                    )
-
-                if make_guess:
-                    make_guess -= 1
-                    continue
-
             sys.stderr.write(
                 "%s# Value ['%s'] ? "
                 % (
@@ -365,21 +512,70 @@ def main():
             )
             sys.stderr.flush()
 
-            line = sys.stdin.readline().strip()
+            line = sys.stdin.readline()
 
-            if line:
-                if line[:2] == "0x":
+            if not line:
+                # nobody is there to answer
+                return None, "no value given"
+
+            line = line.strip()
+
+            try:
+                if line:
                     if line[:4] == "0x0x":
-                        line = line[2:]
+                        val = line[2:]
 
-                    elif isinstance(syntax, univ.OctetString):
-                        val = syntax.clone(hexValue=line[2:])
+                    elif line[:2] == "0x":
+                        if isinstance(syntax, univ.OctetString):
+                            val = syntax.clone(hexValue=line[2:])
+
+                        else:
+                            val = int(line[2:], 16)
 
                     else:
-                        val = int(line[2:], 16)
+                        val = line
 
-                else:
-                    val = line
+                if val is not None:
+                    return plain_value(syntax, val), None
+
+            except (PyAsn1Error, PySnmpError, ValueError) as exc:
+                sys.stderr.write(
+                    "*** Inconsistent value: %s\r\n*** See constraints and "
+                    "suggest a better one for:\r\n" % exc
+                )
+
+    def get_value(syntax, hint=""):
+        """Return a value for the object, or None and why there is none."""
+        if not args.automatic_values:
+            return ask_value(syntax, hint)
+
+        reason = None
+
+        for _ in range(args.automatic_values):
+            try:
+                return guess_value(syntax), None
+
+            except SnmpsimError as exc:
+                return None, str(exc)
+
+            except (PyAsn1Error, PySnmpError) as exc:
+                reason = "no value fits its constraints (%s)" % exc
+
+        return None, reason
+
+    skipped = set()
+
+    def skip(what, mib_name, sym_name, syntax, reason):
+        # once for an object, not for every row of its table
+        if (mib_name, sym_name) in skipped:
+            return
+
+        skipped.add((mib_name, sym_name))
+
+        sys.stderr.write(
+            "WARNING: skipping %s %s::%s (type %s): %s\r\n"
+            % (what, mib_name, sym_name, syntax.__class__.__name__, reason)
+        )
 
     data_file_handler = snmprec.SnmprecRecord()
 
@@ -406,6 +602,9 @@ def main():
         return 1
 
     output = []
+
+    # Indexes of the rows generated so far, by the columns that index them
+    shared_rows = {}
 
     # MIBs walk
     for modName in args.mib_modules:
@@ -468,7 +667,11 @@ def main():
                         )
                         sys.stderr.flush()
 
-                        line = sys.stdin.readline().strip()
+                        line = sys.stdin.readline()
+
+                        # nobody is there to answer: no more rows
+                        line = line.strip() if line else "n"
+
                         if line:
                             if line[0] in ("y", "Y"):
                                 oid = tuple(row_oid)
@@ -502,26 +705,63 @@ def main():
                 continue
 
             elif isinstance(node, MibTableRow):
-                row_indices = {}
-                suffix = ()
+                if row_oid is None:
+                    this_table_size = 0
+
+                index_names = tuple(node.getIndexNames())
+
+                # Rows of the tables indexed by the same columns (AUGMENTS
+                # or a repeated INDEX clause) describe the same things, so
+                # the n-th row of each of them gets the same index
+                table_rows = shared_rows.setdefault(index_names, [])
+
                 row_hint = hint + f"# Row {mib_name}::{sym_name}\r\n"
 
-                for implied_flag, idx_mod_name, idx_sym_name in node.getIndexNames():
-                    (idxNode,) = mib_builder.import_symbols(idx_mod_name, idx_sym_name)
+                if index_names and this_table_size < len(table_rows):
+                    row_indices, suffix = table_rows[this_table_size]
 
-                    row_hint += "# Index {}::{} (type {})\r\n".format(
-                        idx_mod_name,
-                        idx_sym_name,
-                        idxNode.syntax.__class__.__name__,
-                    )
+                else:
+                    row_indices = {}
+                    suffix = ()
 
-                    row_indices[idxNode.name] = get_value(
-                        idxNode.syntax, not args.quiet and row_hint or ""
-                    )
+                    for implied_flag, idx_mod_name, idx_sym_name in index_names:
+                        (idxNode,) = mib_builder.import_symbols(
+                            idx_mod_name, idx_sym_name
+                        )
 
-                    suffix = suffix + node.getAsName(
-                        row_indices[idxNode.name], implied_flag
-                    )
+                        row_hint += "# Index {}::{} (type {})\r\n".format(
+                            idx_mod_name,
+                            idx_sym_name,
+                            idxNode.syntax.__class__.__name__,
+                        )
+
+                        val, reason = get_value(
+                            idxNode.syntax, not args.quiet and row_hint or ""
+                        )
+
+                        if val is None:
+                            skip(
+                                "the rows of",
+                                mib_name,
+                                sym_name,
+                                idxNode.syntax,
+                                "index %s::%s: %s"
+                                % (idx_mod_name, idx_sym_name, reason),
+                            )
+                            row_indices = None
+                            break
+
+                        row_indices[idxNode.name] = val
+
+                        suffix = suffix + node.getAsName(val, implied_flag)
+
+                    if row_indices is None:
+                        # no index, no row: the columns that follow are
+                        # passed over, and the table ends here
+                        row_oid = None
+                        continue
+
+                    table_rows.append((row_indices, suffix))
 
                 if not row_indices:
                     if not args.quiet:
@@ -530,13 +770,13 @@ def main():
                             % (mib_name, sym_name)
                         )
 
-                if row_oid is None:
-                    this_table_size = 0
-
                 row_oid = univ.ObjectIdentifier(oid)
                 continue
 
             elif isinstance(node, MibTableColumn):
+                if row_indices is None:
+                    continue
+
                 oid = node.name
                 if oid in row_indices:
                     val = row_indices[oid]
@@ -551,7 +791,11 @@ def main():
                             node.syntax.__class__.__name__,
                         )
 
-                    val = get_value(node.syntax, hint)
+                    val, reason = get_value(node.syntax, hint)
+
+                    if val is None:
+                        skip("column", mib_name, sym_name, node.syntax, reason)
+                        continue
 
             elif isinstance(node, MibScalar):
                 hint = ""
@@ -563,7 +807,11 @@ def main():
                     )
                 oid = node.name
                 suffix = (0,)
-                val = get_value(node.syntax, hint)
+                val, reason = get_value(node.syntax, hint)
+
+                if val is None:
+                    skip("scalar", mib_name, sym_name, node.syntax, reason)
+                    continue
 
             else:
                 hint = ""
