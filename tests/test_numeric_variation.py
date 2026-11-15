@@ -1,4 +1,6 @@
+import math
 import os
+import textwrap
 
 import pytest
 
@@ -112,7 +114,178 @@ def test_rejected_recording_options_apply_nothing(options, named):
     )
 
 
+# What the module computes while simulating. The formula is not restated
+# here: it is read out of the documentation and executed, so the two can
+# not drift apart again.
+
+DOCS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "docs",
+    "source",
+    "documentation",
+    "simulation-with-variation-modules.rst",
+)
+
+BOOTED = 1000000.0
+
 OID = "1.3.6.1.2.1.2.2.1.10.1"
+
+
+def documented_formula():
+    """Return the source of the formula in the numeric module section."""
+    with open(DOCS) as fl:
+        text = fl.read()
+
+    section = text[
+        text.index(".. _variate-numeric:") : text.index(".. _variate-delay:")
+    ]
+
+    lines = section[section.index(".. code-block:: python") :].splitlines()[1:]
+
+    block = []
+
+    for line in lines:
+        if line.strip() and not line.startswith("  "):
+            break
+
+        block.append(line)
+
+    return textwrap.dedent("\n".join(block))
+
+
+def lowest(start, stop):
+    """Stand in for random.randrange(): always the lowest value on offer."""
+    assert isinstance(start, int) and isinstance(stop, int)
+    return start
+
+
+def documented_values(record, tag, times):
+    """Run the documented formula over requests made at the given times."""
+    settings = dict(x.split("=") for x in record.split(","))
+
+    name, *args = settings.pop("function", "<identity>").split("%")
+    function = (lambda x: x) if name == "<identity>" else getattr(math, name)
+
+    def call(x):
+        if not args:
+            return function(x)
+
+        return function(*[x if a == "<time>" else float(a) for a in args])
+
+    def rand(low, high):
+        return lowest(int(low), int(high)) if int(high) else 0
+
+    flags = {k: k in settings for k in ("atime", "wrap", "cumulative")}
+    settings = {k: float(v) for k, v in settings.items() if k not in flags}
+
+    settings.setdefault("min", 0)
+    settings.setdefault("max", 2**64 - 1 if tag == "70" else 2**32 - 1)
+    settings.setdefault("initial", settings["min"])
+
+    for k, default in ("rate", 1), ("scale", 1), ("offset", 0), ("deviation", 0):
+        settings.setdefault(k, default)
+
+    formula = compile(documented_formula(), DOCS, "exec")
+
+    values = []
+
+    prev_v, prev_time = settings["initial"], BOOTED
+
+    for now in times:
+        scope = dict(
+            settings,
+            function=call,
+            RAND=rand,
+            TIMENOW=now,
+            UPTIME=now - BOOTED,
+            ELAPSED=now - prev_time,
+            prev_v=prev_v,
+            **flags,
+        )
+
+        exec(formula, scope)
+
+        prev_v, prev_time = scope["v"], now
+
+        values.append(scope["v"])
+
+    return values
+
+
+def simulated_values(monkeypatch, record, tag, times):
+    """Ask the module for the same OID at the given times."""
+    module = load_module()
+    module["BOOTED"] = BOOTED
+    module["recordContext"] = {}
+
+    monkeypatch.setattr(module["random"], "randrange", lowest)
+
+    values = []
+
+    for now in times:
+        monkeypatch.setattr(module["time"], "time", lambda: now)
+
+        oid, _tag, value = module["variate"](
+            OID,
+            tag,
+            record,
+            origOid=OID,
+            nextFlag=False,
+            exactMatch=True,
+            setFlag=False,
+            errorStatus=None,
+        )
+
+        assert (oid, _tag) == (OID, tag)
+
+        values.append(value)
+
+    return values
+
+
+@pytest.mark.parametrize(
+    "tag, record",
+    [
+        # the examples of the documentation
+        ("65", "scale=10,deviation=1,function=cos,cumulative=1,wrap=1"),
+        ("66", "min=5,max=50,initial=25"),
+        ("70", "scale=0,offset=100,cumulative=1,initial=5000"),
+        # what the recorder writes
+        ("67", "initial=16808012,rate=100"),
+        ("2", "initial=6,rate=0"),
+        ("65", "initial=30374688,rate=1234.5"),
+        # every term of the plain formula
+        ("66", "initial=10,rate=3,scale=2,offset=7,deviation=4"),
+        ("66", "min=20,initial=10,rate=0"),
+        ("66", "atime=1,function=sin,scale=100,initial=100"),
+        ("66", "function=pow%<time>%2,rate=0.5"),
+        ("66", "function=pow%2%<time>,rate=0.1,max=1000"),
+        # the offset of a counter grows with the time between requests
+        ("65", "cumulative=1"),
+        ("65", "cumulative=1,rate=2,offset=3,scale=0.5"),
+        ("65", "cumulative=1,offset=-2,initial=1000"),
+        ("65", "cumulative=1,scale=0,offset=1,deviation=30,min=2"),
+        # the limits apply after the previous value is added
+        ("65", "cumulative=1,initial=400,max=500"),
+        ("65", "cumulative=1,initial=400,max=500,wrap=1"),
+        ("65", "cumulative=1,initial=400,min=100,max=500,wrap=1"),
+        ("66", "initial=90,max=100,wrap=1"),
+        # a flag is on when its key is there, whatever the value
+        ("66", "initial=90,max=100,wrap=0"),
+        ("65", "cumulative=0,initial=400"),
+        ("66", "atime=0,rate=0.001"),
+    ],
+)
+def test_numeric_formula_matches_docs(monkeypatch, tag, record):
+    times = [BOOTED + x for x in (0.0, 10.0, 25.5, 26.0, 100.0, 3600.25)]
+
+    simulated = simulated_values(monkeypatch, record, tag, times)
+
+    assert simulated == pytest.approx(documented_values(record, tag, times))
+
+    # the examples are not all constants, or the comparison proves little
+    if "rate=0" not in record.split(","):
+        assert len(set(simulated)) > 1
 
 
 def test_numeric_deviation_stays_within_its_range():
