@@ -110,3 +110,48 @@ def test_rejected_recording_options_apply_nothing(options, named):
         "65",
         "5",
     )
+
+
+OID = "1.3.6.1.2.1.2.2.1.10.1"
+
+
+def test_numeric_deviation_stays_within_its_range():
+    module = load_module()
+    module["recordContext"] = {}
+
+    values = set()
+
+    for _ in range(200):
+        _oid, _tag, value = module["variate"](
+            OID,
+            "66",
+            "initial=100,rate=0,deviation=2",
+            origOid=OID,
+            nextFlag=False,
+            exactMatch=True,
+            setFlag=False,
+            errorStatus=None,
+        )
+
+        values.add(value)
+
+    # whole numbers from -deviation up to, but not including, deviation
+    assert values == {98, 99, 100, 101}
+
+
+def test_numeric_deviation_below_one_adds_nothing():
+    module = load_module()
+    module["recordContext"] = {}
+
+    _oid, _tag, value = module["variate"](
+        OID,
+        "66",
+        "initial=100,rate=0,deviation=0.5",
+        origOid=OID,
+        nextFlag=False,
+        exactMatch=True,
+        setFlag=False,
+        errorStatus=None,
+    )
+
+    assert value == 100

@@ -171,7 +171,8 @@ def variate(oid, tag, value, **context):
         else:
             v += recordContext["settings"]["offset"]
 
-    deviation = recordContext["settings"].get("deviation")
+    # settings are floats, and randrange() takes whole numbers only
+    deviation = int(recordContext["settings"].get("deviation", 0))
     if deviation:
         v += random.randrange(-deviation, deviation)
 
