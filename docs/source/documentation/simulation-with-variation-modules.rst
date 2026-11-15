@@ -746,8 +746,10 @@ TRAP/INFORM message to pre-configured targets.
 
 .. note::
 
-    No new process is created when sending SNMP notification -- *snmpsimd*'s
-    own SNMP engine is reused.
+    No new process is created when sending SNMP notification. The module
+    sends from an SNMP engine of its own that carries the engine ID of the
+    agent being simulated, so the USM users and communities configured for
+    notifications never replace those the agent answers under.
 
 The *notification* module accepts the following comma-separated *key=value*
 parameters in *.snmprec* value field:
@@ -769,11 +771,13 @@ parameters in *.snmprec* value field:
   engine address.
 * *enterprise* - SNMP TRAP PDU element. For v1 only.
 * *user* - USM username. For v3 only.
-* *authproto* - USM auth protocol. For v3 only. Either *md5* or *sha*.
-  Default is *md5*.
+* *authproto* - USM auth protocol. For v3 only. One of *md5*, *sha*,
+  *sha224*, *sha256*, *sha384*, *sha512* or *none*, the names
+  ``--v3-auth-proto`` takes. Default is *md5*.
 * *authkey* - USM auth key. For v3 only.
-* *privproto* - USM encryption protocol. For v3 only. Either *des* or *aes*.
-  Default is *des*.
+* *privproto* - USM encryption protocol. For v3 only. One of *des*, *3des*,
+  *aes*, *aes128*, *aes192*, *aes192blmt*, *aes256*, *aes256blmt* or *none*,
+  the names ``--v3-priv-proto`` takes. Default is *des*.
 * *privkey* - USM encryption key. For v3 only.
 * *proto* - transport protocol. Either *udp* or *udp6*. Default is *udp*.
 * *host*- hostname or network address to send notification to.

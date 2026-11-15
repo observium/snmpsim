@@ -1,0 +1,3 @@
+1.3.6.1.2.1.1.1.0|4|SNMPv3 trap sender
+1.3.6.1.2.1.1.5.0|4|plain
+1.3.6.1.2.1.1.6.0|4:notification|op=get,version=3,user=simulator,authkey=trapauthkey,authproto=sha256,privkey=trapprivkey,privproto=aes256,host=127.0.0.1,port=1651,ntftype=trap,trapoid=1.3.6.1.6.3.1.1.5.4,varbinds=1.3.6.1.2.1.1.1.0:s:snmpsim agent,value=trap sent
