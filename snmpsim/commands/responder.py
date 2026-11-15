@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import functools
 import os
+import signal
 import sys
 import traceback
 from hashlib import md5
@@ -488,6 +489,349 @@ def parse_usm_key(key, key_type, auth_proto, priv_proto=None):
         )
 
     return octets
+
+
+class Recordings:
+    """The recordings of one SNMP context engine, as they are served.
+
+    A recording is served under a community name, and under SNMPv3 context
+    names made of it. `rescan()` looks into the data directories and brings
+    what is served in line with what is found there: a recording which
+    appeared is indexed and registered, one which is gone is unregistered and
+    its files are closed. A recording which is still there is not touched,
+    not even when its contents changed: that is noticed by the data file
+    itself when it is asked next.
+    """
+
+    def __init__(
+        self,
+        data_dirs,
+        variation_modules,
+        snmp_engine,
+        snmp_context,
+        data_index,
+        communities=True,
+        force_index_rebuild=False,
+        validate_data=False,
+    ):
+        self.data_dirs = list(data_dirs)
+        self.snmp_engine = snmp_engine
+        self.snmp_context = snmp_context
+        self.data_index = data_index
+
+        self._variation_modules = variation_modules
+        self._communities = communities
+        self._force_index_rebuild = force_index_rebuild
+        self._validate_data = validate_data
+
+        # community name to what was registered for it
+        self._served = {}
+
+        # path of a data file to its controller and the number of community
+        # names it is served under
+        self._mib_instrums = {}
+
+    def scan(self):
+        """Return what the data directories hold now.
+
+        Community names to the data files which claim them, each a path and
+        a parser, in the order they are found. Nothing is changed, so this
+        may run aside from the event loop.
+        """
+        found = {}
+
+        for data_dir in self.data_dirs:
+            log.info(
+                'Scanning "%s" directory for %s data '
+                "files..."
+                % (
+                    data_dir,
+                    ",".join(
+                        [
+                            f" *{os.path.extsep}{x.ext}"
+                            for x in variation.RECORD_TYPES.values()
+                        ]
+                    ),
+                )
+            )
+
+            if not os.path.exists(data_dir):
+                log.info('Directory "%s" does not exist' % data_dir)
+                continue
+
+            for full_path, text_parser, community_name in datafile.get_data_files(
+                data_dir
+            ):
+                candidates = found.setdefault(community_name, [])
+
+                if full_path not in [candidate[0] for candidate in candidates]:
+                    candidates.append((full_path, text_parser))
+
+        return found
+
+    def changes(self, found):
+        """Return the community names to drop and the recordings to add.
+
+        Of several data files claiming a community name the one which is
+        served stays, otherwise the first one found is taken.
+        """
+        wanted = {}
+
+        for community_name, candidates in found.items():
+            chosen = candidates[0]
+
+            if community_name in self._served:
+                for candidate in candidates:
+                    if candidate[0] == self._served[community_name][0]:
+                        chosen = candidate
+
+            for full_path, _ in candidates:
+                if full_path != chosen[0]:
+                    log.error(
+                        'ignoring duplicate Community/ContextName "%s" for data '
+                        "file %s (%s already loaded)"
+                        % (community_name, full_path, chosen[0])
+                    )
+
+            wanted[community_name] = chosen
+
+        removed = [
+            community_name
+            for community_name, served in self._served.items()
+            if community_name not in wanted or wanted[community_name][0] != served[0]
+        ]
+
+        added = [
+            (community_name, full_path, text_parser)
+            for community_name, (full_path, text_parser) in wanted.items()
+            if community_name not in self._served
+            or self._served[community_name][0] != full_path
+        ]
+
+        return removed, added
+
+    def load(self, full_path, text_parser):
+        """Index a data file, return its controller.
+
+        Nothing is registered, so this may run aside from the event loop.
+        """
+        data_file = datafile.DataFile(full_path, text_parser, self._variation_modules)
+        data_file.index_text(self._force_index_rebuild, self._validate_data)
+
+        return controller.MIB_CONTROLLERS[data_file.layout](data_file)
+
+    def loaded(self, full_path):
+        """Return the controller of a data file which is served, or None."""
+        if full_path in self._mib_instrums:
+            return self._mib_instrums[full_path][0]
+
+    def add(self, community_name, full_path, mib_instrum):
+        """Serve a data file under a community name."""
+        if full_path in self._mib_instrums:
+            mib_instrum = self._mib_instrums[full_path][0]
+            log.info(f"Configuring *shared* {mib_instrum}")
+
+        else:
+            log.info(f"Configuring {mib_instrum}")
+
+        log.info(f"SNMPv1/2c community name: {community_name}")
+
+        agent_name = md5(univ.OctetString(community_name).asOctets()).hexdigest()
+
+        context_name = agent_name
+        context_names = []
+
+        try:
+            self.snmp_context.register_context_name(context_name, mib_instrum)
+            context_names.append(context_name)
+
+            if len(community_name) <= 32:
+                self.snmp_context.register_context_name(community_name, mib_instrum)
+                context_names.append(community_name)
+
+            # snmpCommunityTable::snmpCommunityIndex can't be > 32
+            if self._communities and self.snmp_engine:
+                config.add_v1_system(
+                    self.snmp_engine,
+                    agent_name,
+                    community_name,
+                    contextName=context_name,
+                )
+
+        except Exception:
+            # nothing half-registered is left behind
+            for name in context_names:
+                self.snmp_context.unregister_context_name(name)
+
+            raise
+
+        row = self.data_index.add_data_file(full_path, community_name, context_name)
+
+        self._mib_instrums.setdefault(full_path, [mib_instrum, 0])[1] += 1
+        self._served[community_name] = full_path, agent_name, context_names, row
+
+        log.info(
+            "SNMPv3 Context Name: %s"
+            "%s"
+            % (
+                context_name,
+                len(community_name) <= 32 and " or %s" % community_name or "",
+            )
+        )
+
+    def remove(self, community_name):
+        """Stop serving a community name, close the data file nobody uses."""
+        full_path, agent_name, context_names, row = self._served.pop(community_name)
+
+        log.info(f"Removing community name {community_name}, data file {full_path}")
+
+        if self._communities and self.snmp_engine:
+            config.delete_v1_system(self.snmp_engine, agent_name)
+
+        for context_name in context_names:
+            self.snmp_context.unregister_context_name(context_name)
+
+        self.data_index.remove_data_file(row)
+
+        usage = self._mib_instrums[full_path]
+        usage[1] -= 1
+
+        if not usage[1]:
+            del self._mib_instrums[full_path]
+
+            log.info(f"Closing {usage[0]}")
+
+            usage[0].close()
+
+    def rescan(self, strict=False):
+        """Serve what the data directories hold now.
+
+        Returns how many community names were added, removed and left as
+        they were. A data directory which cannot be read fails the rescan
+        before anything is changed. A recording which cannot be indexed or
+        registered is reported and left out, unless `strict` is set.
+        """
+        removed, added = self.changes(self.scan())
+
+        log.msg.inc_ident()
+
+        try:
+            for community_name in removed:
+                self.remove(community_name)
+
+            unchanged = len(self._served)
+            failed = 0
+
+            for community_name, full_path, text_parser in added:
+                try:
+                    self.add(
+                        community_name,
+                        full_path,
+                        self.loaded(full_path) or self.load(full_path, text_parser),
+                    )
+
+                except Exception as exc:
+                    if strict:
+                        raise
+
+                    failed += 1
+                    self.report_failure(community_name, full_path, exc)
+
+        finally:
+            log.msg.dec_ident()
+
+        return len(added) - failed, len(removed), unchanged
+
+    async def rescan_aside(self, loop):
+        """Do what `rescan()` does while requests are being served.
+
+        Directories are read and data files are indexed in a thread, so the
+        event loop is held up only for registering a recording, which takes
+        no time. Recordings are served or dropped one by one as the rescan
+        goes on.
+        """
+        removed, added = self.changes(await loop.run_in_executor(None, self.scan))
+
+        for community_name in removed:
+            self.remove(community_name)
+
+        unchanged = len(self._served)
+        failed = 0
+
+        for community_name, full_path, text_parser in added:
+            try:
+                mib_instrum = self.loaded(full_path)
+
+                if mib_instrum is None:
+                    mib_instrum = await loop.run_in_executor(
+                        None, self.load, full_path, text_parser
+                    )
+
+                self.add(community_name, full_path, mib_instrum)
+
+            except Exception as exc:
+                failed += 1
+                self.report_failure(community_name, full_path, exc)
+
+        return len(added) - failed, len(removed), unchanged
+
+    @staticmethod
+    def report_failure(community_name, full_path, exc):
+        log.error(
+            f"data file {full_path} is not served, community name "
+            f"{community_name}: {exc}"
+        )
+
+
+class Rescanner:
+    """Rescans the data directories when asked to, one rescan at a time.
+
+    Asked while a rescan is running, it rescans once more when that one is
+    over: what was changed in a directory already read would be missed.
+    """
+
+    def __init__(self, loop):
+        self.recordings = []
+
+        self._loop = loop
+        self._task = None
+        self._asked_again = False
+
+    def request(self):
+        if self._task is not None:
+            self._asked_again = True
+            return
+
+        self._task = self._loop.create_task(self._rescan())
+
+    async def _rescan(self):
+        try:
+            while True:
+                self._asked_again = False
+
+                log.info("Rescanning data directories...")
+
+                for recordings in list(self.recordings):
+                    try:
+                        counts = await recordings.rescan_aside(self._loop)
+
+                    except Exception as exc:
+                        log.error(
+                            "rescan failed, recordings of %s are served as "
+                            "before: %s" % (", ".join(recordings.data_dirs), exc)
+                        )
+
+                    else:
+                        log.info(
+                            "Rescan finished: %d added, %d removed, "
+                            "%d unchanged" % counts
+                        )
+
+                if not self._asked_again:
+                    break
+
+        finally:
+            self._task = None
 
 
 def wait_for_endpoints(bound_endpoints):
@@ -975,6 +1319,21 @@ configured automatically based on simulation data file paths relative to
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
+    rescanner = Rescanner(asyncio.get_event_loop())
+
+    if hasattr(signal, "SIGHUP"):
+        # Takes the place of what --daemonize does on SIGHUP, which is to
+        # exit, and of dying of it in the foreground. The event loop calls
+        # this once it runs: a SIGHUP which comes while the responder is
+        # still starting is a rescan right after the start.
+        try:
+            asyncio.get_event_loop().add_signal_handler(
+                signal.SIGHUP, rescanner.request
+            )
+
+        except (NotImplementedError, RuntimeError, ValueError) as exc:
+            log.info("SIGHUP will not rescan the data directories: %s" % exc)
+
     if not os.path.exists(confdir.cache):
         try:
             with daemon.PrivilegesOf(args.process_user, args.process_group):
@@ -995,105 +1354,6 @@ configured automatically based on simulation data file paths relative to
 
     with daemon.PrivilegesOf(args.process_user, args.process_group):
         variation.initialize_variation_modules(variation_modules, mode="variating")
-
-    def configure_managed_objects(
-        data_dirs, data_index_instrum_controller, snmp_engine=None, snmp_context=None
-    ):
-        """Build pysnmp Managed Objects base from data files information"""
-
-        _mib_instrums = {}
-        _data_files = {}
-
-        for dataDir in data_dirs:
-            log.info(
-                'Scanning "%s" directory for %s data '
-                "files..."
-                % (
-                    dataDir,
-                    ",".join(
-                        [
-                            f" *{os.path.extsep}{x.ext}"
-                            for x in variation.RECORD_TYPES.values()
-                        ]
-                    ),
-                )
-            )
-
-            if not os.path.exists(dataDir):
-                log.info('Directory "%s" does not exist' % dataDir)
-                continue
-
-            log.msg.inc_ident()
-
-            for full_path, text_parser, community_name in datafile.get_data_files(
-                dataDir
-            ):
-                if community_name in _data_files:
-                    log.error(
-                        'ignoring duplicate Community/ContextName "%s" for data '
-                        "file %s (%s already loaded)"
-                        % (community_name, full_path, _data_files[community_name])
-                    )
-                    continue
-
-                elif full_path in _mib_instrums:
-                    mib_instrum = _mib_instrums[full_path]
-                    log.info(f"Configuring *shared* {mib_instrum}")
-
-                else:
-                    data_file = datafile.DataFile(
-                        full_path, text_parser, variation_modules
-                    )
-                    data_file.index_text(args.force_index_rebuild, args.validate_data)
-
-                    MibController = controller.MIB_CONTROLLERS[data_file.layout]
-                    mib_instrum = MibController(data_file)
-
-                    _mib_instrums[full_path] = mib_instrum
-                    _data_files[community_name] = full_path
-
-                    log.info(f"Configuring {mib_instrum}")
-
-                log.info(f"SNMPv1/2c community name: {community_name}")
-
-                agent_name = md5(
-                    univ.OctetString(community_name).asOctets()
-                ).hexdigest()
-
-                context_name = agent_name
-
-                if not args.v3_only:
-                    # snmpCommunityTable::snmpCommunityIndex can't be > 32
-                    if snmp_engine:  # Add check for snmp_engine
-                        config.add_v1_system(
-                            snmp_engine,
-                            agent_name,
-                            community_name,
-                            contextName=context_name,
-                        )
-
-                snmp_context.register_context_name(context_name, mib_instrum)
-
-                if len(community_name) <= 32:
-                    snmp_context.register_context_name(community_name, mib_instrum)
-
-                data_index_instrum_controller.add_data_file(
-                    full_path, community_name, context_name
-                )
-
-                log.info(
-                    "SNMPv3 Context Name: %s"
-                    "%s"
-                    % (
-                        context_name,
-                        len(community_name) <= 32 and " or %s" % community_name or "",
-                    )
-                )
-
-            log.msg.dec_ident()
-
-        del _mib_instrums
-        del _data_files
 
     # Bind transport endpoints
     bound_endpoints = []
@@ -1198,13 +1458,21 @@ configured automatically based on simulation data file paths relative to
                         controller.DataIndexInstrumController()
                     )
 
+                    recordings = Recordings(
+                        ctx_data_dirs or data_dirs or confdir.data,
+                        variation_modules,
+                        snmp_engine,
+                        snmp_context,
+                        data_index_instrum_controller,
+                        communities=not args.v3_only,
+                        force_index_rebuild=args.force_index_rebuild,
+                        validate_data=args.validate_data,
+                    )
+
                     with daemon.PrivilegesOf(args.process_user, args.process_group):
-                        configure_managed_objects(
-                            ctx_data_dirs or data_dirs or confdir.data,
-                            data_index_instrum_controller,
-                            snmp_engine,
-                            snmp_context,
-                        )
+                        recordings.rescan(strict=True)
+
+                    rescanner.recordings.append(recordings)
 
                 # Configure access to data index
 

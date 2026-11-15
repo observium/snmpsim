@@ -186,6 +186,8 @@ else:
         def signal_cb(s, f):
             raise KeyboardInterrupt
 
+        # The full responder takes SIGHUP over once its event loop is there,
+        # and rescans its data directories on it.
         for s in signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT:
             signal.signal(s, signal_cb)
 
