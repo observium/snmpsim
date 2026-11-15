@@ -149,6 +149,31 @@ Unless *--daemonize* option is given, the daemon will remain an interactive
 process. With the *--daemonize* option, the daemon will detach itself from
 user terminal, close down standard I/O streams etc.
 
+*snmpsim-command-responder* tells whoever started it whether the daemon came
+up. The process that was started stays until the daemon has built its indices
+and bound its endpoints, and exits with status 0 then. If the daemon ends
+before that - a port in use, a PID file that cannot be written, a broken
+recording - the process exits with status 1. Until it is ready the daemon
+keeps the standard output and error it was started with, so the error is
+seen where the command was given, unless *--logging-method* sends it
+elsewhere; after that it holds neither, and a script that reads the output
+of the command through a pipe is not kept waiting.
+
+.. code-block:: bash
+
+   $ snmpsim-command-responder --daemonize --pid-file=responder.pid \
+       --data-dir=./data --agent-udpv4-endpoint=127.0.0.1:1161 || echo "not started"
+
+The daemon changes its working directory to `/`. Relative *--data-dir*,
+*--cache-dir*, *--variation-modules-dir*, *--pid-file* and the reports
+directory of *--reporting-method* are resolved before that, against the
+directory the responder was started in.
+
+*snmpsim-command-responder-lite* does not wait: its process exits with
+status 0 right after the fork, whatever becomes of the daemon.
+
+Not available on Windows.
+
 **--process-user** & **--process-group**
 ++++++++++++++++++++++++++++++++++++++++
 
@@ -374,6 +399,9 @@ data in form of *.snmprec*, *.snmprec.bz2*, *.snmpwalk* or *.sapwalk* files.
 All files found beneath *--data-dir* will be considered as sources of SNMP
 simulation data and their paths will be used for SNMP configuration purposes.
 
+*snmpsim-command-responder* reads the directories at startup and again each
+time it receives SIGHUP, see :ref:`rescanning-data-directories`.
+
 The default search path is the one of *--variation-modules-dir* with `data`
 (`Data` on Windows) in place of `variation`. On Linux, macOS and other UNIX
 systems it is:
@@ -501,9 +529,11 @@ Default is to answer SNMPv1, SNMPv2c and SNMPv3.
 How many processes build data file indices at startup. Before the SNMP
 engines are configured, the responder looks through all its data directories
 and builds the indices that are missing or out of date in this many processes
-at once. A recording that fails to index is reported and does not stop the
-others. With *--index-workers=1* indices are built one by one, each when its
-data file is set up.
+at once. A recording that fails to index is reported and the other indices
+are still built, but the responder does not start without it: once they are
+done it stops at that recording with exit status 1, as it does with
+*--index-workers=1*. With *--index-workers=1* indices are built one by one,
+each when its data file is set up.
 
 The default is the number of CPUs the process may use, *8* at most.
 

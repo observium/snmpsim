@@ -138,6 +138,20 @@ The responders
   ``--reporting-method`` takes a directory with a drive letter, and the
   lite responder takes ``--args-from-file``. See
   :doc:`/documentation/command-line-options`.
+* ``snmpsim-command-responder --daemonize`` returns when the daemon serves,
+  not right after the fork, and exits with status 1 if the daemon did not
+  come up; it used to exit with 0 whatever happened next. A script that
+  started the daemon and went on at once now waits for the indices to be
+  built. Relative paths are taken from the directory the responder was
+  started in, where the daemon used to look for them under ``/``. See
+  *--daemonize* in :doc:`/documentation/command-line-options`.
+* SIGHUP makes ``snmpsim-command-responder`` read its data directories
+  again. It used to end a daemon and kill a responder in the foreground:
+  whatever stops the responder with ``kill -HUP`` has to send SIGTERM. See
+  :ref:`rescanning-data-directories`.
+* The error-index of an error response points at the variable that failed.
+  It used to point at the first variable of the request unless the failed
+  one was the last.
 * Data files and variation modules are also looked for under
   ``/usr/local/share/snmpsim`` on Linux, and under the real profile
   directory of the user on Windows. A recording left in one of these
@@ -192,9 +206,20 @@ Variation modules
   serve the six characters ``414243``.
 * :ref:`error <variate-error>` answers SNMPv1 managers with *noSuchName*,
   *badValue* and *readOnly* where these are configured, not with *genErr*.
+  ``status=noSuchObject``, ``noSuchInstance`` and ``endOfMib`` are no
+  longer *genErr* either: on GET, GETNEXT and GETBULK an SNMPv2c or SNMPv3
+  manager gets error-status 0 with the exception as the value of that
+  variable, next to the values of the others, and an SNMPv1 manager gets
+  *noSuchName*.
 * :ref:`numeric <variate-numeric>` cuts ``deviation`` to a whole number,
   and its documentation states the formula the module computes. On Python
   3.12 and later a record with a ``deviation`` used to fail every request.
+  ``wrap=0``, ``cumulative=0`` and ``atime=0`` switch the feature off; any
+  value, ``0`` included, used to switch it on. A recording made with
+  ``--variation-module=numeric`` and no options has its integers, counters,
+  gauges and time ticks written as ``numeric`` records with
+  ``initial=<value>``, where it used to come out as plain values. See
+  :ref:`record-numeric`.
 * :ref:`multiplex <variate-multiplex>` names the snapshots it records
   ``00000.snmprec``, not ``00000..snmprec``, and serves them in the order
   of their numbers. Snapshots under the old names are still served.

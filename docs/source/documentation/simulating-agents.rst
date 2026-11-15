@@ -394,6 +394,45 @@ its console output into syslog:
         --process-user=simulator --process-group=simulator \
         --daemonize --logging-method=syslog:local1:debug
 
+The command returns once the daemon serves, with exit status 0, or with 1
+if the daemon did not come up, see *--daemonize* in
+:doc:`/documentation/command-line-options`.
+
+.. _rescanning-data-directories:
+
+Adding and removing recordings
+++++++++++++++++++++++++++++++
+
+*snmpsim-command-responder* looks into its data directories again when it
+receives the SIGHUP signal, so recordings can be added and removed without a
+restart:
+
+.. code-block:: bash
+
+    $ cp new-device.snmprec ./data/
+    $ kill -HUP $(cat responder.pid)
+
+* A recording that appeared is indexed and gets its community and context
+  names.
+* A recording that is gone loses them, and its files are closed.
+* The other recordings are not touched and are served all the while, also
+  while a large index is being built.
+* A recording that cannot be indexed is reported in the log and left out.
+  This differs from startup, where such a recording stops the responder.
+* If a data directory cannot be read, the rescan fails and everything is
+  served as it was.
+
+A signal that arrives while a rescan is running causes one more rescan when
+that one is over. A recording that was edited in place needs no signal: a
+changed data file is indexed again when it is next asked for.
+
+SIGHUP used to end a daemon and kill a responder running in the foreground.
+A script that sent it to stop the responder has to send SIGTERM instead.
+
+Signals are a POSIX facility: there is no rescan on Windows.
+*snmpsim-command-responder-lite* does not rescan either, and ends on SIGHUP
+as before.
+
 .. _logging-options:
 
 Logging Options

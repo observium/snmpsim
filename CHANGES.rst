@@ -77,7 +77,11 @@ Changes carried by snmpsim-ng.
   from the directory the responder was started in, not from ``/`` where the
   daemon changes to. An empty ``--pid-file=`` still means no pid file.
   ``snmpsim-command-responder-lite --daemonize`` is unchanged: its parent
-  exits right after the fork.
+  exits right after the fork. Once it is ready the daemon holds neither the
+  standard output nor the standard error it was started with, and nor does
+  the resource tracker that Python starts when indexes are built in several
+  processes, so ``$(...)``, ``| tee`` or ``ssh host snmpsim-command-responder
+  --daemonize ...`` return when the parent exits.
 - The command responder rescans its data directories on SIGHUP. A recording
   put into a data directory used to be served after a restart only, and one
   taken away kept its community name, every request for it failing at the
@@ -131,8 +135,9 @@ Changes carried by snmpsim-ng.
   longer indexes some 1300 recordings one after another. The new
   ``--index-workers N`` option of ``snmpsim-command-responder`` sets how many
   (default: the CPUs the process may use, 8 at most; 1 builds them one by
-  one as before). A recording that fails to index is reported and does not
-  stop the others. An index is now built as ``<name>.dbm.part`` and renamed
+  one as before). A recording that fails to index is reported and the other
+  indexes are still built; the responder then stops at it with exit status 1,
+  as it did before. An index is now built as ``<name>.dbm.part`` and renamed
   once complete, so a build cut short by a kill, Ctrl-C or a dead worker no
   longer leaves half an index that is served as up to date.
 - Fixed ``snmpsim-record-commands`` exiting with 0 after a failed recording.
