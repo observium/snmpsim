@@ -30,6 +30,17 @@ Try the fast lane if you are fluent with network management matters.
 
    /quick-start
 
+Coming from snmpsim
+-------------------
+
+snmpsim-ng has a package name and a version line of its own. If you have
+an installation named ``snmpsim``, read this first.
+
+.. toctree::
+   :maxdepth: 2
+
+   /migrating
+
 SNMP Simulator Suite
 --------------------
 

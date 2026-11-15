@@ -11,7 +11,9 @@ Installation
 
 snmpsim-ng is written in Python and depends on other Python libraries.
 It is not on PyPI yet, so it is installed straight from git. The package
-named ``snmpsim`` on PyPI is a different release line.
+named ``snmpsim`` on PyPI is a different release line; if that one, or an
+earlier version of this project, is installed already, remove it first as
+described in :doc:`/migrating`.
 
 Below we quickly set up a Python virtual environment and install snmpsim-ng
 into it.
@@ -101,7 +103,7 @@ reserved for documentation - put the address of your own agent in its place:
         --output-file=./data/public.snmprec
    SNMP version 2c, Community name: public
    Querying UDP/IPv4 agent at 192.0.2.1:161
-   Agent response timeout: 3.00 secs, retries: 3
+   Agent response timeout: 3 secs, retries: 3
    Sending initial GETNEXT request for 1.3.6 (stop at <end-of-mib>)....
    OIDs dumped: 182, elapsed: 11.97 sec, rate: 15.20 OIDs/sec, errors: 0
 
@@ -132,4 +134,5 @@ Related Resources
 -----------------
 
 - :doc:`/documentation/index`
+- :doc:`/migrating`
 - :doc:`/license`

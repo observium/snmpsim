@@ -50,6 +50,21 @@ Valid tag values and their corresponding ASN.1/SNMP types are:
 * 68 - Opaque
 * 70 - Counter64
 
+A value is everything after the second pipe, up to the end of the line.
+Spaces at the end of it belong to the value: a string may end with them,
+and so may an *IpAddress* written with the *e* modifier, whose last octet
+32 is a space.
+
+An *Opaque* value (tag 68) holds whatever the agent wrapped into it. The
+floating point numbers of net-snmp agents are the usual case; they are
+kept in hex, the sub-type first: *68x|9f780442c80000* is the float 100.0,
+*68x|9f79083ff8000000000000* the double 1.5.
+
+A number is kept as the device sent it even where it does not fit its
+type, and an OBJECT IDENTIFIER of a single arc is served as the two arcs
+it stands for; :ref:`snmpsim-lint-records <snmpsim-lint-records>` reports
+both, along with the values which cannot be served at all.
+
 Besides plain-text form, compressed *.snmprec.bz2* files are also supported.
 
 .. _snmpsim-manage-records:
@@ -81,6 +96,37 @@ for using variation modules), run the *snmpsim-manage-records* tool like this:
     ...
     # Records: written 3711, filtered out 0, deduplicated 0, broken 0, variated 0
 
+What the conversion makes of the values *snmpwalk* wraps onto several
+lines, of strings which are not ASCII and of *Opaque* numbers is shown in
+:ref:`snmpwalk-dump`.
+
+Records are written as they are read, so the size of a file that can be
+converted does not depend on the memory of the machine. Only
+*--sort-records* has to hold all the records until the last one is read.
+
+.. _broken-records:
+
+A line which cannot be converted is a broken record. Without
+*--ignore-broken-records* the first one stops the conversion: the tool
+quotes the line, says what is wrong with it and exits with status 1,
+leaving the records ahead of that line in the output. With the option
+such lines are reported, skipped and counted in the closing summary. Here
+the walk was taken without *-On*, so it has names where the Simulator
+needs OIDs:
+
+.. code-block:: bash
+
+    $ snmpsim-manage-records --input-file=named.snmpwalk \
+        --source-record-type=snmpwalk
+    ERROR: broken record <b'SNMPv2-MIB::sysName.0 = STRING: switch\n'>: OID
+    'SNMPv2-MIB::sysName.0' is not in numbers (snmpwalk -On prints them so):
+    Malformed Object ID SNMPv2-MIB::sysName.0 at ObjectIdentifier: None
+    1.3.6.1.2.1.1.1.0|4|ok
+    $ echo $?
+    1
+
+The message is printed under *--quiet* as well.
+
 SNMP Simulator requires data files to be sorted (by OID) and containing no
 duplicate OIDs. In case your data file does not comply with these requirements
 for some reason, you could pass it through the *snmpsim-manage-records* tool to
@@ -107,7 +153,7 @@ data file and store records in a new one:
 .. code-block:: bash
 
     $ snmpsim-manage-records --input-file=tcp-mib.snmprec \
-        --start-oid=1.3.6.1.2.1.6.13 --stop-oid=1.3.6.1.2.1.6.14
+        --start-object=1.3.6.1.2.1.6.13 --stop-object=1.3.6.1.2.1.6.14
     1.3.6.1.2.1.6.13.1.1.72.192.51.208.2.234.233.215.7.3|2|1
     1.3.6.1.2.1.6.13.1.2.72.192.51.208.2.234.233.215.7.3|64x|8b896863
     1.3.6.1.2.1.6.13.1.3.72.192.51.208.2.234.233.215.7.3|2|3

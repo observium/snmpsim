@@ -623,16 +623,26 @@ of *.snmprec* files:
     -rw-r--r--  1 root  staff  3145 Mar 30 22:52 00002.snmprec
     ...
 
+The snapshots are served in the ascending order of the numbers in their
+names, in whatever order the file system lists them.
+
 Simulator can use each of these files only once through its
 configured time series. To make it cycling over them, use *wrap*
 option.
+
+.. note::
+
+    Snapshots recorded by a release before 2026.11.1 have two dots in
+    their names, *00000..snmprec*. They are served like the others. Where
+    a directory was recorded into again and holds a snapshot under both
+    names, the one with the single dot is served and the other is logged
+    as ignored.
 
 The *.snmprec* files served by the multiplex module can not include references
 to variation modules.
 
 In cases when automatic, time-based *.snmprec* multiplexing is not
 applicable for simulation purposes, *.snmprec* selection can be configured:
-</p>
 
 .. code-block:: bash
 
