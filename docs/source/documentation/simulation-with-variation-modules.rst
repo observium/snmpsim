@@ -409,6 +409,17 @@ in *.snmprec* value field:
    When *tooBig* error is flagged, variable-bindings list is automatically
    reset to empty as per :RFC:`1905#section-4.2.2`.
 
+.. note::
+
+   SNMPv1 knows five errors only, so a manager talking SNMPv1 receives
+   *tooBig*, *noSuchName*, *badValue*, *readOnly* and *genError* as they are
+   and any other error translated as :RFC:`3584#section-4.4` tells:
+   *wrongValue*, *wrongType* and *inconsistentValue* become *badValue*,
+   *noAccess*, *notWritable*, *noCreation*, *inconsistentName* and
+   *authorizationError* become *noSuchName*, *resourceUnavailable*,
+   *commitFailed* and *undoFailed* become *genError*. SNMPv2c and SNMPv3
+   managers receive the error as configured.
+
 * *vlist* - a list of triples (comparison:constant:error) to use as an access
   list for SET values.
 
