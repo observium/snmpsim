@@ -8,13 +8,16 @@
 # Managed value variation module
 # Send SNMP Notification
 #
+import asyncio
+import threading
+
 from pysnmp.hlapi.asyncio import *  # Import all necessary modules
 
-from snmpsim import error
 from snmpsim import log
+from snmpsim.commands.responder import AUTH_PROTOCOLS, PRIV_PROTOCOLS
 from snmpsim.grammar.snmprec import SnmprecGrammar
 from snmpsim.record.snmprec import SnmprecRecord
-from snmpsim.utils import run_in_new_loop, split
+from snmpsim.utils import split
 
 
 def init(**context):
@@ -47,54 +50,118 @@ MODULE_OPTIONS = (
     ("trapoid", "1.3.6.1.6.3.1.1.5.1"),
 )
 
+TRANSPORT_TARGETS = {
+    "udp": UdpTransportTarget,
+    "udp6": Udp6TransportTarget,
+}
 
-def _cbFun(
-    snmpEngine,
-    sendRequestHandle,
-    errorIndication,
-    errorStatus,
-    errorIndex,
-    varBinds,
-    cbCtx,
-):
-    oid, value = cbCtx
 
-    if errorIndication or errorStatus:
-        log.info(
-            "notification: for %s=%r failed with errorIndication %s, "
-            "errorStatus %s" % (oid, value, errorIndication, errorStatus)
+def get_protocol(protocols, name):
+    """Look up a USM protocol by the name the responder options call it.
+
+    The responder takes the names in any case, so do `authproto` and
+    `privproto`. Returns `None` for a name the responder would refuse.
+    """
+    return protocols.get(name.upper())
+
+
+class Originator:
+    """Sends notifications from SNMP engines of its own.
+
+    Sending through the engine that answers the managers would configure the
+    notification's credentials on it. A USM user of the same name would get
+    the notification's keys and protocols, and the managers polling under
+    the original ones would fail authentication from then on.
+
+    Each responder engine gets a twin carrying the same engine ID, so that a
+    receiver sees the notification coming from the agent it knows. The twins
+    live on an event loop of their own, in a thread started on first use.
+    """
+
+    def __init__(self):
+        self._engines = {}
+        self._bind_addresses = []
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(
+            target=self._run, name="notification", daemon=True
         )
+        self._thread.start()
+
+    def _run(self):
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    def send(self, engine_id, auth_data, endpoint, notify_type, notification, tag):
+        """Queue a notification, log the failure if it comes to one.
+
+        The caller is the responder serving a request: it does not wait for
+        the name to resolve or for an INFORM to be acknowledged.
+        """
+        future = asyncio.run_coroutine_threadsafe(
+            self._send(engine_id, auth_data, endpoint, notify_type, notification),
+            self._loop,
+        )
+        future.add_done_callback(lambda future: self._report(future, tag))
+
+    @staticmethod
+    def _report(future, tag):
+        try:
+            error_indication, error_status, error_index, var_binds = future.result()
+
+        except Exception as exc:
+            log.info("notification: for %s failed: %s" % (tag, exc))
+            return
+
+        if error_indication or error_status:
+            log.info(
+                "notification: for %s failed with errorIndication %s, "
+                "errorStatus %s" % (tag, error_indication, error_status)
+            )
+
+    async def _send(self, engine_id, auth_data, endpoint, notify_type, notification):
+        proto, host, port, bind_address = endpoint
+
+        if engine_id not in self._engines:
+            # must be born on this loop: its dispatcher sticks to the loop
+            # that is current when the first transport is added
+            self._engines[engine_id] = SnmpEngine(snmpEngineID=engine_id)
+
+        target = await TRANSPORT_TARGETS[proto].create((host, port))
+
+        if bind_address:
+            target.set_local_address((bind_address, 0))
+
+            # one socket per local address: without a domain of its own the
+            # target would reuse the socket of whichever address came first
+            if bind_address not in self._bind_addresses:
+                self._bind_addresses.append(bind_address)
+
+            target.TRANSPORT_DOMAIN = target.TRANSPORT_DOMAIN + (
+                self._bind_addresses.index(bind_address) + 1,
+            )
+
+        return await send_notification(
+            self._engines[engine_id],
+            auth_data,
+            target,
+            ContextData(),
+            notify_type,
+            notification,
+        )
+
+    def close(self):
+        def stop():
+            for snmp_engine in self._engines.values():
+                snmp_engine.close_dispatcher()
+
+            self._loop.stop()
+
+        self._loop.call_soon_threadsafe(stop)
+        self._thread.join()
+        self._loop.close()
 
 
 def variate(oid, tag, value, **context):
-    if "snmpEngine" in context and context["snmpEngine"]:
-        snmpEngine = context["snmpEngine"]
-
-        if snmpEngine not in moduleContext:
-            moduleContext[snmpEngine] = {}
-
-        if context["transportDomain"] not in moduleContext[snmpEngine]:
-            # register this SNMP Engine to handle our transports'
-            # receiver IDs (which we build by outbound and simulator
-            # transportDomains concatenation)
-            snmpEngine.register_transport_dispatcher(
-                snmpEngine.transport_dispatcher,
-                UdpTransportTarget.TRANSPORT_DOMAIN + context["transportDomain"],
-            )
-
-            snmpEngine.register_transport_dispatcher(
-                snmpEngine.transport_dispatcher,
-                Udp6TransportTarget.TRANSPORT_DOMAIN + context["transportDomain"],
-            )
-
-            moduleContext[snmpEngine][context["transportDomain"]] = 1
-
-    else:
-        raise error.SnmpsimError(
-            "Variation module is not given snmpEngine. "
-            "Make sure you are not running in --v2c-arch mode"
-        )
-
     if not context["nextFlag"] and not context["exactMatch"]:
         return context["origOid"], tag, context["errorStatus"]
 
@@ -172,35 +239,25 @@ def variate(oid, tag, value, **context):
         and context["setFlag"]
         or args["op"] in ("any", "*")
     ):
-        if args["version"] in ("1", "2c"):
+        version = args.get("version")
+
+        if version in ("1", "2c"):
             authData = CommunityData(
-                args["community"], mpModel=args["version"] == "2c" and 1 or 0
+                args["community"], mpModel=version == "2c" and 1 or 0
             )
 
-        elif args["version"] == "3":
-            if args["authproto"] == "md5":
-                authProtocol = usmHMACMD5AuthProtocol
+        elif version == "3":
+            if "user" not in args:
+                log.info("notification: USM user not configured for OID %s" % (oid,))
+                return context["origOid"], tag, context["errorStatus"]
 
-            elif args["authproto"] == "sha":
-                authProtocol = usmHMACSHAAuthProtocol
-
-            elif args["authproto"] == "none":
-                authProtocol = usmNoAuthProtocol
-
-            else:
+            authProtocol = get_protocol(AUTH_PROTOCOLS, args["authproto"])
+            if authProtocol is None:
                 log.info("notification: unknown auth proto " "%s" % args["authproto"])
                 return context["origOid"], tag, context["errorStatus"]
 
-            if args["privproto"] == "des":
-                privProtocol = usmDESPrivProtocol
-
-            elif args["privproto"] == "aes":
-                privProtocol = usmAesCfb128Protocol
-
-            elif args["privproto"] == "none":
-                privProtocol = usmNoPrivProtocol
-
-            else:
+            privProtocol = get_protocol(PRIV_PROTOCOLS, args["privproto"])
+            if privProtocol is None:
                 log.info(
                     "notification: unknown privacy proto " "%s" % args["privproto"]
                 )
@@ -215,7 +272,7 @@ def variate(oid, tag, value, **context):
             )
 
         else:
-            log.info("notification: unknown SNMP version %s" % args["version"])
+            log.info("notification: unknown SNMP version %s" % version)
             return context["origOid"], tag, context["errorStatus"]
 
         if "host" not in args:
@@ -224,48 +281,14 @@ def variate(oid, tag, value, **context):
             )
             return context["origOid"], tag, context["errorStatus"]
 
-        if args["proto"] == "udp":
-            target = run_in_new_loop(
-                UdpTransportTarget.create((args["host"], int(args["port"])))
-            )
-
-        elif args["proto"] == "udp6":
-            target = run_in_new_loop(
-                Udp6TransportTarget.create((args["host"], int(args["port"])))
-            )
-
-        else:
+        if args["proto"] not in TRANSPORT_TARGETS:
             log.info("notification: unknown transport %s" % args["proto"])
             return context["origOid"], tag, context["errorStatus"]
 
-        localAddress = None
-
-        if "bindaddr" in args:
-            localAddress = args["bindaddr"]
-
-        else:
-            transportDomain = context["transportDomain"][: len(target.TRANSPORT_DOMAIN)]
-            if transportDomain == target.TRANSPORT_DOMAIN:
-                # localAddress = snmpEngine.transportDispatcher.getTransport(
-                #     context["transportDomain"]
-                # ).getLocalAddress()[0]
-                pass
-
-            else:
-                log.info(
-                    "notification: incompatible network transport types used by "
-                    "CommandResponder vs NotificationOriginator"
-                )
-
-                if "bindaddr" in args:
-                    localAddress = args["bindaddr"]
+        localAddress = args.get("bindaddr")
 
         if localAddress:
             log.info("notification: binding to local address %s" % localAddress)
-            target.set_local_address((localAddress, 0))
-
-        # this will make target objects different based on their bind address
-        target.TRANSPORT_DOMAIN = target.TRANSPORT_DOMAIN + context["transportDomain"]
 
         varBinds = []
 
@@ -274,7 +297,7 @@ def variate(oid, tag, value, **context):
                 (ObjectIdentifier("1.3.6.1.2.1.1.3.0"), TimeTicks(args["uptime"]))
             )
 
-        if args["version"] == "1":
+        if version == "1":
             if "agentaddress" in args:
                 varBinds.append(
                     (
@@ -301,22 +324,26 @@ def variate(oid, tag, value, **context):
             ObjectIdentity(args["trapoid"])
         ).add_varbinds(*varBinds)
 
-        run_in_new_loop(
-            send_notification(
-                snmpEngine,
-                authData,
-                target,
-                ContextData(),
-                args["ntftype"],
-                notificationType,
-                cbFun=_cbFun,
-                cbCtx=(oid, value),
-            )
-        )
+        # the notification goes out under the engine ID of the agent that
+        # is being simulated, yet not through its engine
+        snmpEngine = context.get("snmpEngine")
+        snmpEngineID = snmpEngine and snmpEngine.snmpEngineID or None
+
+        if "originator" not in moduleContext:
+            moduleContext["originator"] = Originator()
 
         log.info(
-            "notification: sending Notification to %s with credentials "
-            "%s" % (authData, target)
+            "notification: sending SNMPv%s %s to %s:%s"
+            % (version, args["ntftype"], args["host"], args["port"])
+        )
+
+        moduleContext["originator"].send(
+            snmpEngineID,
+            authData,
+            (args["proto"], args["host"], int(args["port"]), localAddress),
+            args["ntftype"],
+            notificationType,
+            "%s=%r" % (oid, value),
         )
 
     if context["setFlag"] or "value" not in args:
@@ -327,4 +354,5 @@ def variate(oid, tag, value, **context):
 
 
 def shutdown(**context):
-    pass
+    if "originator" in moduleContext:
+        moduleContext.pop("originator").close()
