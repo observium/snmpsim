@@ -5,6 +5,8 @@ Revision 2026.11.2, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Added Python 3.15 to both test workflows, which now run the suite on
+  Python 3.10 to 3.15.
 - Published the documentation at https://observium.github.io/snmpsim/. A
   workflow builds it with ``sphinx-build -W`` on every change to
   ``docs/``, ``CHANGES.rst``, ``LICENSE.txt`` or ``pyproject.toml`` on

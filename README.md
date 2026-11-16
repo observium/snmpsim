@@ -33,6 +33,8 @@ scripts and recordings work unchanged.
 
 Compared with the release it was forked from:
 
+* Tested on Python 3.15 as well: both CI workflows run the suite on Python 3.10 to 3.15, one
+  of them on Linux, macOS and Windows
 * Documentation of its own at <https://observium.github.io/snmpsim/>, built from
   `docs/source` and published on every change to it on `master`
 * `snmpsim-command-responder` exits with status 1 and names the endpoint when it cannot bind it,
@@ -481,7 +483,7 @@ SNMPSIM_TEST_TIMEOUT=3 pytest tests
 
 Two workflows run on every push to `master` and on pull requests, unless the change touches
 documentation only. `build-test.yml` builds the package and runs the suite on Linux, macOS
-and Windows across all supported Python versions. `tests.yml` runs the same suite on Linux
+and Windows on Python 3.10 to 3.15. `tests.yml` runs the same suite on Linux
 only, but plainly - no coverage and, more to the point, no retries, which is how it catches
 failures the retrying workflow lets through.
 
