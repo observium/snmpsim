@@ -37,7 +37,8 @@ def error_response(exc, var_binds, offset=0):
         try:
             error_index = exc["idx"] + 1
 
-        except KeyError:
+        # a bare SmiError names nothing and cannot even be asked
+        except (KeyError, TypeError):
             error_index = 1
 
         if len(var_binds) > error_index:

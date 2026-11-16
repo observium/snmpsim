@@ -26,6 +26,7 @@ pyasn1 is touched in two functions only, `decode_request()` and
 """
 import collections
 import hashlib
+import os
 
 from pyasn1.codec.ber import decoder
 from pyasn1.codec.ber import encoder
@@ -118,7 +119,11 @@ def decode_request(whole_msg, version):
     """
     proto = api.PROTOCOL_MODULES[version]
 
-    message, _ = decoder.decode(whole_msg, asn1Spec=proto.Message())
+    message, rest = decoder.decode(whole_msg, asn1Spec=proto.Message())
+
+    # octets past the message: pysnmp drops such a datagram
+    if rest:
+        return None
 
     pdu = proto.apiMessage.get_pdu(message)
 
@@ -188,6 +193,8 @@ class Endpoint:
         "local_address",
         "context_name_syntax",
         "security_name_syntax",
+        "domain_oid",
+        "recordings",
     )
 
 
@@ -204,12 +211,20 @@ class FastPath:
         transport_domain,
         snmp_engine,
         snmp_context,
+        recordings,
         max_var_binds,
         max_message_size,
     ):
+        """Answer SNMPv1/v2c on an endpoint from the recordings given.
+
+        `recordings` is what serves community names in `snmp_context`
+        (`commands.responder.Recordings`): only a name it serves, or the
+        data index, is a candidate.
+        """
         endpoint = Endpoint()
         endpoint.snmp_engine = snmp_engine
         endpoint.snmp_context = snmp_context
+        endpoint.recordings = recordings
         endpoint.max_var_binds = max_var_binds
         endpoint.max_message_size = max_message_size
 
@@ -241,6 +256,7 @@ class FastPath:
             endpoint.transport_protocol = "unknown"
 
         endpoint.local_address = endpoints.local_address(transport_domain)
+        endpoint.domain_oid = rfc1902.ObjectIdentifier(transport_domain)
 
         self._endpoints[domain] = endpoint
 
@@ -281,6 +297,14 @@ class FastPath:
         try:
             response = self.answer(endpoint, transport_domain, transport_address, msg)
 
+        # what pysnmp itself refuses to answer, the engine drops without a
+        # word: an SNMPv1 response that would carry a Counter64, and the like
+        except pysnmp_error.PySnmpError as exc:
+            log.debug(
+                "SNMPv1/v2c request from %s dropped: %s" % (transport_address, exc)
+            )
+            return
+
         except Exception as exc:
             log.error(
                 "SNMPv1/v2c request from %s dropped: %s" % (transport_address, exc)
@@ -295,11 +319,13 @@ class FastPath:
     # answering
 
     def select(self, endpoint, community, transport_domain, transport_address):
-        """Return the controller and the context name serving a request.
+        """Return what serves a request, or None when nothing does.
 
-        The candidates are the documented ones, most specific first; a
-        candidate over 32 octets is registered by its md5 only, as on the
-        engine path. None when nothing serves the community.
+        That is the controller of the recording, its context name, and the
+        context and security names the engine path would hand on, as values
+        of their own types. The candidates are the documented ones, most
+        specific first; one over 32 octets is registered by its md5 only, as
+        on the engine path.
         """
         key = (tuple(transport_domain), transport_address[0], community)
 
@@ -315,12 +341,34 @@ class FastPath:
 
         selected = None
 
-        for candidate in datafile.probe_context(
-            transport_domain,
-            transport_address,
-            datafile.SELF_LABEL,
-            rfc1902.OctetString(community),
+        text = community.decode("iso-8859-1")
+
+        # a community the paths are made of must be one of them already:
+        # "../public" or "x/../public" name no recording, they are not
+        # turned into "public" when joined to the other parts of a path
+        if text and (
+            os.path.normpath(text).replace(os.path.sep, "/") != text
+            or text.startswith("/")
+            or {".", ".."} & set(text.split("/"))
         ):
+            candidates = ()
+
+        else:
+            candidates = datafile.probe_context(
+                transport_domain,
+                transport_address,
+                datafile.SELF_LABEL,
+                rfc1902.OctetString(community),
+            )
+
+        for candidate in candidates:
+            # only what is served under a community, not every context name:
+            # the md5 a recording is registered under as well is none
+            if candidate != INDEX_COMMUNITY.encode() and not endpoint.recordings.serves(
+                candidate.decode("iso-8859-1")
+            ):
+                continue
+
             name = candidate
 
             if len(candidate) > 32:
@@ -332,13 +380,20 @@ class FastPath:
             except pysnmp_error.PySnmpError:
                 continue
 
+            # the names the engine path's community table hands on
             if candidate == INDEX_COMMUNITY.encode():
-                context_name = INDEX_COMMUNITY
+                context_name = security_name = INDEX_COMMUNITY
 
             else:
                 context_name = hashlib.md5(candidate).hexdigest()
+                security_name = hashlib.md5(community).hexdigest()
 
-            selected = controller, context_name, candidate
+            selected = (
+                controller,
+                context_name,
+                endpoint.context_name_syntax.clone(context_name),
+                endpoint.security_name_syntax.clone(security_name),
+            )
             break
 
         self._selections[key] = selected
@@ -349,26 +404,29 @@ class FastPath:
         return selected
 
     def call_context(
-        self, endpoint, request, transport_domain, transport_address, context_name
+        self, endpoint, request, transport_domain, transport_address, selected
     ):
-        """What the engine path tells a variation module about a request."""
-        security_name = hashlib.md5(request.community).hexdigest()
+        """What the engine path tells a variation module about a request.
 
-        if request.community == INDEX_COMMUNITY.encode():
-            security_name = INDEX_COMMUNITY
+        Built once per request, with the flags of what is asked: the
+        controller hands it on as it is for every variable it reads.
+        """
+        _, _, context_name, security_name = selected
 
         return {
             "snmpEngine": endpoint.snmp_engine,
-            "transportDomain": rfc1902.ObjectIdentifier(transport_domain),
+            "transportDomain": endpoint.domain_oid,
             "transportAddress": transport_address,
             "transportEndpoint": endpoint.local_address,
             "transportProtocol": endpoint.transport_protocol,
             "securityModel": request.version + 1,
-            "securityName": endpoint.security_name_syntax.clone(security_name),
+            "securityName": security_name,
             "securityLevel": 1,
             "contextEngineId": endpoint.snmp_engine.snmpEngineID,
-            "contextName": endpoint.context_name_syntax.clone(context_name),
+            "contextName": context_name,
             "pduType": request.pdu_type,
+            "nextFlag": request.kind in (NEXT, BULK),
+            "setFlag": request.kind == SET,
         }
 
     def answer(self, endpoint, transport_domain, transport_address, whole_msg):
@@ -408,11 +466,11 @@ class FastPath:
             )
             return None
 
-        controller, context_name, _ = selected
+        controller, context_name = selected[:2]
 
         context = {
             "callContext": self.call_context(
-                endpoint, request, transport_domain, transport_address, context_name
+                endpoint, request, transport_domain, transport_address, selected
             )
         }
 
@@ -447,8 +505,10 @@ class FastPath:
                     endpoint, controller, request, context_name, context, takes
                 )
 
+                # nothing to answer with - no var-binds, or no repetitions
+                # and no non-repeaters - is dropped, as the engine drops it
                 if not var_binds:
-                    raise smi_error.SmiError()
+                    return None
 
         except NoDataNotification:
             return None

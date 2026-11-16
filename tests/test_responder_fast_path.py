@@ -5,6 +5,7 @@ engine, `--v1-v2c-path=engine` sends them through it, as every release before
 did. The engine path is the reference: the same raw request sent to a
 responder on each path must come back as the same octets.
 """
+import hashlib
 import json
 import socket
 import time
@@ -284,6 +285,33 @@ SAME = [
         {},
     ),
     ("v2c unknown community", V2C, "nosuch", "GetRequestPDU", [(SYS_NAME, None)], {}),
+    # names a recording is registered under, but no community of it
+    (
+        "v2c md5 of a community",
+        V2C,
+        hashlib.md5(b"plain").hexdigest(),
+        "GetRequestPDU",
+        [(SYS_NAME, None)],
+        {},
+    ),
+    (
+        "v2c community with ..",
+        V2C,
+        "x/../plain",
+        "GetRequestPDU",
+        [(SYS_NAME, None)],
+        {},
+    ),
+    ("v2c community above", V2C, "../plain", "GetRequestPDU", [(SYS_NAME, None)], {}),
+    (
+        "v2c GETBULK of nothing",
+        V2C,
+        "plain",
+        "GetBulkRequestPDU",
+        [(SYS_NAME, None)],
+        {"repetitions": 0},
+    ),
+    ("v2c GET of no variables", V2C, "plain", "GetRequestPDU", [], {}),
     (
         "v2c data index",
         V2C,
@@ -371,6 +399,13 @@ def test_both_paths_answer_alike(
 
     assert show(version, fast) == show(version, engine)
     assert fast == engine
+
+
+def test_octets_past_the_message_are_dropped_on_both_paths(responders):
+    request = message(V2C, "plain", "GetRequestPDU", [(SYS_NAME, None)]) + b"\x00\x00"
+
+    assert ask(ENGINE_PORT, request) is None
+    assert ask(FAST_PORT, request) is None
 
 
 def get_sys_name(port, community):
@@ -478,7 +513,60 @@ def plain_branches(report):
     return branches
 
 
+def read_reports(responders, path):
+    merged = {}
+
+    for report in sorted((responders[path] / "reports" / "fulljson").glob("*.json")):
+        merge(merged, json.loads(report.read_text()))
+
+    return plain_branches(merged)
+
+
+def flushed_reports(responders):
+    """The reports of both responders with everything asked so far in them.
+
+    A report is written when a request comes after its period, a second
+    here, is over: wait it out, then ask for a recording of its own.
+    """
+    time.sleep(1.5)
+
+    nudge = message(V2C, LONG_COMMUNITY, "GetRequestPDU", [(SYS_NAME, None)])
+
+    for port in (FAST_PORT, ENGINE_PORT):
+        assert ask(port, nudge) is not None
+
+    reports = {}
+
+    for path in responders:
+        deadline = time.monotonic() + 15
+
+        while True:
+            reports[path] = read_reports(responders, path)
+
+            if reports[path] or time.monotonic() > deadline:
+                break
+
+            time.sleep(0.2)
+
+    return reports
+
+
+def difference(after, before):
+    return {
+        branch: {
+            key: value - before.get(branch, {}).get(key, 0)
+            for key, value in counters.items()
+        }
+        for branch, counters in after.items()
+        if counters != before.get(branch)
+    }
+
+
 def test_activity_reports_count_the_same_on_both_paths(responders):
+    # what came before - the readiness probe of each responder among it,
+    # which a slow start may have sent twice - is not compared
+    before = flushed_reports(responders)
+
     requests = [
         message(V2C, "plain", "GetRequestPDU", [(SYS_NAME, None)]),
         message(V1, "plain", "GetNextRequestPDU", [(SYS_NAME, None)]),
@@ -488,27 +576,13 @@ def test_activity_reports_count_the_same_on_both_paths(responders):
     for request in requests:
         assert ask(FAST_PORT, request) == ask(ENGINE_PORT, request)
 
-    branches = {}
-    deadline = time.monotonic() + 15
+    after = flushed_reports(responders)
 
-    for path in responders:
-        while True:
-            merged = {}
+    counted = {path: difference(after[path], before[path]) for path in responders}
 
-            for report in sorted(
-                (responders[path] / "reports" / "fulljson").glob("*.json")
-            ):
-                merge(merged, json.loads(report.read_text()))
-
-            branches[path] = plain_branches(merged)
-
-            if branches[path] or time.monotonic() > deadline:
-                break
-
-            time.sleep(0.5)
-
-    assert branches["fast"]
-    assert branches["fast"] == branches["engine"]
+    # one branch by PDU type and security model, each with what was asked
+    assert len(counted["fast"]) == 3
+    assert counted["fast"] == counted["engine"]
 
 
 def merge(into, report):

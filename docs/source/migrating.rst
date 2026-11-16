@@ -131,8 +131,16 @@ The responders
   outside the range of its type is served with the octets the device sent.
   See :ref:`snmpsim-lint-records`, the new tool that finds such records.
 * A recording filed under the source address of the manager is chosen
-  again, see :ref:`addressing-simulation-data`. With snmpsim on pysnmp 7
-  every manager was served the plain recording.
+  again for SNMPv3, see :ref:`addressing-simulation-data`. With snmpsim on
+  pysnmp 7 every manager was served the plain recording. For SNMPv1/v2c the
+  full responder never chose by transport or address, it served only a
+  recording named exactly like the community; it does now, the most
+  specific recording first, as the documentation always said. Where both
+  ``public.snmprec`` and ``public/<transport-ID>/<address>.snmprec`` are
+  there, a manager at that address now gets the second one.
+* SNMPv1 and SNMPv2c are answered without pysnmp's SNMPv3 engine, the same
+  answers faster. ``--v1-v2c-path=engine`` sends them through it as before;
+  see :doc:`/documentation/command-line-options`.
 * ``--daemonize``, ``--reporting-method`` and
   ``snmpsim-command-responder-lite`` work, which they did not on pysnmp 7.
   ``--reporting-method`` takes a directory with a drive letter, and the

@@ -532,6 +532,28 @@ at startup.
 
 Default is to answer SNMPv1, SNMPv2c and SNMPv3.
 
+
+**--v1-v2c-path**
++++++++++++++++++
+
+How SNMPv1 and SNMPv2c requests are answered. With *fast*, the default, the
+simulator answers them itself; with *engine* they go through pysnmp's SNMPv3
+engine, as every release before 2026.11.4 did. SNMPv3 always goes through
+the engine.
+
+Both answer alike: the same values, error-status and error-index, the same
+SNMPv1 translation, the same *GETBULK* cut, and the same call context for
+variation modules and activity reports. *fast* skips the message processing,
+security and access control models of the engine and serves a bulk walk
+about 1.2 times as fast, a GETNEXT walk about 1.3 times. It also chooses the
+recording as :ref:`addressing-simulation-data` describes, by community,
+transport and source address; *engine* serves only a recording named exactly
+like the community. *engine* is there for one release, in case something
+answers differently after all.
+
+With *--v3-only* there is nothing to answer SNMPv1/v2c with, and the option
+makes no difference.
+
 **--index-workers**
 +++++++++++++++++++
 

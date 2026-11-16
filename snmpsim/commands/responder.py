@@ -192,8 +192,15 @@ class ErrorReporter:
         to the same error. `offset` is added to the place the error names:
         what read the variables may have been given a part of the request.
         """
-        # a REPORT goes back for SNMPv3 instead, only pysnmp can send it
-        if "oid" in exc:
+        # a REPORT goes back for SNMPv3 instead, only pysnmp can send it; a
+        # bare SmiError cannot be asked and asks for none
+        try:
+            wants_report = "oid" in exc
+
+        except TypeError:
+            wants_report = False
+
+        if wants_report:
             raise exc
 
         error_status, error_index, var_binds = responding.error_response(
@@ -625,6 +632,10 @@ class Recordings:
         )
 
         return controller.MIB_CONTROLLERS[data_file.layout](data_file)
+
+    def serves(self, community_name):
+        """Tell if a community name is served."""
+        return community_name in self._served
 
     def loaded(self, full_path):
         """Return the controller of a data file which is served, or None."""
@@ -1774,13 +1785,20 @@ configured automatically based on simulation data file paths relative to
                 bulk_command_responder.max_message_size = local_max_message_size
 
                 # v1/v2c are served from the context the engine's own command
-                # responders are given, as on the engine path
-                if fast_path:
+                # responders are given, as on the engine path. A message of
+                # v1/v2c names the engine's own context engine ID, which the
+                # engine finds no responder for when --v3-context-engine-id
+                # gave the context another one: it answers none, nor do we
+                if (
+                    fast_path
+                    and snmp_context.contextEngineId == snmp_engine.snmpEngineID
+                ):
                     for transport_domain in engine_domains:
                         fast_path.add_endpoint(
                             transport_domain,
                             snmp_engine,
                             snmp_context,
+                            recordings,
                             local_max_var_binds,
                             local_max_message_size,
                         )
