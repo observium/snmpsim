@@ -3,13 +3,16 @@ name: Docs
 # Builds the documentation site and publishes it on GitHub Pages
 # (https://observium.github.io/snmpsim/). Pull requests only build it, so
 # that a page which does not build is seen before it is merged.
+#
+# CHANGES.rst is left out of the paths: nearly every commit adds to it, and
+# its page is rebuilt with the next change to the documentation, or by
+# running this workflow by hand (workflow_dispatch) after a release.
 
 on:
   push:
     branches: [master]
     paths: &docs
       - "docs/**"
-      - "CHANGES.rst"
       - "LICENSE.txt"
       - "pyproject.toml"
       - ".github/workflows/docs.yml"

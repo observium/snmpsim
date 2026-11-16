@@ -5,6 +5,10 @@ Revision 2026.11.3, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Stopped building the documentation site for a change to ``CHANGES.rst``
+  alone, which nearly every commit makes. The changelog page is brought up
+  to date by the next change to ``docs/``, ``LICENSE.txt`` or
+  ``pyproject.toml``, or by running the workflow by hand after a release.
 - Fixed ``--max-var-binds`` being passed over in a file of
   ``--args-from-file``. ``snmpsim-command-responder`` reads the engine
   options of such a file itself, and looked for this one as
