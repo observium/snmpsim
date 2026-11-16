@@ -5,14 +5,20 @@ Revision 2026.11.4, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Added ``scripts/bench_responder.py``, which starts a command responder,
+  full or lite, with any interpreter on a recording of one's choice and
+  times its start, a bulk walk and a GETNEXT walk with net-snmp's tools,
+  optionally under cProfile with the busy time split by package. The
+  README's "Performance" numbers come from it.
 - Added PyPy 3.11 to the Tests workflow, which runs on Linux. The whole
   suite passed on PyPy 3.11 on macOS, with ``cryptography`` and gdbm, before
   it went in. The package declares CPython and PyPy, and Python 3.10 to
   3.15, in its classifiers.
-- Documented running on PyPy, which serves about twice as many requests per
-  second as CPython, and added a "Performance" section to the README: index
-  build, bulk walk and GETNEXT walk of a 188 MB recording on CPython with
-  gdbm and with ``dbm.sqlite3``, on the lite responder and on PyPy.
+- Documented running on PyPy, which serves two to two and a half times as
+  many requests per second as CPython, and added a "Performance" section to
+  the README: index build, bulk walk and GETNEXT walk of a 188 MB recording
+  on CPython with gdbm and with ``dbm.sqlite3``, on the lite responder and on
+  PyPy.
 - Ran the CI workflow on macOS with Python 3.10 and 3.15 only, Linux and
   Windows keep all six versions. GitHub's macOS runners are scarce: jobs
   waited for one and were cancelled without having run, which failed the

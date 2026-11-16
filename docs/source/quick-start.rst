@@ -33,8 +33,8 @@ the same:
    > venv\Scripts\activate
    > pip install "git+https://github.com/observium/snmpsim.git@master"
 
-It runs on PyPy 3.11 as well, which serves about twice as many requests per
-second as CPython. ``uv`` fetches PyPy itself:
+It runs on PyPy 3.11 as well, which serves two to two and a half times as
+many requests per second as CPython. ``uv`` fetches PyPy itself:
 
 .. code-block:: bash
 
