@@ -34,10 +34,12 @@ Changes carried by snmpsim-ng.
   the README: index build, bulk walk and GETNEXT walk of a 188 MB recording
   on CPython with gdbm and with ``dbm.sqlite3``, on the lite responder and on
   PyPy.
-- Ran the CI workflow on macOS with Python 3.10 and 3.15 only, Linux and
-  Windows keep all six versions. GitHub's macOS runners are scarce: jobs
-  waited for one and were cancelled without having run, which failed the
-  workflow on code that was fine.
+- Took macOS out of the CI workflow for now, Linux and Windows keep all six
+  Python versions. GitHub's macOS runners were not to be had: jobs waited
+  for one and were cancelled without having run, which failed the workflow
+  on code that was fine, first with six versions on macOS, then with the
+  oldest and the newest only. The matrix keeps macOS commented out, to be
+  put back once runners are available again.
 
 Revision 2026.11.3, released on Nov 16, 2026
 --------------------------------------------

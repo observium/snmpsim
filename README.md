@@ -67,9 +67,9 @@ Among them:
   streams instead of holding the file in memory
 * **Variation modules:** `multiplex` snapshots named, closed and served right; `numeric`,
   `writecache`, `subprocess`, `error` and `notification` fixed; `sql` reconnects
-* **Python, platforms and packaging:** Python 3.10 to 3.15 in CI on Linux and Windows, 3.10 and
-  3.15 on macOS, PyPy 3.11, Windows search paths, the `snmpsim-ng` name and calendar versions,
-  dependencies declared
+* **Python, platforms and packaging:** Python 3.10 to 3.15 in CI on Linux and Windows, PyPy
+  3.11, Windows search paths, the `snmpsim-ng` name and calendar versions, dependencies
+  declared
 * **Documentation:** [a site of its own](https://observium.github.io/snmpsim/) describing what
   snmpsim-ng does, the options of every command
 
@@ -265,10 +265,11 @@ SNMPSIM_TEST_TIMEOUT=3 pytest tests
 ```
 
 Two workflows run on every push to `master` and on pull requests, unless the change touches
-documentation only. `build-test.yml` builds the package and runs the suite on Linux and
-Windows on Python 3.10 to 3.15, and on macOS on 3.10 and 3.15. `tests.yml` runs the same suite
-on Linux only, on Python 3.10 to 3.15 and on PyPy 3.11, but plainly - no coverage and, more to
-the point, no retries, which is how it catches failures the retrying workflow lets through.
+documentation only. `build-test.yml` builds the package and runs the suite on Linux and Windows
+on Python 3.10 to 3.15 (macOS is out for now: GitHub's runners for it are not to be had, see
+the commented lines of the workflow). `tests.yml` runs the same suite on Linux only, on Python
+3.10 to 3.15 and on PyPy 3.11, but plainly - no coverage and, more to the point, no retries,
+which is how it catches failures the retrying workflow lets through.
 
 
 ## Performance

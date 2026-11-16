@@ -21,19 +21,24 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        # macOS is off for now: GitHub has not given its jobs a runner for
+        # days, each waited and was cancelled, and the workflow failed on code
+        # that was fine. Put it back, with the exclude below, when runners
+        # are to be had again.
+        # os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest]
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14', '3.15']
         # macOS runners are scarce, and a job that gets none is cancelled
         # after a long wait: there the oldest and the newest Python will do
-        exclude:
-          - os: macos-latest
-            python-version: '3.11'
-          - os: macos-latest
-            python-version: '3.12'
-          - os: macos-latest
-            python-version: '3.13'
-          - os: macos-latest
-            python-version: '3.14'
+        # exclude:
+        #   - os: macos-latest
+        #     python-version: '3.11'
+        #   - os: macos-latest
+        #     python-version: '3.12'
+        #   - os: macos-latest
+        #     python-version: '3.13'
+        #   - os: macos-latest
+        #     python-version: '3.14'
     steps:
       - uses: actions/checkout@v4
       - name: Setup python
