@@ -394,8 +394,10 @@ class FastPath:
             endpoint, request.community, transport_domain, transport_address
         )
 
+        # an unknown community is dropped as the engine drops it, which
+        # logs nothing either: it may well be somebody's scanner
         if selected is None:
-            log.info(
+            log.debug(
                 "No data file selected for transport ID %s, source address %s, "
                 'community name "%s"'
                 % (

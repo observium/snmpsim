@@ -1058,10 +1058,11 @@ def main():
     parser.add_argument(
         "--v1-v2c-path",
         choices=("fast", "engine"),
-        default="engine",
-        help="How SNMPv1 and SNMPv2c requests are answered: through pysnmp's "
-        "SNMPv3 engine, as before, or by the simulator itself, which is "
-        "faster. SNMPv3 always goes through the engine",
+        default="fast",
+        help="How SNMPv1 and SNMPv2c requests are answered: by the simulator "
+        "itself (the default), or through pysnmp's SNMPv3 engine, as releases "
+        "before 2026.11.4 did, which is slower. SNMPv3 always goes through "
+        "the engine",
     )
 
     parser.add_argument(
