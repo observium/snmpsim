@@ -5,6 +5,10 @@ Revision 2026.11.3, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Summed up the changes in the README's "What snmpsim-ng adds" as a table
+  of how many each release made in each area, with the release notes and
+  the changelog linked, instead of a list of 66 entries that had grown to
+  half the README. The details are kept here.
 - Stopped building the documentation site for a change to ``CHANGES.rst``
   alone, which nearly every commit makes. The changelog page is brought up
   to date by the next change to ``docs/``, ``LICENSE.txt`` or
