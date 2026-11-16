@@ -49,6 +49,20 @@ Valid tag values and their corresponding ASN.1/SNMP types are:
 * 67 - TimeTicks
 * 68 - Opaque
 * 70 - Counter64
+* 128 - noSuchObject
+* 129 - noSuchInstance
+* 130 - endOfMibView
+
+The last three have no value (``1.3.6.1.2.1.1.9.0|128|``): they record that
+the agent had nothing for the variable. A GET of it is answered with what
+is recorded - an *endOfMibView* as well, though :RFC:`3416#section-4.2.1`
+leaves that one to GETNEXT and GETBULK. A GETNEXT or GETBULK steps over
+all three to the next variable that has a value, as
+:RFC:`3416#section-4.2.2` has it, rather than sending them, which would stop
+a manager's walk there. To have an agent send one anyway, use the
+:ref:`error variation module <variate-error>` with *status=noSuchObject* and
+the like. What a variation module serving a whole subtree, such as
+*multiplex* or *sql*, takes from its own data is sent as it is.
 
 A value is everything after the second pipe, up to the end of the line.
 Spaces at the end of it belong to the value: a string may end with them,

@@ -20,6 +20,7 @@ from pyasn1.type import univ
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.carrier.asyncio.dgram import udp6
 from pysnmp.proto import rfc1902
+from pysnmp.proto import rfc1905
 from pysnmp.smi import exval
 from pysnmp.smi.error import MibOperationError
 
@@ -33,6 +34,15 @@ from snmpsim.record.search.database import RecordIndex
 from snmpsim.record.search.file import get_record
 from snmpsim.record.search.file import search_record_by_oid
 from snmpsim.reporting.manager import ReportingManager
+
+# the values a variable has when it has none, as a recording may hold them
+EXCEPTION_TAG_SETS = frozenset(
+    (
+        rfc1905.NoSuchObject.tagSet,
+        rfc1905.NoSuchInstance.tagSet,
+        rfc1905.EndOfMibView.tagSet,
+    )
+)
 
 SELF_LABEL = "self"
 
@@ -662,6 +672,22 @@ class DataFile(AbstractLayout):
                         subtree_flag = False
                         continue
 
+                    # A recorded noSuchObject, noSuchInstance or
+                    # endOfMibView is the answer to a GET of that variable
+                    # only: GETNEXT and GETBULK name the next variable that
+                    # has a value (RFC 3416, 4.2.2), and a manager's walk
+                    # stops at an exception. A variation module asked for
+                    # one - the error module simulating an agent that sends
+                    # it - still has it sent.
+                    if (
+                        context.get("nextFlag")
+                        and _val.tagSet in EXCEPTION_TAG_SETS
+                        and not self._names_variation_module(line)
+                    ):
+                        exact_match = True
+                        subtree_flag = False
+                        continue
+
                 except NoDataNotification:
                     raise
 
@@ -710,6 +736,18 @@ class DataFile(AbstractLayout):
         )
 
         return rsp_var_binds
+
+    def _names_variation_module(self, line):
+        """Tell if a record has a variation module make its value.
+
+        Only `.snmprec` records name one, after a colon in their tag.
+        """
+        if not isinstance(self._text_parser, variation.SnmprecRecordMixIn):
+            return False
+
+        _, tag, _ = self._text_parser.grammar.parse(line)
+
+        return ":" in tag
 
     def __str__(self):
         return "%s controller" % self._text_file

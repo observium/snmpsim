@@ -72,10 +72,19 @@ VALUES = [
     # Counter64 at both ends
     ("70", "0", rfc1902.Counter64(0)),
     ("70", "18446744073709551615", rfc1902.Counter64(18446744073709551615)),
-    # the exceptions a recording may hold for a variable
+    # the exceptions a recording may hold for a variable: the answer to a GET
+    # of it, stepped over by GETNEXT and GETBULK (RFC 3416, 4.2.2)
     ("128", "", rfc1905.NoSuchObject("")),
     ("129", "", rfc1905.NoSuchInstance("")),
+    ("130", "", rfc1905.EndOfMibView("")),
+    # a value behind them, which a walk has to reach
+    ("4", "after the exceptions", rfc1902.OctetString(b"after the exceptions")),
+    # the error module asked to send one: it is sent, GETNEXT included
+    ("2:error", "status=noSuchInstance", rfc1905.NoSuchInstance("")),
 ]
+
+# the records a GETNEXT or GETBULK steps over
+EXCEPTIONS = ("128", "129", "130")
 
 OIDS = [f"{BASE}.{n}.0" for n in range(1, len(VALUES) + 1)]
 
@@ -84,7 +93,21 @@ RECORDING = "".join(
 )
 
 
-def message(version, pdu_type, oids, repetitions=0):
+# a run of exceptions in the middle of a recording, and another at its end
+EDGES = "1.3.6.1.4.1.99999.8"
+
+EDGES_RECORDING = f"""\
+{EDGES}.1.0|4|before
+{EDGES}.3.0|128|
+{EDGES}.4.0|129|
+{EDGES}.4.1|130|
+{EDGES}.5.0|4|after
+{EDGES}.6.0|130|
+{EDGES}.7.0|129|
+"""
+
+
+def message(version, pdu_type, oids, repetitions=0, community="types"):
     proto = api.PROTOCOL_MODULES[version]
 
     pdu = getattr(proto, pdu_type)()
@@ -103,7 +126,7 @@ def message(version, pdu_type, oids, repetitions=0):
 
     msg = proto.Message()
     proto.apiMessage.set_defaults(msg)
-    proto.apiMessage.set_community(msg, "types")
+    proto.apiMessage.set_community(msg, community)
     proto.apiMessage.set_pdu(msg, pdu)
 
     return encoder.encode(msg)
@@ -172,6 +195,7 @@ def answer(response):
 def responders(tmp_path_factory, responder_process):
     data = tmp_path_factory.mktemp("data")
     (data / "types.snmprec").write_text(RECORDING, encoding="utf-8")
+    (data / "edges.snmprec").write_text(EDGES_RECORDING)
 
     with responder_process(
         f"--data-dir={data}",
@@ -227,7 +251,7 @@ def test_v1_get_is_answered_alike(responders, oid):
     tag = VALUES[OIDS.index(oid)][0]
 
     # an SNMPv1 manager cannot be sent a Counter64 or an exception
-    if tag in ("70", "128", "129"):
+    if tag in ("70", "128", "129", "130", "2:error"):
         assert error_status == 2
 
     else:
@@ -247,19 +271,20 @@ def test_getnext_walks_the_types_alike(responders, version):
         if error_status or not var_binds[0][0].startswith(BASE + "."):
             break
 
-        # a manager's walk ends at an exception: the recorded ones are
-        # served as values by GETNEXT too, as they always were
-        if var_binds[0][1][0] in (0x80, 0x81, 0x82):
-            break
-
-        oid = var_binds[0][0]
+        oid, value = var_binds[0]
         served.append(oid)
 
         assert len(served) <= len(OIDS)
 
-    # every variable that has a value is walked onto, up to the recorded
-    # exceptions; SNMPv1 steps over the Counter64 it cannot be sent
-    skipped = {"128", "129"} | ({"70"} if version == V1 else set())
+        # a manager's walk ends at an exception, which only the error
+        # module sends here
+        if value[0] in (0x80, 0x81, 0x82):
+            break
+
+    # every variable that has a value is walked onto, past the recorded
+    # exceptions, up to the one the error module sends; SNMPv1 steps over the
+    # Counter64 it cannot be sent, and gets noSuchName for the error module's
+    skipped = set(EXCEPTIONS) | ({"70", "2:error"} if version == V1 else set())
 
     assert served == [
         oid for oid, (tag, _, _) in zip(OIDS, VALUES) if tag not in skipped
@@ -279,8 +304,60 @@ def test_getbulk_serves_the_types_alike(responders):
         if oid.startswith(BASE + "."):
             walked.setdefault(oid, value)
 
-    # every variable, the recorded exceptions served as values
+    # every variable but the recorded exceptions; the error module's is sent
     assert error_status == 0
     assert walked == {
-        oid: encoder.encode(expected) for oid, (_, _, expected) in zip(OIDS, VALUES)
+        oid: encoder.encode(expected)
+        for oid, (tag, _, expected) in zip(OIDS, VALUES)
+        if tag not in EXCEPTIONS
     }
+
+
+def ask_edges(version, pdu_type, oids, repetitions=0):
+    return answer(
+        both(message(version, pdu_type, oids, repetitions, community="edges"))
+    )
+
+
+@pytest.mark.parametrize(
+    "start",
+    [f"{EDGES}.1.0", f"{EDGES}.3", f"{EDGES}.3.0", f"{EDGES}.4.0"],
+    ids=["before the run", "between records", "on an exception", "inside the run"],
+)
+def test_getnext_steps_over_a_run_of_exceptions(responders, start):
+    error_status, _, var_binds = ask_edges(V2C, "GetNextRequestPDU", [start])
+
+    assert error_status == 0
+    assert var_binds == [
+        (f"{EDGES}.5.0", encoder.encode(rfc1902.OctetString(b"after")))
+    ]
+
+
+def test_getnext_past_the_last_value_is_the_end_of_the_mib(responders):
+    # only exceptions are left: nothing has a value any more
+    _, _, var_binds = ask_edges(V2C, "GetNextRequestPDU", [f"{EDGES}.5.0"])
+
+    assert var_binds == [(f"{EDGES}.5.0", encoder.encode(rfc1905.EndOfMibView("")))]
+
+    error_status, error_index, _ = ask_edges(V1, "GetNextRequestPDU", [f"{EDGES}.5.0"])
+
+    assert (error_status, error_index) == (2, 1)
+
+
+def test_getbulk_steps_over_a_run_of_exceptions(responders):
+    error_status, _, var_binds = ask_edges(
+        V2C, "GetBulkRequestPDU", [f"{EDGES}.1"], repetitions=4
+    )
+
+    assert error_status == 0
+    assert [oid for oid, _ in var_binds][:2] == [f"{EDGES}.1.0", f"{EDGES}.5.0"]
+    assert all(value == b"\x82\x00" for _, value in var_binds[2:])
+
+
+def test_get_of_a_recorded_exception_answers_with_it(responders):
+    error_status, _, var_binds = ask_edges(
+        V2C, "GetRequestPDU", [f"{EDGES}.3.0", f"{EDGES}.4.0", f"{EDGES}.4.1"]
+    )
+
+    assert error_status == 0
+    assert [value for _, value in var_binds] == [b"\x80\x00", b"\x81\x00", b"\x82\x00"]

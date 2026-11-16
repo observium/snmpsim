@@ -5,6 +5,14 @@ Revision 2026.11.4, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Stepped over the noSuchObject, noSuchInstance and endOfMibView a
+  recording holds (tags 128, 129 and 130) on GETNEXT and GETBULK. They were
+  sent as the value of the variable, which RFC 3416 does not allow in an
+  answer to GETNEXT or GETBULK, and a manager's walk stopped there: net-snmp
+  ended at the first one with the rest of the table unread. They are still
+  the answer to a GET of the variable, and an ``error`` variation module
+  record asked for one still has it sent. A test serves every type a
+  ``.snmprec`` holds, on both ways of answering SNMPv1/v2c.
 - Answered SNMPv1 and SNMPv2c in ``snmpsim-command-responder`` without
   pysnmp's SNMPv3 engine. Every message went through its message
   processing, security and access control models, which is most of what an
