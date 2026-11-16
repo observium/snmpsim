@@ -36,7 +36,7 @@ scripts and recordings work unchanged.
 
 ## What snmpsim-ng adds
 
-Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 81 changes.
+Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 82 changes.
 Most of them are fixes: for what stopped working when pysnmp 7 renamed and reworked its API,
 and for what never worked. Every change is described in [CHANGES.rst](CHANGES.rst), also
 published as the [changelog](https://observium.github.io/snmpsim/changelog.html) of the
@@ -49,9 +49,9 @@ is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/mig
 | Recording tools | 3 | 2 | 5 | 1 | 0 | **11** |
 | Data files and conversion | 3 | 5 | 2 | 1 | 0 | **11** |
 | Variation modules | 0 | 10 | 2 | 1 | 0 | **13** |
-| Python, platforms and packaging | 7 | 3 | 1 | 1 | 2 | **14** |
+| Python, platforms and packaging | 7 | 3 | 1 | 1 | 3 | **15** |
 | Documentation | 1 | 1 | 3 | 2 | 1 | **8** |
-| **All** | **25** | **22** | **24** | **7** | **3** | **81** |
+| **All** | **25** | **22** | **24** | **7** | **4** | **82** |
 
 Among them:
 
@@ -153,8 +153,8 @@ under [What snmpsim-ng adds](#what-snmpsim-ng-adds).
 
 ### On PyPy
 
-The simulator runs unchanged on [PyPy](https://pypy.org/) 3.11, which answers about twice as
-many requests per second as CPython does (see [Performance](#performance)); the test suite
+The simulator runs unchanged on [PyPy](https://pypy.org/) 3.11, which answers two to two and a
+half times as many requests per second as CPython does (see [Performance](#performance)); the test suite
 passes on it, and CI runs it there. `uv` fetches PyPy by itself:
 
 ```bash
@@ -272,16 +272,18 @@ the point, no retries, which is how it catches failures the retrying workflow le
 
 ## Performance
 
-Measured on one recording of a cable modem termination system, 188 MB with 3.29 million
-records, served by one process on an Apple M3 Max, with net-snmp's `snmpbulkwalk -Cr25` over
-the whole recording and `snmpwalk` (one GETNEXT per OID) over its `.1.3.6.1.2.1.2` subtree:
+Measured with [`scripts/bench_responder.py`](scripts/bench_responder.py) on one recording of
+a cable modem termination system, 188 MB with 3.29 million records, served by one process on
+an Apple M3 Max: net-snmp's `snmpbulkwalk -Cr25` over the whole recording and `snmpwalk`
+(one GETNEXT per OID) over its `.1.3.6.1.2.1.2` subtree, 27 thousand OIDs:
 
 | Interpreter, responder, index | Index build and start | Bulk walk | GETNEXT walk |
 |---|--:|--:|--:|
-| CPython 3.14, full responder, gdbm | 19 s | 15,200 OIDs/s | 2,400 OIDs/s |
-| CPython 3.14, full responder, `dbm.sqlite3` | 181 s | 15,100 OIDs/s | 2,400 OIDs/s |
-| CPython 3.14, lite responder, gdbm | 17 s | 21,300 OIDs/s | 3,200 OIDs/s |
-| PyPy 3.11, full responder, gdbm | 19 s | 31,800 OIDs/s | 5,500 OIDs/s |
+| CPython 3.14, full responder, gdbm | 16 s | 14,700 OIDs/s | 2,600 OIDs/s |
+| CPython 3.14, full responder, `dbm.sqlite3` | 182 s | 15,200 OIDs/s | 2,700 OIDs/s |
+| CPython 3.14, lite responder, gdbm | 15 s | 18,800 OIDs/s | 3,300 OIDs/s |
+| PyPy 3.11, full responder, gdbm | 18 s | 30,500 OIDs/s | 6,500 OIDs/s |
+| PyPy 3.11, lite responder, gdbm | 19 s | 44,300 OIDs/s | 8,700 OIDs/s |
 
 * The dbm module decides how long an index takes to build, not how fast it is served: every
   record has its own key in the index, so a request for an OID in the recording costs one
@@ -290,11 +292,17 @@ the whole recording and `snmpwalk` (one GETNEXT per OID) over its `.1.3.6.1.2.1.
   `python-gdbm@3.x` is installed for its version; PyPy picks `dbm.ndbm` or `dbm.dumb`, see
   [On PyPy](#on-pypy).
 * Serving is bound by the CPU of a single core: the BER coding in pyasn1, the message
-  processing in pysnmp and the simulator's own lookup share it. PyPy runs all three about
-  twice as fast without a change to the code.
-* The lite responder skips pysnmp's message processing and is about 1.3 to 1.4 times as
-  fast, but answers SNMPv1 and SNMPv2c only, and its `fulljson` reports carry no request
-  counters.
+  processing in pysnmp and the simulator's own lookup share it. PyPy runs all three two to
+  two and a half times as fast without a change to the code.
+* The lite responder skips pysnmp's message processing and is about 1.3 times as fast, on
+  PyPy 1.3 to 1.5 times, but answers SNMPv1 and SNMPv2c only, and its `fulljson` reports
+  carry no request counters.
+
+To measure a recording of your own, with any interpreter and either responder:
+
+```bash
+python scripts/bench_responder.py --data-dir=/path/to/recordings --community=vendor/model
+```
 
 ## Commands
 
