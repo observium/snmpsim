@@ -837,7 +837,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/48/9c/6d8035cafa2d2d314
 
 [[package]]
 name = "snmpsim-ng"
-version = "2026.11.2"
+version = "2026.11.3"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
