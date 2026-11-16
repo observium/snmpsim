@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# SNMP Simulator documentation build configuration file, created by
+# snmpsim-ng documentation build configuration file, created by
 # sphinx-quickstart on Mon Oct 23 17:36:06 2017.
 #
 # This file is execfile()d with the current directory set to its
@@ -15,8 +15,6 @@
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
-
-import os
 
 # import sys
 # sys.path.insert(0, os.path.abspath('.'))
@@ -33,19 +31,15 @@ import os
 # ones.
 extensions = [
     "sphinx.ext.viewcode",
-    "sphinx_sitemap",
     "sphinx_copybutton",
     "notfound.extension",
 ]
 
 notfound_urls_prefix = "/snmpsim/"
 
-html_baseurl = "https://docs.lextudio.com/snmpsim/"
-sitemap_url_scheme = "{link}"
-sitemap_suffix_included = False
-
-# Add any paths that contain templates here, relative to this directory.
-templates_path = ["_templates"]
+# Where .github/workflows/docs.yml publishes the site; pages carry it as their
+# canonical address.
+html_baseurl = "https://observium.github.io/snmpsim/"
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
@@ -57,16 +51,16 @@ source_suffix = ".rst"
 master_doc = "index"
 
 # General information about the project.
-project = "SNMP Simulator"
+project = "snmpsim-ng"
 copyright = "2010-2019, Ilya Etingof. © Copyright 2022-2026, LeXtudio Inc. © Copyright 2026, Mikhail Stupalov"
-author = "LeXtudio Inc. <support@lextudio.com>"
+author = "Ilya Etingof (creator), Mikhail Stupalov (maintainer)"
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 #
 # The full version, including alpha/beta/rc tags.
-release = "2026.11.1"
+release = "2026.11.2"
 # The short X.Y version.
 version = ".".join(release.split(".")[:2])
 
@@ -80,7 +74,8 @@ language = "en"
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This patterns also effect to html_static_path and html_extra_path
-exclude_patterns = []
+# Pieces pulled into other pages by include::, not pages of their own.
+exclude_patterns = ["includes"]
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = "sphinx"
@@ -102,14 +97,13 @@ html_theme = "furo"
 # documentation.
 #
 html_theme_options = {
-    "announcement": 'Try <strong>SNMP Studio</strong>: <a href="https://www.sharpsnmp.com/#section-studio" target="_blank">Explore SNMP Studio</a>.',
-    "source_repository": "https://github.com/lextudio/snmpsim",
-    "source_branch": "main",
+    "source_repository": "https://github.com/observium/snmpsim",
+    "source_branch": "master",
     "source_directory": "docs/source/",
     "footer_icons": [
         {
             "name": "GitHub",
-            "url": "https://github.com/lextudio/snmpsim",
+            "url": "https://github.com/observium/snmpsim",
             "html": "",
             "class": "fa-brands fa-solid fa-github fa-2x",
         },
@@ -122,7 +116,7 @@ html_css_files = [
     "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/brands.min.css",
 ]
 
-html_title = "SNMP Simulator Documentation"
+html_title = "snmpsim-ng documentation"
 
 # The name of an image file (within the static path) to use as favicon of the
 # docs.  This file should be a Windows icon file (.ico) being 16x16 or 32x32
@@ -156,7 +150,7 @@ html_static_path = ["_static"]
 # -- Options for HTMLHelp output ------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "SNMPSimulatordoc"
+htmlhelp_basename = "snmpsim-ng-doc"
 
 
 # -- Options for LaTeX output ---------------------------------------------
@@ -182,9 +176,9 @@ latex_elements = {
 latex_documents = [
     (
         master_doc,
-        "SNMPSimulator.tex",
-        "SNMP Simulator Documentation",
-        "Ilya Etingof",
+        "snmpsim-ng.tex",
+        "snmpsim-ng documentation",
+        author,
         "manual",
     ),
 ]
@@ -194,7 +188,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "snmpsimulator", "SNMP Simulator Documentation", [author], 1)]
+man_pages = [(master_doc, "snmpsim-ng", "snmpsim-ng documentation", [author], 1)]
 
 
 # -- Options for Texinfo output -------------------------------------------
@@ -205,21 +199,12 @@ man_pages = [(master_doc, "snmpsimulator", "SNMP Simulator Documentation", [auth
 texinfo_documents = [
     (
         master_doc,
-        "SNMPSimulator",
-        "SNMP Simulator Documentation",
+        "snmpsim-ng",
+        "snmpsim-ng documentation",
         author,
-        "SNMPSimulator",
-        "One line description of project.",
+        "snmpsim-ng",
+        "SNMP agent simulator.",
         "Miscellaneous",
     ),
 ]
 
-
-def setup(app):
-    on_rtd = os.environ.get("READTHEDOCS", None) == "True"
-    if not on_rtd:
-        """Insert Google Analytics tracker
-        Based on this Stackoverflow suggestion: https://stackoverflow.com/a/41885884
-        """
-        app.add_js_file("https://www.googletagmanager.com/gtag/js?id=G-DFLYZZK12P")
-        app.add_js_file("google_analytics_tracker.js")

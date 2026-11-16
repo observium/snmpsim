@@ -280,9 +280,27 @@ LEVELS_MAP = {
     "error": LOG_ERROR,
 }
 
-msg = lambda x: None
+
+def _discard(message):
+    """Take a line when no logger has been set up yet."""
+
+
+msg = _discard
 
 log_level = LOG_INFO
+
+
+def is_enabled(level):
+    """Tell if a line of this level would be printed.
+
+    A line is put together before it is handed over, which costs the same
+    whether it is then printed or dropped. Where that is done per request,
+    ask first: `if log.is_enabled(log.LOG_INFO): log.info(...)`.
+    """
+    if msg is _discard or isinstance(msg, NullLogger):
+        return False
+
+    return log_level <= level
 
 
 def error(message, ctx=""):

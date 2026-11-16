@@ -29,7 +29,7 @@ The donor SNMP agent recording session would look like this:
 .. code-block:: bash
 
     $ snmpsim-record-commands --agent-udpv4-endpoint=192.168.1.1 \
-      --start-oid=1.3.6.1.2.1 --stop-oid=1.3.6.1.2.1.5 \
+      --start-object=1.3.6.1.2.1 --stop-object=1.3.6.1.2.1.5 \
       --output-file=snmpsim/data/recorded/linksys- \
       system.snmprec
     Scanning "/usr/local/share/snmpsim/variation" directory for variation
@@ -52,31 +52,55 @@ The donor SNMP agent recording session would look like this:
     1.3.6.1.2.1.1.6.0|4|4, Petersburger strasse, Berlin, Germany
     1.3.6.1.2.1.1.8.0|67|4
 
-The *snmpsim-record-commands* tool can run over SNMPv1, v2c and v3. To
-configure SNMPv3 USM user authentication and privacy algorithms,
-:ref:`follow the instructions <auth-algos>` for *snmpsim-command-responder*.
+The *snmpsim-record-commands* tool can run over SNMPv1, v2c and v3; the
+version is chosen with *--protocol-version*. Left to itself the tool asks
+over SNMPv2c with the community *public*, and over SNMPv3 once a USM user
+is named with *--v3-user*:
+
+.. code-block:: bash
+
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
+        --v3-user=recorder --v3-auth-key=auctoritas --v3-auth-proto=SHA256 \
+        --v3-priv-key=privatus --v3-priv-proto=AES \
+        --output-file=data/switch.snmprec
+    SNMP version 3, Context EngineID: <default> Context name: "",
+    SecurityName: recorder, SecurityLevel: authPriv, Authentication
+    key/protocol: auctoritas/SHA256, Encryption (privacy) key/protocol:
+    privatus/AES
+    Querying UDP/IPv4 agent at 192.0.2.1:161
+    Agent response timeout: 3 secs, retries: 3
+    Sending initial GETNEXT request for 1.3.6 (stop at <end-of-mib>)....
+    OIDs dumped: 362, elapsed: 71.18 sec, rate: 5.09 OIDs/sec, errors: 0
+
+The security level follows from the keys given: none for *noAuthNoPriv*,
+*--v3-auth-key* for *authNoPriv*, both keys for *authPriv*. The
+authentication and privacy algorithms are
+:ref:`those of snmpsim-command-responder <auth-algos>`. What an agent
+answers does not depend on the SNMP version it is asked over, so a
+recording made over SNMPv3 is the same file a recording over SNMPv2c would
+be. All the options of the recorder are listed under
+:ref:`recorder-options`.
 
 No special requirements exist for device file name and location. Just keep in
 mind that at simulation time, *snmpsim-command-responder* treats *.snmprec*
 file path as SNMPv1/v2c community name or SNMPv3 context name.
 
-If you don't readily have some SNMP agent to play with, you're welcome to
-use our publicly available
-`SNMP Simulator instance <https://www.pysnmp.com/snmp-simulation-service.html>`_.
+The agent in the next example answers at 192.0.2.1, an address reserved for
+documentation - put the address of your own agent in its place.
 
 .. code-block:: bash
 
-    $ snmpsim-record-commands --agent-udpv4-endpoint=demo.pysnmp.com \
+    $ snmpsim-record-commands --agent-udpv4-endpoint=192.0.2.1 \
         --community=public
     SNMP version 2c, Community name: public
-    Querying UDP/IPv4 agent at 195.218.195.228:161
+    Querying UDP/IPv4 agent at 192.0.2.1:161
     Sending initial GETNEXT request....
-    1.3.6.1.2.1.1.1.0|4|SunOS zeus.pysnmp.com 4.1.3_U1 1 sun4m
+    1.3.6.1.2.1.1.1.0|4|SunOS zeus.example.com 4.1.3_U1 1 sun4m
     1.3.6.1.2.1.1.2.0|6|1.3.6.1.4.1.20408
     1.3.6.1.2.1.1.3.0|67|137765775
-    1.3.6.1.2.1.1.4.0|4|LeXtudio Inc., support@lextudio.com
-    1.3.6.1.2.1.1.5.0|4|zeus.pysnmp.com
-    1.3.6.1.2.1.1.6.0|4|Toronto, Ontario, Canada
+    1.3.6.1.2.1.1.4.0|4|Network Operations, noc@example.com
+    1.3.6.1.2.1.1.5.0|4|zeus.example.com
+    1.3.6.1.2.1.1.6.0|4|Server room, rack 3
     ...
     1.3.6.1.2.1.11.31.0|65|0
     1.3.6.1.2.1.11.32.0|65|0
@@ -135,8 +159,8 @@ Here we produce simulation data for a portion of OID space of SNMPv2-MIB:
 
 .. code-block:: bash
 
-    $ snmpsim-record-mibs --mib-module=SNMPv2-MIB --start-oid=1.3.6.1.2.1.1.1 \
-      --stop-oid=1.3.6.1.2.1.1.8
+    $ snmpsim-record-mibs --mib-module=SNMPv2-MIB --start-object=1.3.6.1.2.1.1.1 \
+      --stop-object=1.3.6.1.2.1.1.8
     # MIB module: SNMPv2-MIB
     1.3.6.1.2.1.1.1.0|4|Portez ce vieux
     1.3.6.1.2.1.1.2.0|6|1.3.6.1.3.39.232.14.10.84.109.1
@@ -157,8 +181,8 @@ the *IF-MIB::ifTable* table:
 
 .. code-block:: bash
 
-    $ snmpsim-record-mibs --mib-module=IF-MIB --start-oid=1.3.6.1.2.1.2.2 \
-      --stop-oid=1.3.6.1.2.1.2.3 --table-size=2
+    $ snmpsim-record-mibs --mib-module=IF-MIB --start-object=1.3.6.1.2.1.2.2 \
+      --stop-object=1.3.6.1.2.1.2.3 --table-size=2
     # MIB module: IF-MIB
     # Starting table IF-MIB::ifTable (1.3.6.1.2.1.2.2)
     # Synthesizing row #1 of table 1.3.6.1.2.1.2.2.1
@@ -243,7 +267,7 @@ via *--string-pool* option.
     # End of UDP-MIB, 16 OID(s) dumped
 
 If you wish to specify each value rather then rely on automatic random
-selection, use *--manual-value* command line switch. If you would rather
+selection, use *--manual-values* command line switch. If you would rather
 have *snmpsim-record-mibs* tool to work out all the values by itself,
 consider raising the *--automatic-values* max probes value (default is
 5000 probes).
@@ -314,10 +338,20 @@ would look like this:
           ---- cheese.snmprec
 
 To build data files from a network capture file, use *--capture-file=<file>*
-command-line option. Capture file format should be either
-`pcap or pcap-ng <http://en.wikipedia.org/wiki/Pcap>`_.
-Most capturing tools (like `tcpdump <http://www.tcpdump.org>`_)
-support these file formats.
+command-line option. The capture file has to be in the classic
+`pcap <http://en.wikipedia.org/wiki/Pcap>`_ format, which is what
+`tcpdump <http://www.tcpdump.org>`_ writes with its *-w* option. A
+*pcapng* file, as Wireshark saves by default, is refused with a hint to
+convert it first:
+
+.. code-block:: bash
+
+    $ editcap -F pcap capture.pcapng capture.pcap
+
+Capture files are read by the tool itself, nothing has to be installed for
+that. Listening on a network interface (*--listen-interface*) is another
+matter: it needs the *pylibpcap* package, which has to be built against the
+libpcap of the system, and without it the tool says so and stops.
 
 You could also use
 `tcpdump filter <http://www.cs.ucr.edu/~marios/ethereal-tcpdump.pdf>`_
@@ -414,12 +448,50 @@ it could not be interpreted by the Simulator. Therefore always run
 
 The *.snmpwalk* lines that can't be parsed by the Simulator will be skipped
 and details reported to stdout for your further consideration. In particular,
-current implementation does not cope well with multi-line strings
-sometimes produced by the *snmpwalk* tool.
+a Simulator serving a *.snmpwalk* file takes every line of it for a record,
+so it does not cope with the values *snmpwalk* wraps onto several lines.
 
-Alternatively, you can convert the *.snmpwalk* files into *.snmprec* ones
+The better way is to convert the *.snmpwalk* files into *.snmprec* ones
 by running them through the
-:ref:`snmpsim-manage-records <snmpsim-manage-records>` tool.
+:ref:`snmpsim-manage-records <snmpsim-manage-records>` tool, which reads
+more of what *snmpwalk* prints:
+
+.. code-block:: bash
+
+    $ cat switch.snmpwalk
+    .1.3.6.1.2.1.1.1.0 = STRING: "first
+    second"
+    .1.3.6.1.2.1.1.5.0 = STRING: "C:\\Temp \"x\""
+    .1.3.6.1.2.1.2.2.1.6.1 = Hex-STRING: 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
+    10 11 12 13
+    .1.3.6.1.4.1.2021.10.1.6.1 = Opaque: Float: 100.000000
+    .1.3.6.1.4.1.2021.10.1.7.1 = Opaque: Double: 1.5
+    $ snmpsim-manage-records --input-file=switch.snmpwalk \
+        --source-record-type=snmpwalk --quiet
+    1.3.6.1.2.1.1.1.0|4x|66697273740a7365636f6e64
+    1.3.6.1.2.1.1.5.0|4x|433a5c54656d7020227822
+    1.3.6.1.2.1.2.2.1.6.1|4x|000102030405060708090a0b0c0d0e0f10111213
+    1.3.6.1.4.1.2021.10.1.6.1|68x|9f780442c80000
+    1.3.6.1.4.1.2021.10.1.7.1|68x|9f79083ff8000000000000
+
+* A quoted *STRING* with line breaks inside, and a *Hex-STRING* which
+  *snmpwalk* continues on a new line after every sixteen octets, are each
+  read as one record. A line is joined to the record before it when that
+  record is a quoted string still waiting for its closing quote, or a
+  *Hex-STRING* and the line holds nothing but hex octets. A line that
+  starts a record of its own is never joined, so a string which was cut
+  short costs that one value and not the rest of the walk.
+* The backslash *snmpwalk* puts in front of every quote and backslash of a
+  quoted *STRING* is taken off again.
+* Strings keep the octets which are not ASCII, whatever their encoding is:
+  UTF-8 and the single-byte code pages alike come out octet for octet. A
+  UTF-8 byte order mark at the start of a file saved on Windows is skipped.
+* *Opaque: Float:* and *Opaque: Double:* values are written the way
+  net-snmp puts them on the wire: sub-tag *9f78* and the four octets of an
+  IEEE 754 single for a float, sub-tag *9f79* and eight octets for a double.
+* OIDs have to be in numbers. A walk taken without *-On* names them
+  (*SNMPv2-MIB::sysName.0*), and such a line is a
+  :ref:`broken record <broken-records>`: the names are not resolved.
 
 .. _agent-pro-dump:
 

@@ -99,12 +99,20 @@ UNCONVERTIBLE = [
     ("sapwalk", f"{SYSNAME}, OctetString, 0x73ZZ\n".encode()),
     ("sapwalk", b"sysName.0, OctetString, switch\n"),
     ("dump", f"{SYSNAME}|6|Hex: 73.ZZ\n".encode()),
+    # no value where the type cannot do without one
+    ("dump", f"{SYSNAME}|2|\n".encode()),
+    ("dump", f"{SYSNAME}|5|\n".encode()),
+    ("snmprec", f"{SYSNAME}|2|\n".encode()),
+    ("snmprec", f"{SYSNAME}|2x|\n".encode()),
+    ("snmprec", f"{SYSNAME}|66x|\n".encode()),
+    ("snmprec", f"{SYSNAME}|6|\n".encode()),
 ]
 
 GOOD = {
     "snmpwalk": ".%s = STRING: eth0\n",
     "sapwalk": "%s, OctetString, eth0\n",
     "dump": "%s|6|eth0\n",
+    "snmprec": "%s|4|eth0\n",
 }
 
 
@@ -114,7 +122,7 @@ def convert_with_a_bad_line(tmp_path, monkeypatch, record_type, bad, *options):
     source.write_bytes(
         (good % "1.3.6.1.2.1.1.4.0").encode() + bad + (good % IF_DESCR).encode()
     )
-    target = tmp_path / "switch.snmprec"
+    target = tmp_path / "converted.snmprec"
 
     status = manage_records(
         monkeypatch,
@@ -158,6 +166,32 @@ def test_unconvertible_line_stops_the_conversion_with_a_message(
     messages = capsys.readouterr().err
     assert f"ERROR: broken record <{bad!r}>" in messages
     assert "Traceback" not in messages
+
+
+@pytest.mark.parametrize(
+    "record_type, empty",
+    [
+        ("dump", "|6|"),
+        ("dump", '|6|""'),
+        ("snmprec", "|4|"),
+        ("snmprec", "|4x|"),
+        ("snmprec", "|4e|"),
+    ],
+)
+def test_empty_string_value_is_converted(
+    tmp_path, monkeypatch, capsys, record_type, empty
+):
+    status, target = convert_with_a_bad_line(
+        tmp_path, monkeypatch, record_type, f"{SYSNAME}{empty}\n".encode()
+    )
+
+    assert not status
+    assert target.read_bytes().splitlines() == [
+        b"1.3.6.1.2.1.1.4.0|4|eth0",
+        f"{SYSNAME}|4|".encode(),
+        f"{IF_DESCR}|4|eth0".encode(),
+    ]
+    assert "broken 0," in capsys.readouterr().err
 
 
 def test_walk_with_names_for_oids_is_told_how_to_get_numbers(
@@ -367,3 +401,155 @@ def test_streamed_conversion_keeps_what_it_wrote_before_a_broken_record(
     assert status == 1
     assert target.read_bytes() == b"1.3.6.1.2.1.1.4.0|4|eth0\n"
     assert "ERROR: broken record" in capsys.readouterr().err
+
+
+def convert_numbered(tmp_path, monkeypatch, record_type, lines, *options):
+    source = tmp_path / f"switch.{record_type}"
+    source.write_bytes("".join(line + "\n" for line in lines).encode())
+
+    return manage_records(
+        monkeypatch,
+        f"--source-record-type={record_type}",
+        f"--input-file={source}",
+        f"--output-file={tmp_path / 'converted.snmprec'}",
+        *options,
+    )
+
+
+WALK_WITH_A_BROKEN_SEVENTH_LINE = [
+    f'.{SYSNAME} = STRING: "first',  # 1
+    'second"',
+    f".{IF_DESCR} = STRING: eth0",  # 3
+    f".{IF_PHYS} = Hex-STRING: 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F ",
+    "10 11 ",
+    "# what follows is not an OID",  # 6
+    "sysName.0 = STRING: switch",
+    ".1.3.6.1.2.1.2.2.1.7.1 = INTEGER: 1",  # 8
+    "# two lines that are not records,",
+    "",
+    ".1.3.6.1.2.1.2.2.1.8.1 = INTEGER: 1",  # 11
+]
+
+
+def test_broken_record_after_records_of_several_lines_is_named_by_its_line(
+    tmp_path, monkeypatch, capsys
+):
+    status = convert_numbered(
+        tmp_path,
+        monkeypatch,
+        "snmpwalk",
+        WALK_WITH_A_BROKEN_SEVENTH_LINE,
+        "--ignore-broken-records",
+    )
+
+    assert not status
+
+    messages = capsys.readouterr().err
+    broken = [line for line in messages.splitlines() if "broken record" in line]
+    lost = [line for line in messages.splitlines() if "Losing comment" in line]
+
+    assert len(broken) == 1
+    assert "> at line 7 (input file #0): " in broken[0]
+    assert lost == [
+        "# Losing comment at lines 6..6 (input file #0)",
+        "# Losing comment at lines 9..10 (input file #0)",
+    ]
+    assert "ignored 2," in messages
+
+
+def test_record_that_stops_the_conversion_is_named_by_its_line(
+    tmp_path, monkeypatch, capsys
+):
+    status = convert_numbered(
+        tmp_path, monkeypatch, "snmpwalk", WALK_WITH_A_BROKEN_SEVENTH_LINE, "--quiet"
+    )
+
+    assert status == 1
+    assert "> at line 7 (input file #0): " in capsys.readouterr().err
+
+
+def test_broken_record_of_several_lines_is_named_by_its_first_line(
+    tmp_path, monkeypatch, capsys
+):
+    status = convert_numbered(
+        tmp_path,
+        monkeypatch,
+        "snmpwalk",
+        [
+            f".{IF_DESCR} = STRING: eth0",
+            f".{SYSNAME} = BITS: ZZ 01",
+            f'.1.3.6.1.2.1.1.6.0 = STRING: "first',
+            'second"',
+            "# the next record takes two lines and is no OID at all",
+            'sysName.0 = STRING: "first',
+            'second"',
+            ".1.3.6.1.2.1.2.2.1.7.1 = INTEGER: 1",
+        ],
+        "--ignore-broken-records",
+    )
+
+    assert not status
+
+    messages = capsys.readouterr().err.splitlines()
+
+    assert [
+        line.split("> ")[1].split(": ")[0]
+        for line in messages
+        if "broken record" in line
+    ] == ["at line 2 (input file #0)", "at line 6 (input file #0)"]
+    assert [line for line in messages if "Losing comment" in line] == [
+        "# Losing comment at lines 5..5 (input file #0)"
+    ]
+
+
+def test_lines_of_a_one_line_format_are_counted_past_the_first_comment(
+    tmp_path, monkeypatch, capsys
+):
+    lines = [
+        f"{SYSNAME}|4|switch",
+        "# one comment",
+        f"{IF_DESCR}|4|eth0",
+        f"{IF_PHYS}|4x|0001",
+        "# two",
+        "# comments",
+        f"{SYSNAME}|2|",  # 7
+        "1.3.6.1.2.1.2.2.1.7.1|2|1",
+    ]
+
+    status = convert_numbered(
+        tmp_path, monkeypatch, "snmprec", lines, "--ignore-broken-records"
+    )
+
+    assert not status
+
+    messages = capsys.readouterr().err.splitlines()
+
+    assert [line for line in messages if "Losing comment" in line] == [
+        "# Losing comment at lines 2..2 (input file #0)",
+        "# Losing comment at lines 5..6 (input file #0)",
+    ]
+    assert any(
+        "broken record" in line and "> at line 7 (input file #0): " in line
+        for line in messages
+    )
+
+
+def test_lines_are_counted_anew_for_each_input_file(tmp_path, monkeypatch, capsys):
+    first = tmp_path / "first.snmprec"
+    first.write_bytes(f"{SYSNAME}|4|switch\n{IF_DESCR}|4|eth0\n".encode())
+    second = tmp_path / "second.snmprec"
+    second.write_bytes(f"# a comment\n{IF_PHYS}|4x|0001\n{SYSNAME}|2|\n".encode())
+
+    status = manage_records(
+        monkeypatch,
+        f"--input-file={first}",
+        f"--input-file={second}",
+        f"--output-file={tmp_path / 'converted.snmprec'}",
+    )
+
+    assert status == 1
+
+    messages = capsys.readouterr().err
+
+    assert "# Losing comment at lines 1..1 (input file #1)" in messages
+    assert "> at line 3 (input file #1): " in messages

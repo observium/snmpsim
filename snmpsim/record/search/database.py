@@ -6,8 +6,10 @@
 #
 
 import dbm
+import importlib
 import os
 import sys
+from time import monotonic
 
 from snmpsim import confdir
 from snmpsim import error
@@ -39,8 +41,29 @@ def _select_dbm_backend():
 
 DBM_BACKEND = _select_dbm_backend()
 
+# What each DBM implementation adds to the name it is asked to open, the file
+# holding the data first. An index is called the same whichever of them wrote
+# it, so these are all the files that can be taken for one - and
+# `dbm.whichdb()` tries them in an order of its own, ndbm's first.
+DBM_FILES = {
+    "dbm.gnu": ("",),
+    "dbm.sqlite3": ("", "-wal", "-shm", "-journal"),
+    "dbm.ndbm": (".db", ".pag", ".dir"),
+    "dbm.dumb": (".dat", ".dir", ".bak"),
+}
+
+# What an index is called while it is being built, before the DBM
+# implementation adds its own to the name.
+PART_SUFFIX = ".part"
+
 
 class RecordIndex:
+    # an open data file is looked at for changes no more often than this,
+    # in seconds: a stat() per request is a system call per request, and a
+    # recording edited under a running responder may as well be picked up a
+    # moment later
+    change_check_interval = 1.0
+
     def __init__(self, text_file, text_parser):
         self._text_file = text_file
         self._text_parser = text_parser
@@ -60,8 +83,10 @@ class RecordIndex:
 
         self._db = self._text = None
         self._db_type = "?"
+        self._db_module = None
 
         self._text_file_time = 0
+        self._change_checked_at = None
 
     def __str__(self):
         return "Data file {}, {}-indexed, {}".format(
@@ -74,7 +99,7 @@ class RecordIndex:
         return self._db is not None
 
     def get_handles(self):
-        if self.is_open():
+        if self.is_open() and self._change_check_due():
             if self._text_file_time != os.stat(self._text_file)[8]:
                 log.info("Text file %s modified, closing" % self._text_file)
                 self.close()
@@ -83,47 +108,156 @@ class RecordIndex:
             self.create()
             self.open()
 
+            # create() has just looked at the data file
+            self._change_checked_at = monotonic()
+
         return self._text, self._db
+
+    def _change_check_due(self):
+        """Tell if the data file is to be looked at, and note that it is."""
+        now = monotonic()
+
+        if (
+            self._change_checked_at is not None
+            and now - self._change_checked_at < self.change_check_interval
+        ):
+            return False
+
+        self._change_checked_at = now
+
+        return True
+
+    @staticmethod
+    def _files_of(db_file):
+        """Every file some DBM implementation could make of this name."""
+        suffixes = []
+
+        for backend_suffixes in DBM_FILES.values():
+            for suffix in backend_suffixes:
+                if suffix not in suffixes:
+                    suffixes.append(suffix)
+
+        return tuple(db_file + suffix for suffix in suffixes)
 
     @property
     def _db_files(self):
-        return (
-            self._db_file + os.path.extsep + "db",
-            self._db_file + os.path.extsep + "dat",
-            self._db_file,
-        )
+        """Every file some DBM implementation could take for this index."""
+        return self._files_of(self._db_file)
+
+    @property
+    def _part_file(self):
+        """The name an index is built under until all of it is written."""
+        return self._db_file + PART_SUFFIX
+
+    def _remove_db_files(self, db_file=None):
+        for db_file in self._files_of(db_file or self._db_file):
+            try:
+                os.remove(db_file)
+
+            except FileNotFoundError:
+                pass
+
+            except OSError as exc:
+                # left in place it would be read instead of the index that
+                # is about to be built
+                raise error.SnmpsimError(
+                    f"Failed to remove index file {db_file} of data file "
+                    f"{self._text_file}: {exc}"
+                )
+
+    def _discard_db_files(self, db_file=None):
+        try:
+            self._remove_db_files(db_file)
+
+        except error.SnmpsimError as exc:
+            log.error(str(exc))
+
+    def _install_part_files(self):
+        """Put the index that has just been built where it is read from."""
+        # the "n" flag emptied only the files of the implementation the
+        # index was built with: those of the others go as well
+        self._remove_db_files()
+
+        part_files = self._files_of(self._part_file)
+
+        try:
+            for part_file, db_file in zip(part_files, self._db_files):
+                if os.path.exists(part_file):
+                    os.replace(part_file, db_file)
+
+        except OSError as exc:
+            # some of it is in place and some is not: none of it is an index
+            self._discard_db_files(self._part_file)
+            self._discard_db_files()
+
+            raise error.SnmpsimError(
+                f"Failed to put index {self._db_file} of data file "
+                f"{self._text_file} in place: {exc}"
+            )
+
+    @property
+    def db_file(self):
+        """The name the index is built under, less what a DBM adds to it."""
+        return self._db_file
+
+    def needs_build(self):
+        """Tell if create() would build the index, without building it."""
+        return self._why_index_needed(os.stat(self._text_file)[8]) is not None
+
+    def _why_index_needed(self, text_file_time):
+        """Say why the index on disk cannot be served from, None if it can."""
+        present = [db_file for db_file in self._db_files if os.path.exists(db_file)]
+
+        if not present:
+            return "Index {} does not exist for data file {}".format(
+                self._db_file,
+                self._text_file,
+            )
+
+        db_type = dbm.whichdb(self._db_file)
+
+        if db_type not in DBM_FILES:
+            return "Unsupported index format, rebuilding index %s" % self._db_file
+
+        # only the files of the implementation that will read the index may
+        # be there: next to another one's, `dbm.whichdb()` says which it
+        # looked at first, not which is the index of the data file as it is
+        own = [self._db_file + suffix for suffix in DBM_FILES[db_type]]
+
+        foreign = [db_file for db_file in present if db_file not in own]
+
+        if foreign:
+            return (
+                "Index %s (%s) sits next to the files of another DBM "
+                "implementation (%s), rebuilding"
+                % (self._db_file, db_type, ", ".join(foreign))
+            )
+
+        for db_file in own:
+            if db_file in present:
+                if text_file_time < os.stat(db_file)[8]:
+                    return None
+
+                return "Index %s out of date" % db_file
+
+        return "Index %s is incomplete" % self._db_file
 
     def create(self, force_index_build=False, validate_data=False):
         text_file_time = os.stat(self._text_file)[8]
 
-        # gdbm on OS X seems to voluntarily append .db, trying to catch that
-
-        index_needed = force_index_build
-
-        for db_file in self._db_files:
-            if os.path.exists(db_file):
-                if text_file_time < os.stat(db_file)[8]:
-                    if index_needed:
-                        log.info("Forced index rebuild %s" % db_file)
-
-                    elif not dbm.whichdb(self._db_file):
-                        index_needed = True
-                        log.info(
-                            "Unsupported index format, rebuilding " "index %s" % db_file
-                        )
-
-                else:
-                    index_needed = True
-                    log.info("Index %s out of date" % db_file)
-
-                break
+        if force_index_build:
+            index_needed = True
+            log.info("Forced index rebuild %s" % self._db_file)
 
         else:
-            index_needed = True
-            log.info(
-                "Index %s does not exist for data file "
-                "%s" % (self._db_file, self._text_file)
-            )
+            reason = self._why_index_needed(text_file_time)
+
+            index_needed = reason is not None
+
+            if index_needed:
+                log.info(reason)
+
+        db_module = None
 
         if index_needed:
             # these might speed-up indexing
@@ -131,9 +265,16 @@ class RecordIndex:
 
             errors = []
 
+            # The index is built under another name and gets its own when
+            # all of it is written. A build that is cut short - the process
+            # killed, the machine stopped - then leaves nothing that could
+            # be taken for an index: half of one is newer than the data file
+            # just as a whole one is, and would be served from.
+            self._remove_db_files(self._part_file)
+
             while open_flags:
                 try:
-                    db = DBM_BACKEND.open(self._db_file, open_flags)
+                    db = DBM_BACKEND.open(self._part_file, open_flags)
 
                 except Exception as exc:
                     log.debug(
@@ -172,87 +313,102 @@ class RecordIndex:
             offset = 0
             prev_offset = -1
 
-            while True:
-                line, line_no, offset = get_record(text, line_no, offset)
+            try:
+                while True:
+                    line, line_no, offset = get_record(text, line_no, offset)
 
-                if not line:
-                    # reference to last OID in data file
-                    db["last"] = "%d,%d,%d" % (offset, 0, prev_offset)
-                    break
+                    if not line:
+                        # reference to last OID in data file
+                        db["last"] = "%d,%d,%d" % (offset, 0, prev_offset)
+                        break
 
-                try:
-                    oid, tag, val = self._text_parser.grammar.parse(line)
-
-                except Exception as exc:
-                    db.close()
-
-                    for db_file in self._db_files:
-                        try:
-                            os.remove(db_file)
-
-                        except OSError:
-                            pass
-
-                    raise error.SnmpsimError(
-                        "Data error at %s:%d:" " %s" % (self._text_file, line_no, exc)
-                    )
-
-                if validate_data:
                     try:
-                        self._text_parser.evaluate_oid(oid)
+                        oid, tag, val = self._text_parser.grammar.parse(line)
 
                     except Exception as exc:
-                        db.close()
-
-                        for db_file in self._db_files:
-                            try:
-                                os.remove(db_file)
-
-                            except OSError:
-                                pass
-
                         raise error.SnmpsimError(
-                            "OID error at %s:%d: %s" % (self._text_file, line_no, exc)
+                            "Data error at %s:%d:"
+                            " %s" % (self._text_file, line_no, exc)
                         )
 
-                    try:
-                        self._text_parser.evaluate_value(
-                            oid, tag, val, dataValidation=True
-                        )
+                    if validate_data:
+                        try:
+                            self._text_parser.evaluate_oid(oid)
 
-                    except Exception as exc:
-                        log.info(
-                            "ERROR at line %s, value %r: " "%s" % (line_no, val, exc)
-                        )
+                        except Exception as exc:
+                            raise error.SnmpsimError(
+                                "OID error at %s:%d: %s"
+                                % (self._text_file, line_no, exc)
+                            )
 
-                # for lines serving subtrees, type is empty in tag field
-                db[oid] = "%d,%d,%d" % (offset, tag[0] == ":", prev_offset)
+                        try:
+                            self._text_parser.evaluate_value(
+                                oid, tag, val, dataValidation=True
+                            )
 
-                if tag[0] == ":":
-                    prev_offset = offset
+                        except Exception as exc:
+                            log.info(
+                                "ERROR at line %s, value %r: "
+                                "%s" % (line_no, val, exc)
+                            )
 
-                else:
-                    prev_offset = -1  # not a subtree - no back reference
+                    # for lines serving subtrees, type is empty in tag field
+                    db[oid] = "%d,%d,%d" % (offset, tag[0] == ":", prev_offset)
 
-                offset += len(line)
+                    if tag[0] == ":":
+                        prev_offset = offset
+
+                    else:
+                        prev_offset = -1  # not a subtree - no back reference
+
+                    offset += len(line)
+
+            except BaseException:
+                # an error in the data or the build cut short: either way
+                # what is written so far is not an index
+                text.close()
+                db.close()
+
+                self._discard_db_files(self._part_file)
+
+                raise
 
             text.close()
             db.close()
 
+            self._install_part_files()
+
             log.info("...%d entries indexed" % line_no)
+
+            if DBM_BACKEND is not dbm:
+                db_module = DBM_BACKEND
 
         self._text_file_time = os.stat(self._text_file)[8]
 
         self._db_type = dbm.whichdb(self._db_file)
 
+        # read the index with what wrote it: left to `dbm.open()`, the choice
+        # is made again from the files found, on every open
+        self._db_module = db_module or self._module_of(self._db_type)
+
         return self
+
+    @staticmethod
+    def _module_of(db_type):
+        if db_type in DBM_FILES:
+            return importlib.import_module(db_type)
+
+        return dbm
 
     def lookup(self, oid):
         return self._db[oid]
 
     def open(self):
         self._text = self._text_parser.open(self._text_file)
-        self._db = dbm.open(self._db_file)
+        if self._db_module is None:
+            self._db_module = self._module_of(dbm.whichdb(self._db_file))
+
+        self._db = self._db_module.open(self._db_file)
 
     def close(self):
         # an index can be built without ever being opened - create() does

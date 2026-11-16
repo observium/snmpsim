@@ -94,8 +94,8 @@ class SnmprecRecord(dump.DumpRecord):
         record.
 
         Anything else that cannot be encoded (an empty OID, a hex-encoded OID
-        which did not decode into a value) is rejected so that the caller can
-        handle it gracefully.
+        which did not decode into a value, a hex-encoded number with no
+        digits) is rejected so that the caller can handle it gracefully.
         """
         if isinstance(value, univ.ObjectIdentifier):
             if not value.isValue:
@@ -106,6 +106,11 @@ class SnmprecRecord(dump.DumpRecord):
 
             if not len(value):
                 raise error.SnmpsimError("empty OID value")
+
+        # an empty hex string makes a number with no value in it, which
+        # nobody notices until the answer has to be encoded
+        elif not value.isValue:
+            raise error.SnmpsimError("no value")
 
         return value
 

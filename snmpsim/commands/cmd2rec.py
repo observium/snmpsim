@@ -588,6 +588,13 @@ def main():
                 "%s" % (args.variation_module, exc)
             )
 
+            # nothing the module was meant to do with the records can be
+            # done, so there is no recording to make
+            args.output_file.flush()
+            args.output_file.close()
+
+            return 1
+
         else:
             log.info('Variation module "%s" initialization OK' % args.variation_module)
 
@@ -633,13 +640,17 @@ def main():
 
         return next_oid
 
-    def record(var_binds):
+    def record(var_binds, ended=False):
         """Write one response worth of var-binds into the data file
 
         Returns whether the walk is over, and whether a variation module has
         asked for a fresh iteration of it.
+
+        With `ended` the var-binds are no response but the notice that the
+        walk is over: they go to the variation module, and what it makes of
+        them is not written.
         """
-        stop_flag = False
+        stop_flag = ended
         restarted = False
 
         # Walk var-binds
@@ -705,10 +716,15 @@ def main():
                 pass
 
             except error.SnmpsimError as exc:
+                # the record is lost, the recording is not what was asked for
+                state["errors"] += 1
                 log.error(exc)
                 continue
 
             else:
+                if ended:
+                    continue
+
                 args.output_file.write(line)
 
                 state["count"] += 1
@@ -828,6 +844,17 @@ def main():
                 if stop_flag:
                     return
 
+            else:
+                # pysnmp ends a walk at the end of the MIB without handing
+                # the end-of-MIB response over, and a variation module
+                # counts its passes by being told that one is over
+                _, restarted = record(
+                    [(state["lastOID"], rfc1905.endOfMibView)], ended=True
+                )
+
+                if restarted:
+                    start_oid = args.start_object
+
     started = time.time()
 
     try:
@@ -835,6 +862,11 @@ def main():
 
     except KeyboardInterrupt:
         log.info("Shutting down process...")
+
+    except Exception as exc:
+        # reported as an error of the recording, once it has been wound up
+        state["errors"] += 1
+        log.error("Recording FAILED: %s: %s" % (exc.__class__.__name__, exc))
 
     finally:
         if variation_module:
@@ -850,6 +882,8 @@ def main():
                 )
 
             except Exception as exc:
+                # what the module still held back may not have been written
+                state["errors"] += 1
                 log.error(
                     "Variation module %s shutdown FAILED: "
                     "%s" % (args.variation_module, exc)
@@ -868,7 +902,8 @@ def main():
         args.output_file.flush()
         args.output_file.close()
 
-        return state.get("errors", 0) and 1 or 0
+    # not from within "finally": a return there drops whatever is being raised
+    return 1 if state["errors"] else 0
 
 
 if __name__ == "__main__":

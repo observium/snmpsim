@@ -206,6 +206,17 @@ def main():
     )
 
     parser.add_argument(
+        "--max-open-data-files",
+        metavar="<N>",
+        type=datafile.open_files_limit,
+        default=datafile.DataFile.max_open_files,
+        help="Keep at most this many data files open, closing the least "
+        "recently used one to open another. Each open data file takes two "
+        "file descriptors. Default is half of the descriptors the process "
+        "may open less a reserve of 64, 256 at most (%(default)s here)",
+    )
+
+    parser.add_argument(
         "--data-dir",
         type=str,
         action="append",
@@ -305,6 +316,10 @@ def main():
             sys.stderr.write("%s\r\n" % exc)
             parser.print_usage(sys.stderr)
             return 1
+
+        datafile.set_max_open_files(args.max_open_data_files)
+
+        log.info("Data files kept open at most: %s" % args.max_open_data_files)
 
         try:
             ReportingManager.configure(*args.reporting_method)
