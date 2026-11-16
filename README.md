@@ -4,7 +4,7 @@
 [![Tests](https://github.com/observium/snmpsim/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/observium/snmpsim/actions/workflows/tests.yml)
 [![CI](https://github.com/observium/snmpsim/actions/workflows/build-test.yml/badge.svg?branch=master)](https://github.com/observium/snmpsim/actions/workflows/build-test.yml)
 [![Docs](https://github.com/observium/snmpsim/actions/workflows/docs.yml/badge.svg?branch=master)](https://observium.github.io/snmpsim/)
-[![Python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.15-blue?logo=python&logoColor=white)](#installation)
+[![Python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.15%20%7C%20PyPy%203.11-blue?logo=python&logoColor=white)](#installation)
 [![License](https://img.shields.io/badge/license-BSD--2--Clause-blue)](LICENSE.txt)
 
 This is a pure-Python, open source and free implementation of SNMP agents simulator
@@ -36,7 +36,7 @@ scripts and recordings work unchanged.
 
 ## What snmpsim-ng adds
 
-Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 79 changes.
+Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 81 changes.
 Most of them are fixes: for what stopped working when pysnmp 7 renamed and reworked its API,
 and for what never worked. Every change is described in [CHANGES.rst](CHANGES.rst), also
 published as the [changelog](https://observium.github.io/snmpsim/changelog.html) of the
@@ -49,9 +49,9 @@ is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/mig
 | Recording tools | 3 | 2 | 5 | 1 | 0 | **11** | `snmpsim-record-commands` records again, over SNMPv3 too, and fails with a non-zero exit; `snmpsim-record-traffic` starts and reads pcap files; `snmpsim-record-mibs` makes values the MIB permits and shares rows between tables |
 | Data files and conversion | 3 | 5 | 2 | 1 | 0 | **11** | `snmpsim-lint-records`; walk conversion keeps non-ASCII octets, values wrapped onto several lines, Opaque Float and Double, `-OQ` strings, and streams instead of holding the file in memory |
 | Variation modules | 0 | 10 | 2 | 1 | 0 | **13** | `multiplex` snapshots named, closed and served right; `numeric`, `writecache`, `subprocess`, `error` and `notification` fixed; `sql` reconnects |
-| Python, platforms and packaging | 7 | 3 | 1 | 1 | 1 | **13** | Python 3.10 to 3.15 in CI on Linux and Windows, 3.10 and 3.15 on macOS, Windows search paths, the `snmpsim-ng` name and calendar versions, dependencies declared |
-| Documentation | 1 | 1 | 3 | 2 | 0 | **7** | [a site of its own](https://observium.github.io/snmpsim/) describing what snmpsim-ng does, the options of every command |
-| **All** | **25** | **22** | **24** | **7** | **1** | **79** | |
+| Python, platforms and packaging | 7 | 3 | 1 | 1 | 2 | **14** | Python 3.10 to 3.15 in CI on Linux and Windows, 3.10 and 3.15 on macOS, PyPy 3.11, Windows search paths, the `snmpsim-ng` name and calendar versions, dependencies declared |
+| Documentation | 1 | 1 | 3 | 2 | 1 | **8** | [a site of its own](https://observium.github.io/snmpsim/) describing what snmpsim-ng does, the options of every command |
+| **All** | **25** | **22** | **24** | **7** | **3** | **81** | |
 
 | Release | Date | Changes | Details |
 |---|---|--:|---|
@@ -99,7 +99,7 @@ monitoring against, years later.
 
 ## Installation
 
-Python 3.10 or newer is required.
+Python 3.10 or newer is required, CPython or PyPy - see [On PyPy](#on-pypy).
 
 ### From a release
 
@@ -131,6 +131,35 @@ uv tool install "git+https://github.com/observium/snmpsim.git@2026.11.3"
 Replace `2026.11.3` with the release you want. snmpsim-ng is not on PyPI yet, and
 `pip install snmpsim` installs the other release line, which has none of the changes summed up
 under [What snmpsim-ng adds](#what-snmpsim-ng-adds).
+
+### On PyPy
+
+The simulator runs unchanged on [PyPy](https://pypy.org/) 3.11, which answers about twice as
+many requests per second as CPython does (see [Performance](#performance)); the test suite
+passes on it, and CI runs it there. `uv` fetches PyPy by itself:
+
+```bash
+uv tool install --python pypy3.11 "git+https://github.com/observium/snmpsim.git@2026.11.3"
+```
+
+`pipx` takes a PyPy that is installed already, by name or path:
+
+```bash
+pipx install --python pypy3.11 "git+https://github.com/observium/snmpsim.git@2026.11.3"
+```
+
+Install the gdbm library before PyPy (`brew install gdbm` on macOS; most Linux systems have
+it): PyPy has the gdbm module only where the library is there. Without it the indexes land in
+`dbm.ndbm`, which `dbm.whichdb()` does not recognise, so every start of the simulator builds
+every index again, or, where PyPy has no `dbm.ndbm` either, in the much slower `dbm.dumb`.
+This prints which module the simulator will use:
+
+```bash
+python -c "from snmpsim.record.search import database; print(database.DBM_BACKEND.__name__)"
+```
+
+Run it with the interpreter of the environment the simulator is installed in; `dbm.gnu` is
+gdbm.
 
 ### The development version
 
@@ -217,10 +246,36 @@ SNMPSIM_TEST_TIMEOUT=3 pytest tests
 
 Two workflows run on every push to `master` and on pull requests, unless the change touches
 documentation only. `build-test.yml` builds the package and runs the suite on Linux and
-Windows on Python 3.10 to 3.15, and on macOS on 3.10 and 3.15. `tests.yml` runs the same suite on Linux
-only, but plainly - no coverage and, more to the point, no retries, which is how it catches
-failures the retrying workflow lets through.
+Windows on Python 3.10 to 3.15, and on macOS on 3.10 and 3.15. `tests.yml` runs the same suite
+on Linux only, on Python 3.10 to 3.15 and on PyPy 3.11, but plainly - no coverage and, more to
+the point, no retries, which is how it catches failures the retrying workflow lets through.
 
+
+## Performance
+
+Measured on one recording of a cable modem termination system, 188 MB with 3.29 million
+records, served by one process on an Apple M3 Max, with net-snmp's `snmpbulkwalk -Cr25` over
+the whole recording and `snmpwalk` (one GETNEXT per OID) over its `.1.3.6.1.2.1.2` subtree:
+
+| Interpreter, responder, index | Index build and start | Bulk walk | GETNEXT walk |
+|---|--:|--:|--:|
+| CPython 3.14, full responder, gdbm | 19 s | 15,200 OIDs/s | 2,400 OIDs/s |
+| CPython 3.14, full responder, `dbm.sqlite3` | 181 s | 15,100 OIDs/s | 2,400 OIDs/s |
+| CPython 3.14, lite responder, gdbm | 17 s | 21,300 OIDs/s | 3,200 OIDs/s |
+| PyPy 3.11, full responder, gdbm | 19 s | 31,800 OIDs/s | 5,500 OIDs/s |
+
+* The dbm module decides how long an index takes to build, not how fast it is served: every
+  record has its own key in the index, so a request for an OID in the recording costs one
+  lookup and one read whatever the size of the recording. CPython 3.13 and later pick
+  `dbm.sqlite3` when gdbm is missing, as it is from Homebrew's Python unless
+  `python-gdbm@3.x` is installed for its version; PyPy picks `dbm.ndbm` or `dbm.dumb`, see
+  [On PyPy](#on-pypy).
+* Serving is bound by the CPU of a single core: the BER coding in pyasn1, the message
+  processing in pysnmp and the simulator's own lookup share it. PyPy runs all three about
+  twice as fast without a change to the code.
+* The lite responder skips pysnmp's message processing and is about 1.3 to 1.4 times as
+  fast, but answers SNMPv1 and SNMPv2c only, and its `fulljson` reports carry no request
+  counters.
 
 ## Commands
 

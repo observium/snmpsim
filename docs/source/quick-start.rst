@@ -33,6 +33,19 @@ the same:
    > venv\Scripts\activate
    > pip install "git+https://github.com/observium/snmpsim.git@master"
 
+It runs on PyPy 3.11 as well, which serves about twice as many requests per
+second as CPython. ``uv`` fetches PyPy itself:
+
+.. code-block:: bash
+
+   $ uv tool install --python pypy3.11 "git+https://github.com/observium/snmpsim.git@master"
+
+Install the gdbm library first (``brew install gdbm`` on macOS; most Linux
+systems have it). PyPy has the gdbm module only where the library is there,
+and without it the indexes land in ``dbm.ndbm``, which ``dbm.whichdb()``
+does not recognise, so every start of the Simulator builds them all again,
+or, where there is no ``dbm.ndbm`` either, in the much slower ``dbm.dumb``.
+
 .. note::
 
    A few sample recordings come with the package, in its ``data``
