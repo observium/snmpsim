@@ -1053,6 +1053,15 @@ def main():
     )
 
     parser.add_argument(
+        "--v1-v2c-path",
+        choices=("fast", "engine"),
+        default="engine",
+        help="How SNMPv1 and SNMPv2c requests are answered: through pysnmp's "
+        "SNMPv3 engine, as before, or by the simulator itself, which is "
+        "faster. SNMPv3 always goes through the engine",
+    )
+
+    parser.add_argument(
         "--max-open-data-files",
         metavar="<N>",
         type=datafile.open_files_limit,
