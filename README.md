@@ -43,7 +43,7 @@ published as the [changelog](https://observium.github.io/snmpsim/changelog.html)
 documentation, and in the notes of each release. What answers differently from snmpsim 1.2.2
 is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/migrating.html).
 
-| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [next](CHANGES.rst) | Total | Among them |
+| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | Total | Among them |
 |---|--:|--:|--:|--:|--:|---|
 | Command responders | 11 | 1 | 11 | 1 | **24** | works on pysnmp 7, `--daemonize` survives the fork, GETBULK fits one datagram and the manager's `msgMaxSize`, `--v1-only` and `--v2c-only`, master and localized USM keys, rescan on SIGHUP, indexes built in parallel, exits when a port cannot be bound |
 | Recording tools | 3 | 2 | 5 | 1 | **11** | `snmpsim-record-commands` records again, over SNMPv3 too, and fails with a non-zero exit; `snmpsim-record-traffic` starts and reads pcap files; `snmpsim-record-mibs` makes values the MIB permits and shares rows between tables |
@@ -55,12 +55,10 @@ is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/mig
 
 | Release | Date | Changes | Details |
 |---|---|--:|---|
+| 2026.11.3 | Nov 16, 2026 | 7 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.3), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-3-released-on-nov-16-2026) |
 | 2026.11.2 | Nov 16, 2026 | 24 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.2), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-2-released-on-nov-16-2026) |
 | 2026.11.1 | Nov 15, 2026 | 22 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.1), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-1-released-on-nov-15-2026) |
 | 2026.11.0 | Nov 15, 2026 | 25 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.0), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-0-released-on-nov-15-2026) |
-
-"next" counts what is on `master` and not released yet: the topmost section of
-[CHANGES.rst](CHANGES.rst).
 
 ## The original author
 
@@ -108,26 +106,26 @@ with `pipx`, which keeps the simulator in an environment of its own and puts its
 your `PATH`:
 
 ```bash
-pipx install "git+https://github.com/observium/snmpsim.git@2026.11.2"
+pipx install "git+https://github.com/observium/snmpsim.git@2026.11.3"
 ```
 
 or from the release's wheel, without git:
 
 ```bash
-pipx install https://github.com/observium/snmpsim/releases/download/2026.11.2/snmpsim_ng-2026.11.2-py3-none-any.whl
+pipx install https://github.com/observium/snmpsim/releases/download/2026.11.3/snmpsim_ng-2026.11.3-py3-none-any.whl
 ```
 
 With `pip`, into the environment of your choice, or as a `uv` tool, the same specifiers work:
 
 ```bash
-pip install "git+https://github.com/observium/snmpsim.git@2026.11.2"
+pip install "git+https://github.com/observium/snmpsim.git@2026.11.3"
 ```
 
 ```bash
-uv tool install "git+https://github.com/observium/snmpsim.git@2026.11.2"
+uv tool install "git+https://github.com/observium/snmpsim.git@2026.11.3"
 ```
 
-Replace `2026.11.2` with the release you want. snmpsim-ng is not on PyPI yet, and
+Replace `2026.11.3` with the release you want. snmpsim-ng is not on PyPI yet, and
 `pip install snmpsim` installs the other release line, which has none of the changes summed up
 under [What snmpsim-ng adds](#what-snmpsim-ng-adds).
 
@@ -147,18 +145,18 @@ Any commit works the same way, for example `@8c804dc`.
 An installation from git or from a wheel has no package index to compare against, so nothing
 upgrades by itself. Install the newer release over the top, with the flag which says "yes,
 replace what is there" - in the commands below, put the release you are moving to in place of
-`2026.11.2`; a wheel URL takes `--force` the same way:
+`2026.11.3`; a wheel URL takes `--force` the same way:
 
 ```bash
-pipx install --force "git+https://github.com/observium/snmpsim.git@2026.11.2"
+pipx install --force "git+https://github.com/observium/snmpsim.git@2026.11.3"
 ```
 
 ```bash
-pip install --upgrade --force-reinstall "git+https://github.com/observium/snmpsim.git@2026.11.2"
+pip install --upgrade --force-reinstall "git+https://github.com/observium/snmpsim.git@2026.11.3"
 ```
 
 ```bash
-uv tool install --force "git+https://github.com/observium/snmpsim.git@2026.11.2"
+uv tool install --force "git+https://github.com/observium/snmpsim.git@2026.11.3"
 ```
 
 `pipx` keeps packages added with `pipx inject` across a `--force` reinstall, and dependencies
