@@ -1,65 +1,28 @@
 import os
-import sys
-import threading
-import time
-from snmpsim.commands.responder import main as responder_main
 import pytest
 from pysnmp.hlapi.asyncio import *
 
 import asyncio
 
-TIME_OUT = int(os.getenv("SNMPSIM_TEST_TIMEOUT", "15"))
 PORT_NUMBER = 1614
 
 
-@pytest.fixture(autouse=True)
-def setup_args():
-    # Store the original sys.argv
-    original_argv = sys.argv
-    # Define your test arguments here
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base_dir, "data", "notification")
-    test_args = [
-        "responder.py",
-        f"--data-dir={data_dir}",
-        f"--agent-udpv4-endpoint=127.0.0.1:{PORT_NUMBER}",
-        f"--debug=app",
-        f"--timeout={TIME_OUT}",
-    ]
-    # Set sys.argv to your test arguments
-    sys.argv = test_args
-    # This will run before the test function
-    yield
-    # Restore the original sys.argv after the test function has finished
-    sys.argv = original_argv
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
 
-# Fixture to run the application in a separate thread
 @pytest.fixture
-def run_app_in_background():
-    def target():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            responder_main()
-        except KeyboardInterrupt:
-            print("Application interrupted.")
-        finally:
-            print("Application stopped.")
-            loop.close()
-
-    app_thread = threading.Thread(target=target)
-    app_thread.start()
-    # Allow some time for the application to initialize and run
-    time.sleep(1)
-    yield
-    # Simulate KeyboardInterrupt after the test is done
-    # This part may need to be adjusted based on how your application handles shutdown
-    app_thread.join(timeout=TIME_OUT)
+def v1_agent(responder_process):
+    """A responder whose sysLocation sends an SNMPv1 trap"""
+    with responder_process(
+        f"--data-dir={os.path.join(DATA_DIR, 'notification')}",
+        port=PORT_NUMBER,
+        oid="1.3.6.1.2.1.1.5.0",
+    ) as endpoint:
+        yield endpoint
 
 
 @pytest.mark.asyncio
-async def test_main_with_specific_args(run_app_in_background, capsys):
+async def test_main_with_specific_args(v1_agent):
     snmpEngine = SnmpEngine()
     try:
         # v1/v2c - using community string
@@ -121,8 +84,6 @@ async def test_main_with_specific_args(run_app_in_background, capsys):
         if snmpEngine.transport_dispatcher:
             snmpEngine.transport_dispatcher.close_dispatcher()
 
-        await asyncio.sleep(TIME_OUT)
-
 
 V3_PORT_NUMBER = 1650
 V3_TRAP_PORT_NUMBER = 1651
@@ -130,23 +91,22 @@ V3_ENGINE_ID = "80004fb805736e6d7073696d01"
 
 
 @pytest.fixture
-def v3_args():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base_dir, "data", "notification-v3")
-    sys.argv = [
-        "responder.py",
-        # everything up to the next --v3-engine-id configures this engine
+def v3_agent(responder_process):
+    """A responder whose sysLocation sends a v3 trap as its own user"""
+    with responder_process(
+        # everything after --v3-engine-id configures this engine, the
+        # endpoint the helper adds included
         f"--v3-engine-id={V3_ENGINE_ID}",
-        f"--data-dir={data_dir}",
+        f"--data-dir={os.path.join(DATA_DIR, 'notification-v3')}",
         "--v3-user=simulator",
         "--v3-auth-key=auctoritas",
         "--v3-auth-proto=SHA",
         "--v3-priv-key=privatus",
         "--v3-priv-proto=AES",
-        f"--agent-udpv4-endpoint=127.0.0.1:{V3_PORT_NUMBER}",
-        "--debug=app",
-        f"--timeout={TIME_OUT}",
-    ]
+        port=V3_PORT_NUMBER,
+        oid="1.3.6.1.2.1.1.5.0",
+    ) as endpoint:
+        yield endpoint
 
 
 def _load_module():
@@ -185,7 +145,7 @@ async def _v3_get(snmp_engine, name):
 
 
 @pytest.mark.asyncio
-async def test_v3_trap_keeps_the_agent_user(v3_args, run_app_in_background):
+async def test_v3_trap_keeps_the_agent_user(v3_agent):
     """A trap sent as the agent's own user must not rekey that user.
 
     The record sends a v3 trap as user `simulator` with keys and protocols
@@ -258,8 +218,6 @@ async def test_v3_trap_keeps_the_agent_user(v3_args, run_app_in_background):
             manager.close_dispatcher()
 
         receiver.close_dispatcher()
-
-        await asyncio.sleep(TIME_OUT)
 
 
 def test_notification_accepts_the_protocols_the_responder_does():

@@ -66,13 +66,19 @@ def running_responder(*options, port, oid, community="public"):
     The block is entered once the responder has answered a GET of `oid`, not
     after a guessed delay, and the responder lives until the block is left:
     its --timeout, which is its whole lifetime, is far longer than anything
-    the tests are going to do with it.
+    the tests are going to do with it. That --timeout comes last and wins
+    over one in `options`.
+
+    `options` come first on the command line, the endpoint after them, so
+    that an engine given by --v3-engine-id gets the endpoint: options after
+    a --v3-engine-id belong to that engine, and an endpoint before it would
+    make an engine of its own. With several --v3-engine-id, only the last
+    engine gets it.
 
     The port has to be free, and is checked before the responder starts.
-    Were somebody else answering on it, the probe would be answered by them
-    and the tests would run against their data: a responder which cannot
-    bind its port does not exit, because pysnmp binds in a task nobody
-    awaits, logs "Listening" all the same and serves nothing.
+    Were somebody else answering on it, the probe could be answered by them
+    before our responder has given up on the port, and the tests would run
+    against their data.
     """
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         try:
@@ -87,10 +93,12 @@ def running_responder(*options, port, oid, community="public"):
                 sys.executable,
                 "-m",
                 "snmpsim.commands.responder",
+            ]
+            + list(options)
+            + [
                 f"--agent-udpv4-endpoint=127.0.0.1:{port}",
                 f"--timeout={LIFETIME}",
-            ]
-            + list(options),
+            ],
             stdout=subprocess.DEVNULL,
             stderr=stderr,
         )
