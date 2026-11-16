@@ -5,6 +5,15 @@ Revision 2026.11.5, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Encoded the SNMPv2c responses of the fast path, and the var-bind sizes
+  every responder cuts GETBULK by, without building them in pyasn1:
+  ``snmpsim.ber`` puts the octets together straight from the values, the
+  same octets pyasn1 makes, and hands pyasn1 any kind of value it does not
+  know. A GETBULK var-bind is encoded once, where it used to be encoded to
+  be measured and again for the message. A bulk walk and a GETNEXT walk are
+  served about 1.8 times as fast as with 2026.11.4 on CPython. Tests hold
+  the encoding to pyasn1's on edge values, random integers and OIDs, whole
+  responses, and the vectors of pyasn1's own encoder tests.
 - Required pyasn1 0.6.5 or later, and pysnmp 7.1.31 or later. pyasn1 was
   not named at all, though the simulator imports it, and pysnmp 7.1.26 let
   pyasn1 0.6.3 in, which decodes a crafted OBJECT IDENTIFIER in quadratic

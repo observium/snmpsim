@@ -40,6 +40,7 @@ from pysnmp.proto.api import v2c
 from pysnmp.proto.proxy import rfc2576
 from pysnmp.smi import error as smi_error
 
+from snmpsim import ber
 from snmpsim import datafile
 from snmpsim import endpoints
 from snmpsim import log
@@ -108,6 +109,7 @@ class Request:
         "_message",
         "_v2_pdu",
         "_v1_pdu",
+        "request_id",
     )
 
 
@@ -146,6 +148,7 @@ def decode_request(whole_msg, version):
         return None
 
     request._v2_pdu = pdu
+    request.request_id = int(v2c.apiPDU.get_request_id(pdu))
     request.var_binds = list(v2c.apiPDU.get_varbinds(pdu))
 
     if request.kind == BULK:
@@ -155,14 +158,41 @@ def decode_request(whole_msg, version):
     return request
 
 
-def encode_response(request, error_status, error_index, var_binds):
+def encode_response(request, error_status, error_index, var_binds, encoded=None):
     """Encode the response to `request`.
+
+    An SNMPv2c response is put together octet for octet (`snmpsim.ber`);
+    `encoded` may hold the encodings of its var-binds, made when they were
+    measured, by `id()` of the var-bind with the var-bind itself.
 
     An SNMPv1 response is made out of the SNMPv2 one by pysnmp's own
     translation; for GETNEXT it raises `StatusInformation` naming a Counter64
     an SNMPv1 manager cannot be sent, to be read past, as the engine path
     does.
     """
+    if request._v1_pdu is None:
+        var_bind_list = []
+
+        for var_bind in var_binds:
+            entry = encoded.get(id(var_bind)) if encoded else None
+
+            if entry is not None and entry[0] is var_bind:
+                parts = entry[1]
+
+            else:
+                parts = ber.var_bind_parts(*var_bind)
+
+            var_bind_list.append(ber.var_bind(parts))
+
+        return ber.response(
+            request.version,
+            request.community,
+            request.request_id,
+            error_status,
+            error_index,
+            var_bind_list,
+        )
+
     pdu = v2c.apiPDU.get_response(request._v2_pdu)
 
     v2c.apiPDU.set_error_status(pdu, error_status)
@@ -476,6 +506,7 @@ class FastPath:
 
         offset = 0
         takes = []
+        encoded = {}
 
         try:
             if request.kind == GET:
@@ -502,7 +533,13 @@ class FastPath:
 
             else:
                 var_binds = self.read_bulk(
-                    endpoint, controller, request, context_name, context, takes
+                    endpoint,
+                    controller,
+                    request,
+                    context_name,
+                    context,
+                    takes,
+                    encoded,
                 )
 
                 # nothing to answer with - no var-binds, or no repetitions
@@ -524,7 +561,7 @@ class FastPath:
                 *responding.error_response(exc, request.var_binds, offset),
             )
 
-        return encode_response(request, 0, 0, var_binds)
+        return encode_response(request, 0, 0, var_binds, encoded)
 
     def answer_next(self, controller, request, context):
         """GETNEXT, read past a Counter64 for an SNMPv1 manager as pysnmp does."""
@@ -549,7 +586,9 @@ class FastPath:
                 request, *responding.error_response(exc, request.var_binds)
             )
 
-    def read_bulk(self, endpoint, controller, request, context_name, context, takes):
+    def read_bulk(
+        self, endpoint, controller, request, context_name, context, takes, encoded
+    ):
         """The var-binds of a GETBULK response, cut as the engine path cuts."""
         max_response_size = endpoint.max_message_size - utils.MESSAGE_ENVELOPE_SIZE
 
@@ -564,6 +603,12 @@ class FastPath:
             takes.append(None)
             return controller.read_next_variables(*var_binds, **context)
 
+        # what is encoded to be measured is not encoded again for the message
+        def size(var_bind):
+            parts = ber.var_bind_parts(*var_bind)
+            encoded[id(var_bind)] = var_bind, parts
+            return len(parts[0]) + len(parts[1]) + 4
+
         return utils.get_bulk_var_binds(
             read_next_vars,
             request.var_binds,
@@ -571,4 +616,5 @@ class FastPath:
             request.max_repetitions,
             endpoint.max_var_binds,
             max_response_size,
+            size,
         )

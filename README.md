@@ -36,22 +36,22 @@ scripts and recordings work unchanged.
 
 ## What snmpsim-ng adds
 
-Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 84 changes.
+Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 86 changes.
 Most of them are fixes: for what stopped working when pysnmp 7 renamed and reworked its API,
 and for what never worked. Every change is described in [CHANGES.rst](CHANGES.rst), also
 published as the [changelog](https://observium.github.io/snmpsim/changelog.html) of the
 documentation, and in the notes of each release. What answers differently from snmpsim 1.2.2
 is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/migrating.html).
 
-| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [2026.11.4](https://github.com/observium/snmpsim/releases/tag/2026.11.4) | Total |
-|---|--:|--:|--:|--:|--:|--:|
-| Command responders | 11 | 1 | 11 | 1 | 2 | **26** |
-| Recording tools | 3 | 2 | 5 | 1 | 0 | **11** |
-| Data files and conversion | 3 | 5 | 2 | 1 | 0 | **11** |
-| Variation modules | 0 | 10 | 2 | 1 | 0 | **13** |
-| Python, platforms and packaging | 7 | 3 | 1 | 1 | 3 | **15** |
-| Documentation | 1 | 1 | 3 | 2 | 1 | **8** |
-| **All** | **25** | **22** | **24** | **7** | **6** | **84** |
+| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [2026.11.4](https://github.com/observium/snmpsim/releases/tag/2026.11.4) | [next](CHANGES.rst) | Total |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| Command responders | 11 | 1 | 11 | 1 | 2 | 1 | **27** |
+| Recording tools | 3 | 2 | 5 | 1 | 0 | 0 | **11** |
+| Data files and conversion | 3 | 5 | 2 | 1 | 0 | 0 | **11** |
+| Variation modules | 0 | 10 | 2 | 1 | 0 | 0 | **13** |
+| Python, platforms and packaging | 7 | 3 | 1 | 1 | 3 | 1 | **16** |
+| Documentation | 1 | 1 | 3 | 2 | 1 | 0 | **8** |
+| **All** | **25** | **22** | **24** | **7** | **6** | **2** | **86** |
 
 Among them:
 
@@ -80,6 +80,9 @@ Among them:
 | 2026.11.2 | Nov 16, 2026 | 24 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.2), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-2-released-on-nov-16-2026) |
 | 2026.11.1 | Nov 15, 2026 | 22 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.1), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-1-released-on-nov-15-2026) |
 | 2026.11.0 | Nov 15, 2026 | 25 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.0), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-0-released-on-nov-15-2026) |
+
+"next" counts what is on `master` and not released yet: the topmost section of
+[CHANGES.rst](CHANGES.rst).
 
 ## The original author
 
