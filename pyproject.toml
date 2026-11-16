@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "snmpsim-ng"
-version = "2026.11.4"
+version = "2026.11.5"
 description = "SNMP Simulator is a tool that acts as multitude of SNMP Agents built into real physical devices, from SNMP Manager's point of view. Simulator builds and uses a database of physical devices' SNMP footprints to respond like their original counterparts do."
 readme = "README.md"
 requires-python = ">=3.10,<4.0"
@@ -42,7 +42,12 @@ classifiers = [
     "Topic :: System :: Networking :: Monitoring",
 ]
 dependencies = [
-    "pysnmp>=7.1.26,<8.0.0",
+    # 7.1.31 is the last for Python 3.10, later ones need 3.11; what keeps
+    # BER decoding safe is the pyasn1 below, which 7.1.31 works with
+    "pysnmp>=7.1.31,<8.0.0",
+    # imported directly, not only through pysnmp; 0.6.5 has the last of the
+    # decoder fixes (GHSA-mm57-4v3p-rchx and the others of October 2026)
+    "pyasn1>=0.6.5,<0.8.0",
     # imported by snmpsim.utils, not pulled in by pysnmp
     "pysmi>=2.0.0,<3.0.0",
     # pysnmp declares it as a dev extra only, but SNMP-USM-DH-OBJECTS-MIB

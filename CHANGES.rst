@@ -1,4 +1,16 @@
-.. current-version: 2026.11.4 (managed by bump2version)
+.. current-version: 2026.11.5 (managed by bump2version)
+
+Revision 2026.11.5, unreleased
+------------------------------
+
+Changes carried by snmpsim-ng.
+
+- Required pyasn1 0.6.5 or later, and pysnmp 7.1.31 or later. pyasn1 was
+  not named at all, though the simulator imports it, and pysnmp 7.1.26 let
+  pyasn1 0.6.3 in, which decodes a crafted OBJECT IDENTIFIER in quadratic
+  time (CVE-2026-59885) and has the other decoder faults fixed in 0.6.4
+  and 0.6.5. ``uv.lock`` has pyasn1 0.6.5, and pysnmp 7.1.31 for Python
+  3.10, the last release that runs on it, 7.1.33 elsewhere.
 
 Revision 2026.11.4, released on Nov 17, 2026
 --------------------------------------------
