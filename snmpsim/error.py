@@ -10,6 +10,15 @@ class SnmpsimError(Exception):
     pass
 
 
+class ModuleNotConfigured(SnmpsimError):
+    """A variation module which cannot work without options got none.
+
+    Every variation module found is initialized, whether or not a recording
+    uses it, so this is how the sql and redis modules of an installation
+    that has no database for them start. It is not a failure.
+    """
+
+
 class NoDataNotification(SnmpsimError):
     pass
 
