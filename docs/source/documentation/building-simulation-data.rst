@@ -507,6 +507,10 @@ more of what *snmpwalk* prints:
 * *Opaque: Float:* and *Opaque: Double:* values are written the way
   net-snmp puts them on the wire: sub-tag *9f78* and the four octets of an
   IEEE 754 single for a float, sub-tag *9f79* and eight octets for a double.
+* A walk taken with *-OQ* has no types in it. A value in quotes is read as a
+  *STRING* all the same, on several lines too, but nothing tells what a bare
+  number is, so it is still taken for *TimeTicks*: leave *-OQ* out unless the
+  walk is all strings.
 * OIDs have to be in numbers. A walk taken without *-On* names them
   (*SNMPv2-MIB::sysName.0*), and such a line is a
   :ref:`broken record <broken-records>`: the names are not resolved.

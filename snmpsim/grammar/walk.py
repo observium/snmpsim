@@ -218,10 +218,11 @@ class WalkGrammar(abstract.AbstractGrammar):
         re.ASCII,
     )
 
-    # the type of a value that may go on for more lines, and its beginning
+    # the type of a value that may go on for more lines, and its beginning;
+    # snmpwalk -OQ prints no type, a string then begins with its quote
     WRAPPING_VALUE = re.compile(
-        r"[^\n]*? = (?:Wrong Type \(should be [^\n]*?\): )?"
-        r"(STRING|Hex-STRING): ?(.*)",
+        r"\s*\S+ = (?:Wrong Type \(should be [^\n]*?\): )?"
+        r"(?:(STRING|Hex-STRING): ?(.*)|(\".*))",
         re.ASCII | re.DOTALL | re.IGNORECASE,
     )
 
@@ -245,7 +246,10 @@ class WalkGrammar(abstract.AbstractGrammar):
         if not match:
             return None
 
-        tag, value = match.groups()
+        tag, value, untagged = match.groups()
+
+        if tag is None:
+            tag, value = "STRING", untagged
 
         if tag.upper() == "HEX-STRING":
             return self._is_hex_row
@@ -323,9 +327,13 @@ class WalkGrammar(abstract.AbstractGrammar):
             value = match.group(2)
 
         # this is implicit snmpwalk's fuzziness
-        elif value == '""' or value == "STRING:":
+        elif value == "STRING:":
             tag = "STRING:"
             value = ""
+
+        # snmpwalk -OQ prints no type, a string is told by its quote
+        elif value.startswith('"'):
+            tag = "STRING:"
 
         elif value == "NULL":
             tag = "NULL:"

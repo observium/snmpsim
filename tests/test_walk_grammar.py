@@ -537,3 +537,47 @@ def test_sapwalk_hex_string_is_still_read():
     oid, value = SapRecord().evaluate(b"1.3.6.1.2.1.1.5.0, OctetString, 0x73770a\n")
 
     assert bytes(value) == b"sw\n"
+
+
+# snmpwalk -OQ prints the values without their types: a string is told by
+# its quotes alone
+@pytest.mark.parametrize(
+    "value, octets",
+    [
+        ('"Linux box 6.1"', b"Linux box 6.1"),
+        ('""', b""),
+        ('"60:9c:9f:ec:a3:38"', b"60:9c:9f:ec:a3:38"),
+        ('"C:\\\\Temp \\"x\\""', b'C:\\Temp "x"'),
+        ('"12345"', b"12345"),
+    ],
+)
+def test_walk_untagged_quoted_value_is_a_string(value, octets):
+    oid, record = WalkRecord().evaluate(f".{SYSNAME} = {value}\n".encode())
+
+    assert str(oid) == SYSNAME
+    assert record.__class__.__name__ == "OctetString"
+    assert bytes(record) == octets
+
+
+def test_walk_untagged_quoted_value_reaches_snmprec_as_a_string():
+    assert walk_to_snmprec(f'.{SYSNAME} = "switch"\n') == f"{SYSNAME}|4|switch"
+
+
+def test_walk_untagged_quoted_string_with_a_newline_is_one_record():
+    text = b'.%s = "first\nsecond"\n.%s = "eth0"\n' % (
+        SYSNAME.encode(),
+        IF_DESCR.encode(),
+    )
+
+    assert read_walk(text) == [(SYSNAME, b"first\nsecond"), (IF_DESCR, b"eth0")]
+
+
+def test_walk_untagged_quoted_string_that_never_closes_ends_at_the_next_record():
+    text = b'.%s = "cut short\n.%s = "eth0"\n' % (SYSNAME.encode(), IF_DESCR.encode())
+
+    assert read_walk(text) == [(SYSNAME, b'"cut short'), (IF_DESCR, b"eth0")]
+
+
+def test_walk_untagged_number_is_still_read_as_timeticks():
+    # nothing tells what an untagged number is, the old guess stays
+    assert walk_to_snmprec(f".{SYSNAME} = 72\n") == f"{SYSNAME}|67|72"
