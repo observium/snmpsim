@@ -119,6 +119,19 @@ def _index_files(cache):
     return sorted(os.listdir(cache))
 
 
+def _index_of(name):
+    """The index a file in the cache belongs to.
+
+    An index is one file or several, as the backend keeps it: dbm.dumb, the
+    only one Python 3.12 on Windows has, writes three.
+    """
+    return name[: name.rindex(".dbm") + len(".dbm")]
+
+
+def _indexes(cache):
+    return {_index_of(name) for name in _index_files(cache)}
+
+
 @pytest.mark.parametrize("backend", BACKENDS, ids=lambda backend: backend.__name__)
 def test_four_workers_build_what_one_builds(
     tmp_path, cache, monkeypatch, logged, backend
@@ -192,7 +205,7 @@ def test_a_broken_recording_does_not_stop_the_others(tmp_path, cache, logged):
         assert RecordIndex(recording, PARSER).needs_build() == (recording == broken)
 
     # and nothing of its index is left to be taken for one
-    assert len(_index_files(cache)) >= 19
+    assert len(_indexes(cache)) == 19
     assert not [name for name in _index_files(cache) if "device11" in name]
 
 
@@ -228,11 +241,11 @@ def test_indexes_that_are_up_to_date_are_left_alone(tmp_path, cache, logged):
 
     assert results == {recording: None for recording in recordings[:2]}
 
-    rebuilt = [
-        name
+    rebuilt = {
+        _index_of(name)
         for name in _index_files(cache)
         if os.stat(cache / name).st_mtime_ns != built_at[name]
-    ]
+    }
 
     assert len(rebuilt) == 2
     assert b"1.3.6.1.2.1.1.6.0" in _contents(recordings[0])
