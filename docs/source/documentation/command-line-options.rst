@@ -353,6 +353,13 @@ per each requested variable-binding.
 
 The default is *64*.
 
+In a file given to *snmpsim-command-responder* by *--args-from-file*, the
+option sets the limit of one SNMP engine, the same way *--max-message-size*
+does there: of the engine whose *--v3-engine-id* comes before it, or else of
+the last engine of the command line. The other engines keep the value of the
+command line. Such a file may still call the option *--max-varbinds*, the
+name it used to be read by.
+
 **--max-message-size**
 ++++++++++++++++++++++
 

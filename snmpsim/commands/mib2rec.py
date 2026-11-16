@@ -245,7 +245,12 @@ def main():
     )
 
     parser.add_argument(
-        "--row-hint", dest="row_hint", action="store_true", help="Hint for MIBs Type"
+        "--row-hint",
+        dest="row_hint",
+        action="store_true",
+        help="With --manual-values, do not name a scalar and its type before "
+        "asking for its value; table rows, indexes and columns are named "
+        "all the same, unless --quiet",
     )
 
     parser.add_argument(
@@ -392,8 +397,24 @@ def main():
         args.automatic_values = 0
 
     if args.string_pool_file:
-        with open(args.string_pool_file) as fl:
-            args.string_pool = fl.read().split()
+        # UTF-8 whatever the locale, the words go into the values as UTF-8
+        try:
+            with open(args.string_pool_file, encoding="utf-8") as fl:
+                args.string_pool = fl.read().split()
+
+        except (OSError, ValueError) as exc:
+            sys.stderr.write(
+                "ERROR: cannot read --string-pool-file %s: %s\r\n"
+                % (args.string_pool_file, exc)
+            )
+            return 1
+
+        if not args.string_pool:
+            sys.stderr.write(
+                "ERROR: --string-pool-file %s holds no words\r\n"
+                % args.string_pool_file
+            )
+            return 1
 
     elif not args.string_pool:
         args.string_pool = [

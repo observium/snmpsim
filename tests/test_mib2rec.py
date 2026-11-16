@@ -479,3 +479,98 @@ def test_if_mib_is_generated_with_nobody_to_ask(tmp_path, monkeypatch, capsys):
     assert set(numbers(records, IF_ADMIN_STATUS)) <= {1, 2, 3}
     assert set(numbers(records, IF_LINK_UP_DOWN_TRAP_ENABLE)) <= {1, 2}
     assert all(1 <= kind <= 300 for kind in numbers(records, IF_TYPE))
+
+
+def test_strings_are_made_of_the_words_of_the_pool_file(tmp_path, monkeypatch):
+    pool = tmp_path / "words.txt"
+    pool.write_text("ab\ncd\tef  \n")
+
+    status, records = generate(
+        monkeypatch,
+        tmp_path,
+        "--mib-module=SNMPSIM-TEST-MIB",
+        "--integer32-range=1,2147483647",
+        f"--string-pool-file={pool}",
+        # the file wins over the words of the command line
+        "--string-pool=xy",
+    )
+
+    assert not status
+
+    names = octets(records, PORT_NAME)
+
+    assert len(names) == 10
+    assert all(
+        name and set(name.split(b" ")) <= {b"ab", b"cd", b"ef"} for name in names
+    )
+
+
+def test_pool_file_is_read_as_utf8(tmp_path, monkeypatch):
+    pool = tmp_path / "words.txt"
+    pool.write_bytes("Zürich".encode("utf-8"))
+
+    status, records = generate(
+        monkeypatch,
+        tmp_path,
+        "--mib-module=SNMPSIM-TEST-MIB",
+        "--integer32-range=1,2147483647",
+        f"--string-pool-file={pool}",
+    )
+
+    assert not status
+    assert all(
+        set(name.split(b" ")) <= {"Zürich".encode("utf-8")}
+        for name in octets(records, PORT_NAME)
+    )
+
+
+@pytest.mark.parametrize(
+    "content, message",
+    [
+        (b"", "holds no words"),
+        (b" \n\t\n", "holds no words"),
+        (b"Z\xfcrich", "cannot read"),
+        (None, "cannot read"),
+    ],
+)
+def test_pool_file_that_gives_no_words_is_an_error(
+    tmp_path, monkeypatch, capsys, content, message
+):
+    pool = tmp_path / "words.txt"
+    if content is not None:
+        pool.write_bytes(content)
+
+    status, records = generate(
+        monkeypatch,
+        tmp_path,
+        "--mib-module=SNMPSIM-TEST-MIB",
+        f"--string-pool-file={pool}",
+    )
+
+    err = capsys.readouterr().err
+
+    assert status == 1
+    assert not records
+    assert f"--string-pool-file {pool}" in err
+    assert message in err
+
+
+@pytest.mark.parametrize("row_hint", [False, True])
+def test_row_hint_leaves_out_what_a_scalar_is(tmp_path, monkeypatch, capsys, row_hint):
+    status, records = generate(
+        monkeypatch,
+        tmp_path,
+        "--mib-module=SNMPSIM-TEST-MIB",
+        "--manual-values",
+        "--start-object=" + LAST_SETTING,
+        *(["--row-hint"] if row_hint else []),
+        stdin=io.StringIO("0x5dc\n"),
+    )
+
+    err = capsys.readouterr().err
+
+    assert not status
+    assert records == {LAST_SETTING + ".0": ("2", b"1500")}
+    # the question is asked either way
+    assert "# Value ['<none>'] ? " in err
+    assert ("# Scalar SNMPSIM-TEST-MIB::lastSetting (type" in err) is not row_hint

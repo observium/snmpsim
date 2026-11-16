@@ -1806,7 +1806,9 @@ configured automatically based on simulation data file paths relative to
             else:
                 data_dirs.append(opt[1])
 
-        elif opt[0] == "--max-varbinds":
+        # --max-varbinds is the name this option had in a file of
+        # --args-from-file, the command line never took it
+        elif opt[0] in ("--max-var-binds", "--max-varbinds"):
             local_max_var_binds = int(opt[1])
 
         elif opt[0] == "--max-message-size":
