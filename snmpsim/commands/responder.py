@@ -36,6 +36,7 @@ from snmpsim import daemon
 from snmpsim import datafile
 from snmpsim import endpoints
 from snmpsim import log
+from snmpsim import responding
 from snmpsim import utils
 from snmpsim import variation
 from snmpsim.error import NoDataNotification
@@ -184,28 +185,19 @@ class ErrorReporter:
     def report_error(self, snmp_engine, state_reference, pdu, exc, offset=0):
         """Send the error response for `exc`, or raise `exc` for pysnmp.
 
-        `exc` goes back to pysnmp when it does not name the variable, or
-        when it asks for a REPORT, which only pysnmp is able to produce.
-        `offset` is added to the place the error names: what read the
-        variables may have been given a part of the request.
+        `exc` goes back to pysnmp when it asks for a REPORT, which only
+        pysnmp is able to produce. What is sent otherwise is what
+        `responding.error_response()` makes of it, the fast path's answer
+        to the same error. `offset` is added to the place the error names:
+        what read the variables may have been given a part of the request.
         """
-        var_binds = v2c.apiPDU.get_varbinds(pdu)
-
-        try:
-            error_index = exc["idx"] + offset + 1
-
-        except (KeyError, TypeError):
+        # a REPORT goes back for SNMPv3 instead, only pysnmp can send it
+        if "oid" in exc:
             raise exc
 
-        if "oid" in exc or not 0 < error_index <= len(var_binds):
-            raise exc
-
-        error_status = self.SMI_ERROR_MAP.get(exc.__class__, "genErr")
-
-        # RFC 3416, 4.2.1: tooBig comes with no index and no variables
-        if error_status == "tooBig":
-            error_index = 0
-            var_binds = []
+        error_status, error_index, var_binds = responding.error_response(
+            exc, v2c.apiPDU.get_varbinds(pdu), offset
+        )
 
         self.send_varbinds(
             snmp_engine, state_reference, error_status, error_index, var_binds
