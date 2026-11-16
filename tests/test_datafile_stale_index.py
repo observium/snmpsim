@@ -61,8 +61,12 @@ def recording(tmp_path):
 
 
 def _write(recording, text, age):
-    """Write the recording as if it was saved `age` seconds ago."""
-    recording.write_text(text, encoding="iso-8859-1")
+    """Write the recording as if it was saved `age` seconds ago.
+
+    Written as bytes, so that its lines end in "\\n" on Windows too: the
+    tests compare the records read back with these very lines.
+    """
+    recording.write_bytes(text.encode("iso-8859-1"))
 
     _set_age(recording, age)
 

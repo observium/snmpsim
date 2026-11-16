@@ -597,6 +597,7 @@ def test_end_of_walk_is_not_a_record(plain_agent, tmp_path):
 
     assert recorder.returncode == 0, stderr
     assert stderr.count("walk is over after") == 1, stderr
-    assert "walk is over after 1.3.6.1.2.1.2.2.1.5.1\n" in stderr
+    # the module writes "\n", which Windows turns into "\r\n" in text mode
+    assert "walk is over after 1.3.6.1.2.1.2.2.1.5.1" in stderr.splitlines()
     assert len(output_file.read_bytes().splitlines()) == 5
     assert "OIDs dumped: 5, " in stderr
