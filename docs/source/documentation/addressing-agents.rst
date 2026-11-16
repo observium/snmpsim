@@ -80,7 +80,9 @@ can be handled.
 
 The same filesystem mapping rules apply to SNMP community name, but also to SNMPv3
 context name. The path to .snmprec file for fulfilling response is probed at these
-locations in the following order:
+locations in the following order (for SNMPv1/v2c with the default
+``--v1-v2c-path=fast``; with ``--v1-v2c-path=engine`` a community is served
+only by a recording of exactly its name):
 
 1. *context-engine-id / context-name / transport-ID / source-address* .snmprec
 2. *context-engine-id / context-name / transport-ID* .snmprec

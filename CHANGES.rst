@@ -5,6 +5,21 @@ Revision 2026.11.4, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Answered SNMPv1 and SNMPv2c in ``snmpsim-command-responder`` without
+  pysnmp's SNMPv3 engine. Every message went through its message
+  processing, security and access control models, which is most of what an
+  answer cost; the transport dispatcher now reads the version off each
+  message and hands SNMPv1/v2c ones to the simulator's own fast path, and
+  SNMPv3 to the engine as before. The answers are the same, octet for octet,
+  which a test checks by sending the same requests to both paths: values,
+  error-status and error-index, pysnmp's own SNMPv1 translation (RFC 3584),
+  the GETBULK cut, and the call context variation modules get, down to the
+  types of ``contextName`` and ``securityName``, so that activity reports
+  count the same dimensions. One thing changed on purpose: a recording is
+  chosen as the documentation always said, by community, transport and the
+  manager's address, the most specific one first, where the engine served
+  only a recording named exactly like the community. ``--v1-v2c-path=engine``
+  sends SNMPv1/v2c through the engine as before, for one release.
 - Added ``scripts/bench_responder.py``, which starts a command responder,
   full or lite, with any interpreter on a recording of one's choice and
   times its start, a bulk walk and a GETNEXT walk with net-snmp's tools,

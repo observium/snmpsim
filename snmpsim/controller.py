@@ -36,6 +36,13 @@ class MibInstrumController:
         if not context:
             return {"nextFlag": next_flag, "setFlag": set_flag}
 
+        # the fast path knows all of it already, there is no engine to ask;
+        # it builds the context once per request, flags included
+        call_context = context.get("callContext")
+
+        if call_context is not None:
+            return call_context
+
         snmp_engine = context["snmpEngine"]  # we injected snmpEngine object earlier
 
         # this API is first introduced in pysnmp 4.2.6
