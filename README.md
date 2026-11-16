@@ -1,6 +1,11 @@
 # SNMP Simulator
 
-[![GitHub license](https://img.shields.io/badge/license-BSD-blue.svg)](https://raw.githubusercontent.com/observium/snmpsim/master/LICENSE.txt)
+[![Release](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fobservium%2Fsnmpsim%2Freleases%2Flatest&query=%24.tag_name&label=release&color=blue)](https://github.com/observium/snmpsim/releases/latest)
+[![Tests](https://github.com/observium/snmpsim/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/observium/snmpsim/actions/workflows/tests.yml)
+[![CI](https://github.com/observium/snmpsim/actions/workflows/build-test.yml/badge.svg?branch=master)](https://github.com/observium/snmpsim/actions/workflows/build-test.yml)
+[![Docs](https://github.com/observium/snmpsim/actions/workflows/docs.yml/badge.svg?branch=master)](https://observium.github.io/snmpsim/)
+[![Python](https://img.shields.io/badge/python-3.10%20%E2%80%93%203.15-blue?logo=python&logoColor=white)](#installation)
+[![License](https://img.shields.io/badge/license-BSD--2--Clause-blue)](LICENSE.txt)
 
 This is a pure-Python, open source and free implementation of SNMP agents simulator
 distributed under the 2-clause [BSD license](LICENSE.txt).
