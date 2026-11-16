@@ -35,6 +35,7 @@ from snmpsim import controller
 from snmpsim import daemon
 from snmpsim import datafile
 from snmpsim import endpoints
+from snmpsim import fastpath
 from snmpsim import log
 from snmpsim import responding
 from snmpsim import utils
@@ -506,6 +507,7 @@ class Recordings:
         force_index_rebuild=False,
         validate_data=False,
         indexed=None,
+        on_change=None,
     ):
         self.data_dirs = list(data_dirs)
         self.snmp_engine = snmp_engine
@@ -516,6 +518,9 @@ class Recordings:
         self._communities = communities
         self._force_index_rebuild = force_index_rebuild
         self._validate_data = validate_data
+
+        # called whenever a community name is added or removed
+        self._on_change = on_change
 
         # what `datafile.index_data_files()` has just built, the error or
         # None by data file; emptied by its owner once the start is over
@@ -671,6 +676,9 @@ class Recordings:
         self._mib_instrums.setdefault(full_path, [mib_instrum, 0])[1] += 1
         self._served[community_name] = full_path, agent_name, context_names, row
 
+        if self._on_change:
+            self._on_change()
+
         log.info(
             "SNMPv3 Context Name: %s"
             "%s"
@@ -693,6 +701,9 @@ class Recordings:
             self.snmp_context.unregister_context_name(context_name)
 
         self.data_index.remove_data_file(row)
+
+        if self._on_change:
+            self._on_change()
 
         usage = self._mib_instrums[full_path]
         usage[1] -= 1
@@ -1429,7 +1440,18 @@ configured automatically based on simulation data file paths relative to
 
     transport_dispatcher = AsyncioDispatcher()
 
-    transport_dispatcher.register_routing_callback(lambda td, t, d: td)
+    # SNMPv1/v2c answered by the simulator itself; there are no communities
+    # to answer them under with --v3-only
+    fast_path = None
+
+    if args.v1_v2c_path == "fast" and not args.v3_only:
+        fast_path = fastpath.FastPath()
+
+        transport_dispatcher.register_routing_callback(fast_path.route)
+        transport_dispatcher.register_recv_callback(fast_path.receive, fastpath.RECV_ID)
+
+    else:
+        transport_dispatcher.register_routing_callback(lambda td, t, d: td)
 
     if not snmp_args or snmp_args[0][0] != "--v3-engine-id":
         snmp_args.insert(0, ("--v3-engine-id", "auto"))
@@ -1515,6 +1537,7 @@ configured automatically based on simulation data file paths relative to
                         force_index_rebuild=args.force_index_rebuild,
                         validate_data=args.validate_data,
                         indexed=indexed,
+                        on_change=fast_path and fast_path.forget_selections,
                     )
 
                     with daemon.PrivilegesOf(args.process_user, args.process_group):
@@ -1686,9 +1709,13 @@ configured automatically based on simulation data file paths relative to
                     )
                     return 1
 
+                # the endpoints of this engine, for the fast path
+                engine_domains = []
+
                 for agent_udpv4_endpoint in agent_udpv4_endpoints:
                     transport_domain = udp.DOMAIN_NAME + (transport_index["udpv4"],)
                     transport_index["udpv4"] += 1
+                    engine_domains.append(transport_domain)
 
                     snmp_engine.register_transport_dispatcher(
                         transport_dispatcher, transport_domain
@@ -1714,6 +1741,7 @@ configured automatically based on simulation data file paths relative to
                 for agent_udpv6_endpoint in agent_udpv6_endpoints:
                     transport_domain = udp6.DOMAIN_NAME + (transport_index["udpv6"],)
                     transport_index["udpv6"] += 1
+                    engine_domains.append(transport_domain)
 
                     snmp_engine.register_transport_dispatcher(
                         transport_dispatcher, transport_domain
@@ -1743,6 +1771,18 @@ configured automatically based on simulation data file paths relative to
                 bulk_command_responder = BulkCommandResponder(snmp_engine, snmp_context)
                 bulk_command_responder.max_varbinds = local_max_var_binds
                 bulk_command_responder.max_message_size = local_max_message_size
+
+                # v1/v2c are served from the context the engine's own command
+                # responders are given, as on the engine path
+                if fast_path:
+                    for transport_domain in engine_domains:
+                        fast_path.add_endpoint(
+                            transport_domain,
+                            snmp_engine,
+                            snmp_context,
+                            local_max_var_binds,
+                            local_max_message_size,
+                        )
 
                 log.msg.dec_ident()
 
