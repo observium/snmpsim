@@ -99,7 +99,7 @@ that option.
       8 more modules found
     Initializing variation modules:
         notification...  OK
-        sql...  FAILED: database type not specified
+        sql...  not configured (database type not specified)
         numeric...  OK
         subprocess...  OK
         delay...  OK

@@ -861,6 +861,12 @@ MySQL and any other compliant to
 and importable as a Python module) and connect string which is database
 dependant.
 
+A responder started without *--variation-module-options* for the *sql*
+module says so in an ordinary log line, not as an error: the module is
+found in every installation, and most of them have no database for it. The
+records that refer to it fail until the options are given. Options that do
+not name a *dbtype* are an error.
+
 Besides DB-specific connect string key-value parameters,
 sql module supports the following comma-separated key:value
 options whilst running in recording mode:
@@ -1006,7 +1012,11 @@ stages.
 For redis variation module to work you must also have the
 `redis-py <https://github.com/andymccurdy/redis-py/tree/master/redis>`_
 Python module installed on your system. Module invocation requires passing
-Redis database connection string. The following parameters are supported:
+Redis database connection string. Without any options for it, the module is
+reported as not configured in an ordinary log line, the way the
+:ref:`sql <variate-sql>` module is, and the records that refer to it fail;
+options with none of the parameters below in them are an error. The
+following parameters are supported:
 
 * *host* - Redis hostname or IP address.
 * *port* - Redis TCP port the server is listening on.

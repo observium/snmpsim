@@ -33,6 +33,17 @@ scripts and recordings work unchanged.
 
 Compared with the release it was forked from:
 
+* Walks taken with `snmpwalk -OQ` convert their strings: a quoted value without a type, as
+  `-OQ` prints them, is read as a STRING, over several lines too, where it used to be taken
+  for TimeTicks and dropped as a broken record
+* A responder started without a database no longer logs `ERROR` for the `sql` and `redis`
+  variation modules: a module given no options at all is reported as not configured in an
+  ordinary line, while options that do not name a database are still an error
+* `--max-var-binds` in a file of `--args-from-file` is read by `snmpsim-command-responder`;
+  it looked for `--max-varbinds` there and ignored the documented name without a word
+* `snmpsim-record-mibs --string-pool-file` reads the file as UTF-8 and reports a missing or
+  empty one with exit status 1 instead of a traceback; the option, `--row-hint` and
+  `--promiscuous-mode` of `snmpsim-record-traffic` are documented
 * Tested on Python 3.15 as well: both CI workflows run the suite on Python 3.10 to 3.15, one
   of them on Linux, macOS and Windows
 * Documentation of its own at <https://observium.github.io/snmpsim/>, built from

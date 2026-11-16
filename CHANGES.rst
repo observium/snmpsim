@@ -1,4 +1,46 @@
-.. current-version: 2026.11.2 (managed by bump2version)
+.. current-version: 2026.11.3 (managed by bump2version)
+
+Revision 2026.11.3, unreleased
+------------------------------
+
+Changes carried by snmpsim-ng.
+
+- Fixed ``--max-var-binds`` being passed over in a file of
+  ``--args-from-file``. ``snmpsim-command-responder`` reads the engine
+  options of such a file itself, and looked for this one as
+  ``--max-varbinds``, a name no command line takes: the documented name in
+  the file was ignored without a word, and the engine answered GETBULK with
+  the limit of the command line, 64 variable bindings per requested one if
+  none was given there. Both names are read
+  now, and set the limit of the engine they are given for, as
+  ``--max-message-size`` does there.
+- Made ``snmpsim-record-mibs --string-pool-file`` report a file it cannot
+  use. A file that was missing ended the tool with a traceback, and one with
+  no words in it with an ``IndexError`` at the first string to make up. Both
+  are an error message and exit status 1 now. So is a file that is not
+  UTF-8: the file is read as UTF-8 whatever the locale, since the words go
+  into the values as UTF-8 anyway. The help of ``--row-hint`` says what the
+  switch does - with ``--manual-values``, it leaves out the lines naming a
+  scalar and its type before the question for its value - instead of "Hint
+  for MIBs Type".
+- Documented ``--string-pool-file`` and ``--row-hint`` of
+  ``snmpsim-record-mibs`` and ``--promiscuous-mode`` of
+  ``snmpsim-record-traffic``, which the reference pages did not mention.
+- Read the strings of a walk taken with ``snmpwalk -OQ``. Without types, a
+  line like ``.1.3.6.1.2.1.1.5.0 = "switch"`` fell to the TimeTicks guess
+  made for untagged values and was a broken record, and a quoted value with
+  a line break inside cost two records. A value in quotes is a STRING now,
+  read over several lines the way a quoted ``STRING:`` is. An untagged
+  number is still taken for TimeTicks, since nothing tells what it is.
+- Stopped the responders logging an error for the ``sql`` and ``redis``
+  variation modules when nobody configured them. Every module found is
+  initialized at start, and these two cannot work without options naming
+  their database, so every start of a responder without a database printed
+  ``ERROR ... load FAILED: database type not specified`` and the same for
+  Redis, burying the errors that matter. A module given no options at all
+  is reported in an ordinary line as not configured, and the records that
+  refer to it fail as before; options that do not name a database are still
+  an error.
 
 Revision 2026.11.2, released on Nov 16, 2026
 --------------------------------------------

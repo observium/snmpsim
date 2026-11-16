@@ -13,6 +13,7 @@ from pyasn1.type import univ
 from pysnmp.smi.error import MibOperationError
 
 from snmpsim import log
+from snmpsim.error import ModuleNotConfigured
 from snmpsim.error import NoDataNotification
 from snmpsim.error import SnmpsimError
 from snmpsim.record import dump
@@ -270,6 +271,13 @@ def initialize_variation_modules(variation_modules, mode):
 
         try:
             body["init"](options=body["args"], mode=mode)
+
+        except ModuleNotConfigured as exc:
+            log.info(
+                'Variation module "%s" from "%s" not configured (%s), records '
+                "using it will fail; see --variation-module-options"
+                % (body["alias"], body["path"], exc)
+            )
 
         except Exception as exc:
             log.error(

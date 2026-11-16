@@ -40,7 +40,9 @@ def init(**context):
         options.update(dict([split(x, ":") for x in split(context["options"], ",")]))
 
     if "dbtype" not in options:
-        raise error.SnmpsimError("database type not specified")
+        raise (error.SnmpsimError if options else error.ModuleNotConfigured)(
+            "database type not specified"
+        )
 
     db = __import__(
         options["dbtype"], globals(), locals(), options["dbtype"].split(".")[:-1]

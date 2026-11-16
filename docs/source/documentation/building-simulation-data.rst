@@ -237,7 +237,11 @@ The range of values for automatic and random selection can be controlled
 on a per-type basis with the *--counter-range*, *--counter64-range*,
 *--gauge-range*, *--timeticks-range*, *--unsigned-range*,
 *--integer32-range* options. Words for strings generations can be passed
-via *--string-pool* option.
+via *--string-pool* option, one word per option, or in a file named by the
+*--string-pool-file* option: a UTF-8 text with the words separated by spaces
+or line breaks. The words of the file are used instead of those of
+*--string-pool*, and a file that cannot be read or holds no words is an
+error. Without either option, the tool picks from words of its own.
 
 .. code-block:: bash
 
@@ -271,6 +275,12 @@ selection, use *--manual-values* command line switch. If you would rather
 have *snmpsim-record-mibs* tool to work out all the values by itself,
 consider raising the *--automatic-values* max probes value (default is
 5000 probes).
+
+With *--manual-values*, each question is preceded by comment lines that name
+the object and its type, and for a table also the row and its indexes. The
+*--row-hint* switch leaves those lines out for scalars, so that only the
+questions about tables say what they are about. *--quiet* leaves them out
+for tables, but not for scalars.
 
 .. _snmpsim-record-traffic:
 
@@ -352,6 +362,14 @@ Capture files are read by the tool itself, nothing has to be installed for
 that. Listening on a network interface (*--listen-interface*) is another
 matter: it needs the *pylibpcap* package, which has to be built against the
 libpcap of the system, and without it the tool says so and stops.
+
+An interface is listened on in non-promiscuous mode: only the traffic sent
+to or from the machine itself is seen. With *--promiscuous-mode* the tool
+asks the interface to pass up everything it receives, which on a shared
+network segment or a mirror port shows the SNMP traffic of other machines as
+well. Switching an interface into promiscuous mode usually takes superuser
+privileges, and on a switched network it shows little more than without.
+The option has no effect on a *--capture-file*.
 
 You could also use
 `tcpdump filter <http://www.cs.ucr.edu/~marios/ethereal-tcpdump.pdf>`_
@@ -489,6 +507,10 @@ more of what *snmpwalk* prints:
 * *Opaque: Float:* and *Opaque: Double:* values are written the way
   net-snmp puts them on the wire: sub-tag *9f78* and the four octets of an
   IEEE 754 single for a float, sub-tag *9f79* and eight octets for a double.
+* A walk taken with *-OQ* has no types in it. A value in quotes is read as a
+  *STRING* all the same, on several lines too, but nothing tells what a bare
+  number is, so it is still taken for *TimeTicks*: leave *-OQ* out unless the
+  walk is all strings.
 * OIDs have to be in numbers. A walk taken without *-On* names them
   (*SNMPv2-MIB::sysName.0*), and such a line is a
   :ref:`broken record <broken-records>`: the names are not resolved.

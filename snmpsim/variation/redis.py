@@ -50,7 +50,9 @@ def init(**context):
             connectParams[k] = int(connectParams[k])
 
     if not connectParams:
-        raise error.SnmpsimError("Redis connect parameters not specified")
+        raise (error.SnmpsimError if options else error.ModuleNotConfigured)(
+            "Redis connect parameters not specified"
+        )
 
     if not redis:
         raise error.SnmpsimError("redis-py Python package must be installed!")
