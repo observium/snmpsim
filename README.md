@@ -43,15 +43,34 @@ published as the [changelog](https://observium.github.io/snmpsim/changelog.html)
 documentation, and in the notes of each release. What answers differently from snmpsim 1.2.2
 is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/migrating.html).
 
-| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [next](CHANGES.rst) | Total | Among them |
-|---|--:|--:|--:|--:|--:|--:|---|
-| Command responders | 11 | 1 | 11 | 1 | 0 | **24** | works on pysnmp 7, `--daemonize` survives the fork, GETBULK fits one datagram and the manager's `msgMaxSize`, `--v1-only` and `--v2c-only`, master and localized USM keys, rescan on SIGHUP, indexes built in parallel, exits when a port cannot be bound |
-| Recording tools | 3 | 2 | 5 | 1 | 0 | **11** | `snmpsim-record-commands` records again, over SNMPv3 too, and fails with a non-zero exit; `snmpsim-record-traffic` starts and reads pcap files; `snmpsim-record-mibs` makes values the MIB permits and shares rows between tables |
-| Data files and conversion | 3 | 5 | 2 | 1 | 0 | **11** | `snmpsim-lint-records`; walk conversion keeps non-ASCII octets, values wrapped onto several lines, Opaque Float and Double, `-OQ` strings, and streams instead of holding the file in memory |
-| Variation modules | 0 | 10 | 2 | 1 | 0 | **13** | `multiplex` snapshots named, closed and served right; `numeric`, `writecache`, `subprocess`, `error` and `notification` fixed; `sql` reconnects |
-| Python, platforms and packaging | 7 | 3 | 1 | 1 | 2 | **14** | Python 3.10 to 3.15 in CI on Linux and Windows, 3.10 and 3.15 on macOS, PyPy 3.11, Windows search paths, the `snmpsim-ng` name and calendar versions, dependencies declared |
-| Documentation | 1 | 1 | 3 | 2 | 1 | **8** | [a site of its own](https://observium.github.io/snmpsim/) describing what snmpsim-ng does, the options of every command |
-| **All** | **25** | **22** | **24** | **7** | **3** | **81** | |
+| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [next](CHANGES.rst) | Total |
+|---|--:|--:|--:|--:|--:|--:|
+| Command responders | 11 | 1 | 11 | 1 | 0 | **24** |
+| Recording tools | 3 | 2 | 5 | 1 | 0 | **11** |
+| Data files and conversion | 3 | 5 | 2 | 1 | 0 | **11** |
+| Variation modules | 0 | 10 | 2 | 1 | 0 | **13** |
+| Python, platforms and packaging | 7 | 3 | 1 | 1 | 2 | **14** |
+| Documentation | 1 | 1 | 3 | 2 | 1 | **8** |
+| **All** | **25** | **22** | **24** | **7** | **3** | **81** |
+
+Among them:
+
+* **Command responders:** works on pysnmp 7, `--daemonize` survives the fork, GETBULK fits one
+  datagram and the manager's `msgMaxSize`, `--v1-only` and `--v2c-only`, master and localized
+  USM keys, rescan on SIGHUP, indexes built in parallel, exits when a port cannot be bound
+* **Recording tools:** `snmpsim-record-commands` records again, over SNMPv3 too, and fails with
+  a non-zero exit; `snmpsim-record-traffic` starts and reads pcap files; `snmpsim-record-mibs`
+  makes values the MIB permits and shares rows between tables
+* **Data files and conversion:** `snmpsim-lint-records`; walk conversion keeps non-ASCII
+  octets, values wrapped onto several lines, Opaque Float and Double, `-OQ` strings, and
+  streams instead of holding the file in memory
+* **Variation modules:** `multiplex` snapshots named, closed and served right; `numeric`,
+  `writecache`, `subprocess`, `error` and `notification` fixed; `sql` reconnects
+* **Python, platforms and packaging:** Python 3.10 to 3.15 in CI on Linux and Windows, 3.10 and
+  3.15 on macOS, PyPy 3.11, Windows search paths, the `snmpsim-ng` name and calendar versions,
+  dependencies declared
+* **Documentation:** [a site of its own](https://observium.github.io/snmpsim/) describing what
+  snmpsim-ng does, the options of every command
 
 | Release | Date | Changes | Details |
 |---|---|--:|---|
