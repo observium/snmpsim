@@ -23,6 +23,17 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14', '3.15']
+        # macOS runners are scarce, and a job that gets none is cancelled
+        # after a long wait: there the oldest and the newest Python will do
+        exclude:
+          - os: macos-latest
+            python-version: '3.11'
+          - os: macos-latest
+            python-version: '3.12'
+          - os: macos-latest
+            python-version: '3.13'
+          - os: macos-latest
+            python-version: '3.14'
     steps:
       - uses: actions/checkout@v4
       - name: Setup python

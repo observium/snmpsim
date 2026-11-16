@@ -60,7 +60,7 @@ author = "Ilya Etingof (creator), Mikhail Stupalov (maintainer)"
 # built documents.
 #
 # The full version, including alpha/beta/rc tags.
-release = "2026.11.3"
+release = "2026.11.4"
 # The short X.Y version.
 version = ".".join(release.split(".")[:2])
 

@@ -1,4 +1,14 @@
-.. current-version: 2026.11.3 (managed by bump2version)
+.. current-version: 2026.11.4 (managed by bump2version)
+
+Revision 2026.11.4, unreleased
+------------------------------
+
+Changes carried by snmpsim-ng.
+
+- Ran the CI workflow on macOS with Python 3.10 and 3.15 only, Linux and
+  Windows keep all six versions. GitHub's macOS runners are scarce: jobs
+  waited for one and were cancelled without having run, which failed the
+  workflow on code that was fine.
 
 Revision 2026.11.3, released on Nov 16, 2026
 --------------------------------------------

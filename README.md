@@ -36,22 +36,22 @@ scripts and recordings work unchanged.
 
 ## What snmpsim-ng adds
 
-Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 78 changes.
+Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 79 changes.
 Most of them are fixes: for what stopped working when pysnmp 7 renamed and reworked its API,
 and for what never worked. Every change is described in [CHANGES.rst](CHANGES.rst), also
 published as the [changelog](https://observium.github.io/snmpsim/changelog.html) of the
 documentation, and in the notes of each release. What answers differently from snmpsim 1.2.2
 is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/migrating.html).
 
-| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | Total | Among them |
-|---|--:|--:|--:|--:|--:|---|
-| Command responders | 11 | 1 | 11 | 1 | **24** | works on pysnmp 7, `--daemonize` survives the fork, GETBULK fits one datagram and the manager's `msgMaxSize`, `--v1-only` and `--v2c-only`, master and localized USM keys, rescan on SIGHUP, indexes built in parallel, exits when a port cannot be bound |
-| Recording tools | 3 | 2 | 5 | 1 | **11** | `snmpsim-record-commands` records again, over SNMPv3 too, and fails with a non-zero exit; `snmpsim-record-traffic` starts and reads pcap files; `snmpsim-record-mibs` makes values the MIB permits and shares rows between tables |
-| Data files and conversion | 3 | 5 | 2 | 1 | **11** | `snmpsim-lint-records`; walk conversion keeps non-ASCII octets, values wrapped onto several lines, Opaque Float and Double, `-OQ` strings, and streams instead of holding the file in memory |
-| Variation modules | 0 | 10 | 2 | 1 | **13** | `multiplex` snapshots named, closed and served right; `numeric`, `writecache`, `subprocess`, `error` and `notification` fixed; `sql` reconnects |
-| Python, platforms and packaging | 7 | 3 | 1 | 1 | **12** | Python 3.10 to 3.15 on Linux, macOS and Windows in CI, Windows search paths, the `snmpsim-ng` name and calendar versions, dependencies declared |
-| Documentation | 1 | 1 | 3 | 2 | **7** | [a site of its own](https://observium.github.io/snmpsim/) describing what snmpsim-ng does, the options of every command |
-| **All** | **25** | **22** | **24** | **7** | **78** | |
+| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [next](CHANGES.rst) | Total | Among them |
+|---|--:|--:|--:|--:|--:|--:|---|
+| Command responders | 11 | 1 | 11 | 1 | 0 | **24** | works on pysnmp 7, `--daemonize` survives the fork, GETBULK fits one datagram and the manager's `msgMaxSize`, `--v1-only` and `--v2c-only`, master and localized USM keys, rescan on SIGHUP, indexes built in parallel, exits when a port cannot be bound |
+| Recording tools | 3 | 2 | 5 | 1 | 0 | **11** | `snmpsim-record-commands` records again, over SNMPv3 too, and fails with a non-zero exit; `snmpsim-record-traffic` starts and reads pcap files; `snmpsim-record-mibs` makes values the MIB permits and shares rows between tables |
+| Data files and conversion | 3 | 5 | 2 | 1 | 0 | **11** | `snmpsim-lint-records`; walk conversion keeps non-ASCII octets, values wrapped onto several lines, Opaque Float and Double, `-OQ` strings, and streams instead of holding the file in memory |
+| Variation modules | 0 | 10 | 2 | 1 | 0 | **13** | `multiplex` snapshots named, closed and served right; `numeric`, `writecache`, `subprocess`, `error` and `notification` fixed; `sql` reconnects |
+| Python, platforms and packaging | 7 | 3 | 1 | 1 | 1 | **13** | Python 3.10 to 3.15 in CI on Linux and Windows, 3.10 and 3.15 on macOS, Windows search paths, the `snmpsim-ng` name and calendar versions, dependencies declared |
+| Documentation | 1 | 1 | 3 | 2 | 0 | **7** | [a site of its own](https://observium.github.io/snmpsim/) describing what snmpsim-ng does, the options of every command |
+| **All** | **25** | **22** | **24** | **7** | **1** | **79** | |
 
 | Release | Date | Changes | Details |
 |---|---|--:|---|
@@ -59,6 +59,9 @@ is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/mig
 | 2026.11.2 | Nov 16, 2026 | 24 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.2), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-2-released-on-nov-16-2026) |
 | 2026.11.1 | Nov 15, 2026 | 22 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.1), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-1-released-on-nov-15-2026) |
 | 2026.11.0 | Nov 15, 2026 | 25 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.0), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-0-released-on-nov-15-2026) |
+
+"next" counts what is on `master` and not released yet: the topmost section of
+[CHANGES.rst](CHANGES.rst).
 
 ## The original author
 
@@ -213,8 +216,8 @@ SNMPSIM_TEST_TIMEOUT=3 pytest tests
 ```
 
 Two workflows run on every push to `master` and on pull requests, unless the change touches
-documentation only. `build-test.yml` builds the package and runs the suite on Linux, macOS
-and Windows on Python 3.10 to 3.15. `tests.yml` runs the same suite on Linux
+documentation only. `build-test.yml` builds the package and runs the suite on Linux and
+Windows on Python 3.10 to 3.15, and on macOS on 3.10 and 3.15. `tests.yml` runs the same suite on Linux
 only, but plainly - no coverage and, more to the point, no retries, which is how it catches
 failures the retrying workflow lets through.
 
