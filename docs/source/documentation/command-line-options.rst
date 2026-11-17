@@ -544,8 +544,9 @@ the engine.
 Both answer alike: the same values, error-status and error-index, the same
 SNMPv1 translation, the same *GETBULK* cut, and the same call context for
 variation modules and activity reports. *fast* skips the message processing,
-security and access control models of the engine and serves a bulk walk
-about 1.2 times as fast, a GETNEXT walk about 1.3 times. It also chooses the
+security and access control models of the engine, encodes and decodes
+SNMPv2c reads itself rather than in pyasn1, and serves a bulk walk about
+2.2 times as fast, a GETNEXT walk about 4.4 times (CPython 3.14). It also chooses the
 recording as :ref:`addressing-simulation-data` describes, by community,
 transport and source address; *engine* serves only a recording named exactly
 like the community. *engine* is there for one release, in case something
