@@ -1,4 +1,17 @@
-.. current-version: 2026.11.5 (managed by bump2version)
+.. current-version: 2026.11.6 (managed by bump2version)
+
+Revision 2026.11.6, unreleased
+------------------------------
+
+Changes carried by snmpsim-ng.
+
+- Looked records up in their index without building pyasn1 objects for
+  it. The index is keyed by the OID as the data file has it; every
+  variable asked for had its OID made into an OCTET STRING to be turned
+  into that text, and on GETNEXT and GETBULK the record after the matched
+  one was parsed into an OBJECT IDENTIFIER only to be turned back into
+  text for the lookup. A bulk walk is served about 1.2 times as fast on
+  CPython, 1.1 times on PyPy, with the same answers.
 
 Revision 2026.11.5, released on Nov 17, 2026
 --------------------------------------------
