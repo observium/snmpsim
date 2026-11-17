@@ -146,6 +146,16 @@ The responders
   ``--reporting-method`` takes a directory with a drive letter, and the
   lite responder takes ``--args-from-file``. See
   :doc:`/documentation/command-line-options`.
+* ``snmpsim-command-responder-lite`` is ``snmpsim-command-responder``
+  under its old name, with the options it always took. It answers as the
+  full responder does, request counters in its reports included, and
+  ``--daemonize`` waits for the daemon as described below; it still answers
+  SNMPv1 and SNMPv2c only and ends on SIGHUP. Where it answered on its own
+  terms, it answers as the full responder does: a Counter64 to an SNMPv1
+  manager is noSuchName on GET and read past on GETNEXT rather than genErr,
+  an error a variation module raises is an error response rather than no
+  response, and a datagram holding several messages is dropped. See
+  :doc:`/documentation/command-line-options`.
 * ``snmpsim-command-responder --daemonize`` returns when the daemon serves,
   not right after the fork, and exits with status 1 if the daemon did not
   come up; it used to exit with 0 whatever happened next. A script that

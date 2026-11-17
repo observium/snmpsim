@@ -6,6 +6,7 @@
 #
 # SNMP transport endpoints initialization harness
 #
+import ipaddress
 import socket
 
 from pysnmp.carrier.asyncio.dgram import udp
@@ -96,15 +97,38 @@ class IPv6TransportEndpoints(TransportEndpointsBase):
         return udp6.Udp6Transport().open_server_mode((h, p)), addr, (h, p)
 
 
+def _is_ipv6_address(text):
+    try:
+        ipaddress.IPv6Address(text.split("%", 1)[0])
+
+    except ValueError:
+        return False
+
+    return True
+
+
 def parse_endpoint(arg, ipv6=False):
+    """Return the address and port of an endpoint given as `host[:port]`.
+
+    An IPv6 one is `[address]:port`, `[address]` or a bare address, port 161
+    for both of the last two, as `IPv6TransportEndpoints` binds them; a host
+    name may still be followed by its port.
+    """
     address = arg
 
-    # IPv6 notation
-    if ipv6 and address.startswith("["):
-        address = address.replace("[", "").replace("]", "")
-
     try:
-        if ":" in address:
+        if ipv6 and address.startswith("["):
+            address, bracket, rest = address[1:].partition("]")
+
+            if not bracket or rest and not rest.startswith(":"):
+                raise ValueError("expected [address] or [address]:port")
+
+            port = int(rest[1:]) if rest else 161
+
+        elif ipv6 and _is_ipv6_address(address):
+            port = 161
+
+        elif ":" in address:
             address, port = address.rsplit(":", 1)
             port = int(port)
 

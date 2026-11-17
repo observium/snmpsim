@@ -11,15 +11,15 @@ SNMP managers differently.
 
 .. _lite-mode-variation:
 
-Lite mode
----------
+SNMPv1 and SNMPv2c
+------------------
 
-When running lite command responder, SNMP Simulator is not using SNMPv3
-framework. That implies that SNMPv3 infrastructure can't be used for agent
-addressing. In this mode, only SNMP v1 and v2c versions can be handled. The
-main reason for this lite/legacy mode support is higher performance.
+SNMPv1 and SNMPv2c requests are answered without the SNMPv3 framework
+(with the default ``--v1-v2c-path=fast``, and always by
+*snmpsim-command-responder-lite*). That implies that SNMPv3 infrastructure
+can't be used for agent addressing.
 
-In lite mode, SNMP Simulator attempts to find a *.snmprec* file to
+For such a request, SNMP Simulator attempts to find a *.snmprec* file to
 fulfill the request by probing files by paths constructed from pieces of
 SNMPv1/v2c request data. Path construction occurs by these rules and
 in this order:
@@ -46,7 +46,7 @@ by the Simulator on startup for each endpoint it is listening on.
 
 .. code-block:: bash
 
-    $ snmpsim-command-responder-lite \
+    $ snmpsim-command-responder \
         --agent-udpv4-endpoint=127.0.0.1:1024 \
         --agent-udpv6-endpoint='[::1]:1161'
     ...

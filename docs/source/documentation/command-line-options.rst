@@ -128,16 +128,24 @@ Recognized log levels are:
 SNMP command responders
 -----------------------
 
-SNMP Simulator can be run as *snmpsim-command-responder* (full version) or
-*snmpsim-command-responder-lite* (lightweight version). Both programs
-take the following common command-line options.
+SNMP Simulator runs as *snmpsim-command-responder*. It answers every SNMP
+version, SNMPv1 and SNMPv2c without pysnmp's SNMPv3 engine (see
+*--v1-v2c-path*).
+
+*snmpsim-command-responder-lite* is the name of what used to be a
+lightweight command responder of its own, for SNMPv1 and SNMPv2c. Since
+2026.11.5 it is *snmpsim-command-responder* under that name, kept for the
+systems that run it: it takes the options the lightweight version took and
+no others, as it took them, and answers as *snmpsim-command-responder*
+answers - with request counters in its activity reports, with *--daemonize*
+waiting for the daemon to serve. What the lightweight version was it stays:
+it answers SNMPv1 and SNMPv2c only, a SNMPv3 request goes unanswered, and
+SIGHUP ends it rather than rescanning the data directories. *--v2c-arch*
+and *--v3-only*, which it took and did nothing with, are taken and do
+nothing.
 
 Common command responders options
 ---------------------------------
-
-The lightweight SNMP command responder implementation is limited to SNMP v1
-and v2c protocol versions. Full SNMP command responder implementation supports
-all SNMP versions.
 
 The following options are respected by both SNMP command responder
 applications.
@@ -170,9 +178,9 @@ The daemon changes its working directory to `/`. In
 directory of *--reporting-method* are resolved before that, against the
 directory the responder was started in.
 
-*snmpsim-command-responder-lite* does not wait: its process exits with
-status 0 right after the fork, whatever becomes of the daemon. Nor does it
-resolve relative paths, so give it absolute ones.
+*snmpsim-command-responder-lite* does the same since 2026.11.5; before,
+its process exited with status 0 right after the fork, whatever became of
+the daemon, and it did not resolve relative paths.
 
 Not available on Windows.
 
@@ -500,8 +508,8 @@ Full version command responder options
 Full version of SNMP command responder is based on SNMPv3 architecture,
 it is capable of handling all SNMP versions i.e. 1, 2c qnd 3.
 
-Full version of SNMP command responder understand all options of the lite
-version, plus the following SNMPv3-specific options.
+*snmpsim-command-responder* understands all options of
+*snmpsim-command-responder-lite*, plus the following ones.
 
 **--v3-only**
 +++++++++++++
