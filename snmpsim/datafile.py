@@ -558,8 +558,14 @@ class DataFile(AbstractLayout):
 
         separator = b","
 
+        # the index is keyed by the OID as the data file has it, which is
+        # what grammar.parse() reads off a line: no OID object is needed to
+        # look one up
+        parse = self._text_parser.grammar.parse
+
         for oid, val in var_binds:
-            text_oid = str(univ.OctetString(".".join(["%s" % x for x in oid])))
+            arcs = oid.asTuple() if isinstance(oid, univ.ObjectIdentifier) else oid
+            text_oid = ".".join(map(str, arcs))
 
             try:
                 line = self._record_index.lookup(text_oid)
@@ -588,13 +594,11 @@ class DataFile(AbstractLayout):
                         _next_line, _, _ = get_record(text)  # next line
 
                         if _next_line:
-                            _next_oid, _ = self._text_parser.evaluate(
-                                _next_line, oidOnly=True
-                            )
+                            _next_oid = parse(_next_line)[0]
 
                             try:
                                 _, subtree_flag, _ = self._record_index.lookup(
-                                    str(_next_oid)
+                                    _next_oid
                                 ).split(separator, 2)
 
                             except KeyError:
