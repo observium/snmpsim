@@ -5,12 +5,28 @@ Revision 2026.11.5, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Answered SNMPv1 GET and GETNEXT on the fast path without pyasn1 as well,
+  as SNMPv2c reads are: ``ber.decode_read_request()`` takes their plain
+  shape, and the response is translated as pysnmp's ``rfc2576.v2_to_v1()``
+  translates it (RFC 3584) - noSuchName for the first variable without a
+  value, a Counter64 refused to a GET and read past on a GETNEXT, the
+  SNMPv2 error-status mapped, the request's var-binds sent back with an
+  error. Tests hold it to the engine path on GETs and GETNEXTs of several
+  variables with Counter64s and missing ones in every order, on the error
+  module, on odd communities and on hand-made messages. An SNMPv1 GETNEXT
+  walk is served about four times as fast on CPython, as fast as SNMPv2c.
+- Answered an SNMPv1 request whose request-id does not fit an Integer32 on
+  the fast path, as the engine path answers it, rather than dropping it.
+  pysnmp's message processing puts a request-id of its own in place of an
+  SNMPv1 one, which may be any INTEGER, before the PDU is turned into an
+  SNMPv2 one, and the original back into the response; the fast path,
+  new in 2026.11.4, turned the PDU with the request-id it came with.
 - Decoded the SNMPv2c GET, GETNEXT and GETBULK requests of the fast path
   without pyasn1, which had become most of what a request cost once the
   responses were encoded without it. ``ber.decode_read_request()`` takes
   the plain shape of such a request only - one-octet tags, definite
   lengths in their shortest form, NULL values, nothing left over - and
-  leaves everything else, SNMPv1 and SET among it, to pyasn1 as before. It
+  leaves everything else, SET among it, to pyasn1 as before. It
   keeps the limits pyasn1 added for crafted input since 0.6.2, the 20
   continuation octets of an OID arc among them, and works in linear time.
   Tests hold it to pyasn1 on the vectors of pyasn1's own decoder tests,

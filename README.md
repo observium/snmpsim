@@ -36,7 +36,7 @@ scripts and recordings work unchanged.
 
 ## What snmpsim-ng adds
 
-Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 87 changes.
+Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 89 changes.
 Most of them are fixes: for what stopped working when pysnmp 7 renamed and reworked its API,
 and for what never worked. Every change is described in [CHANGES.rst](CHANGES.rst), also
 published as the [changelog](https://observium.github.io/snmpsim/changelog.html) of the
@@ -45,13 +45,13 @@ is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/mig
 
 | Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [2026.11.4](https://github.com/observium/snmpsim/releases/tag/2026.11.4) | [next](CHANGES.rst) | Total |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| Command responders | 11 | 1 | 11 | 1 | 2 | 2 | **28** |
+| Command responders | 11 | 1 | 11 | 1 | 2 | 4 | **30** |
 | Recording tools | 3 | 2 | 5 | 1 | 0 | 0 | **11** |
 | Data files and conversion | 3 | 5 | 2 | 1 | 0 | 0 | **11** |
 | Variation modules | 0 | 10 | 2 | 1 | 0 | 0 | **13** |
 | Python, platforms and packaging | 7 | 3 | 1 | 1 | 3 | 1 | **16** |
 | Documentation | 1 | 1 | 3 | 2 | 1 | 0 | **8** |
-| **All** | **25** | **22** | **24** | **7** | **6** | **3** | **87** |
+| **All** | **25** | **22** | **24** | **7** | **6** | **5** | **89** |
 
 Among them:
 
@@ -315,7 +315,7 @@ engine, as releases before 2026.11.4 did.
   the message processing in pysnmp and the simulator's own lookup share it; PyPy runs all of
   it two to three times as fast.
 * The full responder answers SNMPv1/v2c without pysnmp's message processing, and encodes and
-  decodes SNMPv2c reads itself rather than in pyasn1 (`snmpsim.ber`), with the same answers:
+  decodes SNMPv1/v2c reads itself rather than in pyasn1 (`snmpsim.ber`), with the same answers:
   about 2.2 times as fast as through the engine on a bulk walk, 4.4 times on a GETNEXT walk,
   and faster than the lite responder, which answers SNMPv1 and SNMPv2c only and writes
   `fulljson` reports without request counters. On PyPy the full responder is 1.4 to 1.9
