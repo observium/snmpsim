@@ -212,3 +212,35 @@ def test_a_failed_build_leaves_no_index_files(backend, cache, recording, monkeyp
         _build(recording, backend, monkeypatch)
 
     assert os.listdir(cache) == []
+
+
+@pytest.mark.parametrize("backend", BACKENDS, ids=lambda backend: backend.__name__)
+def test_an_index_is_built_over_what_a_killed_berkeley_db_left(
+    backend, cache, recording, monkeypatch
+):
+    """Berkeley DB writes a new database as `__db.<name>`, then renames it.
+
+    It is what ndbm is on many Linux builds, PyPy's included. A process
+    killed in between - a worker of a pool that broke - leaves that file,
+    and Berkeley DB fails to create `<name>` for as long as it is there:
+    the index of that recording was never built again.
+    """
+    _write(recording, NEW_RECORDING, age=300)
+
+    part_file = RecordIndex(str(recording), SnmprecRecord()).db_file
+    part_file += database.PART_SUFFIX
+
+    left = os.path.join(cache, "__db." + os.path.basename(part_file) + ".db")
+
+    with open(left, "wb") as fl:
+        fl.write(bytes(12288))
+
+    index = _build(recording, backend, monkeypatch)
+
+    try:
+        assert _line_of(index, NEW_OID) == NEW_RECORDING
+
+    finally:
+        index.close()
+
+    assert not [name for name in os.listdir(cache) if name.startswith("__db.")]

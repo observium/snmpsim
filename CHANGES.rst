@@ -19,6 +19,16 @@ Changes carried by snmpsim-ng.
   left by building one was collected waited for its own lock: the
   responder answered no request from then on. The lock is made reentrant;
   CPython's gdbm has none and is left as it is.
+- Built an index again after a process was killed while Berkeley DB was
+  creating it. Berkeley DB, which ndbm is on many Linux builds, PyPy's
+  among them, writes a new database as ``__db.<name>`` and renames it when
+  it is there. What a process killed in between left made every later
+  attempt to create ``<name>`` wait for it for some 100 seconds - the
+  responder answering nothing meanwhile - and then fail: that recording
+  was not served until the file was deleted by hand. A worker of the
+  index pool killed with the rest when one of them died was such a
+  process. The file is now removed with the other files an index is made
+  of.
 
 Revision 2026.11.5, released on Nov 17, 2026
 --------------------------------------------

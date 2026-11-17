@@ -36,7 +36,7 @@ scripts and recordings work unchanged.
 
 ## What snmpsim-ng adds
 
-Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 94 changes.
+Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 95 changes.
 Most of them are fixes: for what stopped working when pysnmp 7 renamed and reworked its API,
 and for what never worked. Every change is described in [CHANGES.rst](CHANGES.rst), also
 published as the [changelog](https://observium.github.io/snmpsim/changelog.html) of the
@@ -47,11 +47,11 @@ is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/mig
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
 | Command responders | 11 | 1 | 11 | 1 | 2 | 7 | 1 | **34** |
 | Recording tools | 3 | 2 | 5 | 1 | 0 | 0 | 0 | **11** |
-| Data files and conversion | 3 | 5 | 2 | 1 | 0 | 0 | 0 | **11** |
+| Data files and conversion | 3 | 5 | 2 | 1 | 0 | 0 | 1 | **12** |
 | Variation modules | 0 | 10 | 2 | 1 | 0 | 0 | 0 | **13** |
 | Python, platforms and packaging | 7 | 3 | 1 | 1 | 3 | 1 | 1 | **17** |
 | Documentation | 1 | 1 | 3 | 2 | 1 | 0 | 0 | **8** |
-| **All** | **25** | **22** | **24** | **7** | **6** | **8** | **2** | **94** |
+| **All** | **25** | **22** | **24** | **7** | **6** | **8** | **3** | **95** |
 
 Among them:
 

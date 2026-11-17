@@ -89,6 +89,14 @@ DBM_FILES = {
 # implementation adds its own to the name.
 PART_SUFFIX = ".part"
 
+# Berkeley DB - ndbm on many Linux builds, PyPy's too - writes a new database
+# under this prefix to its name and renames it when it is there. A process
+# killed in between leaves that file, and Berkeley DB will not create the
+# database for as long as it stays: every attempt waits for it a hundred
+# times over, some 100 sec, and fails.
+BERKELEY_DB_TEMP_PREFIX = "__db."
+BERKELEY_DB_SUFFIX = ".db"
+
 
 class RecordIndex:
     # an open data file is looked at for changes no more often than this,
@@ -183,7 +191,19 @@ class RecordIndex:
         return self._db_file + PART_SUFFIX
 
     def _remove_db_files(self, db_file=None):
-        for db_file in self._files_of(db_file or self._db_file):
+        db_files = self._files_of(db_file or self._db_file)
+
+        # what a Berkeley DB killed while creating one of them left goes too
+        db_files += tuple(
+            os.path.join(
+                os.path.dirname(name),
+                BERKELEY_DB_TEMP_PREFIX + os.path.basename(name),
+            )
+            for name in db_files
+            if name.endswith(BERKELEY_DB_SUFFIX)
+        )
+
+        for db_file in db_files:
             try:
                 os.remove(db_file)
 
