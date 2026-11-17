@@ -30,6 +30,7 @@ import os
 
 from pyasn1.codec.ber import decoder
 from pyasn1.codec.ber import encoder
+from pyasn1.type import univ
 from pysnmp import error as pysnmp_error
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.carrier.asyncio.dgram import udp6
@@ -113,12 +114,55 @@ class Request:
     )
 
 
+# what a read PDU of the plain shape is, by its name
+PLAIN_KINDS = {
+    "GetRequestPDU": GET,
+    "GetNextRequestPDU": NEXT,
+    "GetBulkRequestPDU": BULK,
+}
+
+
 def decode_request(whole_msg, version):
     """Decode an SNMPv1/v2c request, or return None for anything else.
 
-    The var-binds come as the engine path sees them: an SNMPv1 PDU is
-    turned into its SNMPv2 counterpart first, as pysnmp does.
+    An SNMPv2c read of the plain shape is read off its octets
+    (`ber.decode_read_request()`); anything else, SNMPv1 and SET among it,
+    is decoded by pyasn1 as before. The var-binds come as the engine path
+    sees them, pysnmp's OIDs and NULLs: an SNMPv1 PDU is turned into its
+    SNMPv2 counterpart first, as pysnmp does.
     """
+    if version == api.SNMP_VERSION_2C:
+        try:
+            (
+                community,
+                pdu_type,
+                request_id,
+                first,
+                second,
+                oids,
+            ) = ber.decode_read_request(whole_msg)
+
+        except ber.NotPlain:
+            pass
+
+        else:
+            request = Request()
+            request.version = version
+            request.community = community
+            request.pdu_type = pdu_type
+            request.kind = PLAIN_KINDS[pdu_type]
+            request.request_id = request_id
+            request.var_binds = [
+                (rfc1902.ObjectName(oid), univ.Null("")) for oid in oids
+            ]
+            request._message = request._v2_pdu = request._v1_pdu = None
+
+            if request.kind == BULK:
+                request.non_repeaters = first
+                request.max_repetitions = second
+
+            return request
+
     proto = api.PROTOCOL_MODULES[version]
 
     message, rest = decoder.decode(whole_msg, asn1Spec=proto.Message())

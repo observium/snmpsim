@@ -5,6 +5,19 @@ Revision 2026.11.5, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Decoded the SNMPv2c GET, GETNEXT and GETBULK requests of the fast path
+  without pyasn1, which had become most of what a request cost once the
+  responses were encoded without it. ``ber.decode_read_request()`` takes
+  the plain shape of such a request only - one-octet tags, definite
+  lengths in their shortest form, NULL values, nothing left over - and
+  leaves everything else, SNMPv1 and SET among it, to pyasn1 as before. It
+  keeps the limits pyasn1 added for crafted input since 0.6.2, the 20
+  continuation octets of an OID arc among them, and works in linear time.
+  Tests hold it to pyasn1 on the vectors of pyasn1's own decoder tests,
+  on the inputs its security fixes are about, on fields out of range, and
+  on random requests and thousands of mutations of them: whatever is
+  decoded here, pyasn1 decodes alike, and what pyasn1 refuses is left to
+  it. A GETNEXT walk is served about twice as fast again on CPython.
 - Encoded the SNMPv2c responses of the fast path, and the var-bind sizes
   every responder cuts GETBULK by, without building them in pyasn1:
   ``snmpsim.ber`` puts the octets together straight from the values, the
