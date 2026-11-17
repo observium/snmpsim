@@ -1,8 +1,5 @@
-import asyncio
 import os
 import sys
-import threading
-import time
 
 import pytest
 from pyasn1.codec.ber import encoder
@@ -25,7 +22,6 @@ def setup_args():
         "responder.py",
         f"--data-dir={data_dir}",
         f"--agent-udpv4-endpoint=127.0.0.1:{PORT_NUMBER}",
-        f"--timeout={TIME_OUT}",
     ]
     sys.argv = test_args
     yield
@@ -33,24 +29,9 @@ def setup_args():
 
 
 @pytest.fixture
-def run_app_in_background():
-    def target():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            responder_main()
-        except KeyboardInterrupt:
-            print("Application interrupted.")
-        finally:
-            print("Application stopped.")
-            loop.close()
-
-    app_thread = threading.Thread(target=target)
-    app_thread.start()
-    # Allow some time for the application to initialize and run
-    time.sleep(1)
-    yield
-    app_thread.join(timeout=TIME_OUT)
+def run_app_in_background(responder_in_thread):
+    with responder_in_thread(responder_main):
+        yield
 
 
 def _auth_data():
@@ -161,5 +142,3 @@ async def test_short_oid_records_are_served(run_app_in_background):
     finally:
         if snmpEngine.transport_dispatcher:
             snmpEngine.transport_dispatcher.close_dispatcher()
-
-        await asyncio.sleep(TIME_OUT)

@@ -1,10 +1,8 @@
-import asyncio
 import glob
 import hashlib
 import json
 import os
 import sys
-import threading
 import time
 
 import pytest
@@ -38,22 +36,9 @@ def setup_args(reports_dir):
 
 
 @pytest.fixture
-def run_app_in_background():
-    def target():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            responder_main()
-        except KeyboardInterrupt:
-            print("Application interrupted.")
-        finally:
-            loop.close()
-
-    app_thread = threading.Thread(target=target, daemon=True)
-    app_thread.start()
-    time.sleep(1)
-    yield
-    app_thread.join(timeout=TIME_OUT)
+def run_app_in_background(responder_in_thread):
+    with responder_in_thread(responder_main):
+        yield
 
 
 async def _get(oid="1.3.6.1.2.1.1.1.0"):

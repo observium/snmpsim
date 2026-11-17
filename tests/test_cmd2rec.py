@@ -1,12 +1,9 @@
-import asyncio
 import logging
 import os
 import socket
 import subprocess
 import sys
 import textwrap
-import threading
-import time
 import warnings
 
 import pytest
@@ -23,32 +20,20 @@ DATA_DIR = os.path.join(BASE_DIR, "data", "agent")
 
 
 @pytest.fixture
-def run_app_in_background():
+def run_app_in_background(responder_in_thread):
     original_argv = sys.argv
+    sys.argv = [
+        "responder.py",
+        f"--data-dir={DATA_DIR}",
+        f"--agent-udpv4-endpoint=127.0.0.1:{PORT_NUMBER}",
+    ]
 
-    def target():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        sys.argv = [
-            "responder.py",
-            f"--data-dir={DATA_DIR}",
-            f"--agent-udpv4-endpoint=127.0.0.1:{PORT_NUMBER}",
-        ]
-        try:
-            responder_main()
-        except KeyboardInterrupt:
-            print("Application interrupted.")
-        finally:
-            print("Application stopped.")
-            loop.close()
+    try:
+        with responder_in_thread(responder_main):
+            yield
 
-    app_thread = threading.Thread(target=target, daemon=True)
-    app_thread.start()
-    # Allow some time for the application to initialize and run
-    time.sleep(1)
-    yield
-    sys.argv = original_argv
-    app_thread.join(timeout=TIME_OUT)
+    finally:
+        sys.argv = original_argv
 
 
 @pytest.mark.parametrize("mode", ["getnext", "getbulk"])

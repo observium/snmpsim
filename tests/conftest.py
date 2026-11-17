@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 import pytest
@@ -90,6 +91,113 @@ def stop_process(process):
 def process_stopper():
     """Hand out `stop_process`, see there."""
     return stop_process
+
+
+@contextlib.contextmanager
+def responder_thread(main):
+    """Run `main`, a responder's, in a thread for as long as the block lasts.
+
+    The responder takes its options from `sys.argv`. The block is entered
+    once its indexes are built and its endpoints bound - the moment its
+    dispatcher starts serving - not after a guessed delay; when the block is
+    left, the dispatcher is closed and the thread waited for, so that the
+    port is free again for whoever comes next. A --timeout is not needed and
+    had better be left out: it is the responder's whole lifetime, and a slow
+    machine could see it end in the middle of a test.
+
+    A responder which is still starting when the block is left - it took
+    too long - does not get to serve: its dispatcher closes itself instead.
+    """
+    from snmpsim.commands import responder
+
+    serving = threading.Event()
+    stopping = threading.Event()
+    dispatchers = []
+    failures = []
+
+    class Dispatcher(responder.AsyncioDispatcher):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            dispatchers.append(self)
+
+        def run_dispatcher(self, timeout=0.0):
+            if stopping.is_set():
+                self.close_dispatcher()
+                return
+
+            # set from within the loop: it runs, the endpoints are bound
+            self.loop.call_soon(serving.set)
+            super().run_dispatcher(timeout)
+
+    def target():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            status = main()
+
+            if status:
+                failures.append(f"the responder exited with {status}")
+
+        except BaseException as exc:
+            failures.append(f"the responder raised {exc!r}")
+
+        finally:
+            # closed transports let their sockets go in a callback of the
+            # loop, which has stopped by now: give it a turn to run that
+            loop.run_until_complete(asyncio.sleep(0.05))
+            loop.close()
+
+    def stop():
+        stopping.set()
+
+        for dispatcher in dispatchers:
+            try:
+                dispatcher.loop.call_soon_threadsafe(dispatcher.close_dispatcher)
+
+            except RuntimeError:  # its loop is closed, the responder ended
+                pass
+
+        thread.join(STARTUP_DEADLINE)
+
+    thread = threading.Thread(target=target, daemon=True)
+
+    original, responder.AsyncioDispatcher = responder.AsyncioDispatcher, Dispatcher
+
+    try:
+        thread.start()
+
+        deadline = time.monotonic() + STARTUP_DEADLINE
+
+        while not serving.wait(0.1):
+            if not thread.is_alive():
+                pytest.fail(
+                    "the responder ended before serving: "
+                    + ("; ".join(failures) or "no reason given")
+                    + " - its log is in the captured output"
+                )
+
+            if time.monotonic() > deadline:
+                pytest.fail(f"the responder did not serve in {STARTUP_DEADLINE} sec")
+
+        yield
+
+    finally:
+        stop()
+        responder.AsyncioDispatcher = original
+
+    # reached only when the block went well: a failure of its own comes first
+    if thread.is_alive():
+        pytest.fail("the responder did not stop")
+
+    if failures:
+        pytest.fail("; ".join(failures) + " - its log is in the captured output")
+
+
+@pytest.fixture(scope="session")
+def responder_in_thread():
+    """Hand out `responder_thread`, see there."""
+    return responder_thread
 
 
 @contextlib.contextmanager

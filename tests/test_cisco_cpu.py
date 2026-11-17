@@ -1,14 +1,10 @@
 import os
 import sys
-import threading
-import time
 from snmpsim.commands.responder import main as responder_main
 import pytest
 from pysnmp.hlapi.asyncio import *
 
-import asyncio
 
-TIME_OUT = int(os.getenv("SNMPSIM_TEST_TIMEOUT", "15"))
 PORT_NUMBER = 1615  # Using a unique port to avoid conflicts with other tests
 
 
@@ -24,7 +20,6 @@ def setup_args():
         f"--data-dir={data_dir}",
         f"--agent-udpv4-endpoint=127.0.0.1:{PORT_NUMBER}",
         # f"--debug=app",
-        f"--timeout={TIME_OUT}",
     ]
     # Set sys.argv to your test arguments
     sys.argv = test_args
@@ -36,25 +31,9 @@ def setup_args():
 
 # Fixture to run the application in a separate thread
 @pytest.fixture
-def run_app_in_background():
-    def target():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            responder_main()
-        except KeyboardInterrupt:
-            print("Application interrupted.")
-        finally:
-            print("Application stopped.")
-            loop.close()
-
-    app_thread = threading.Thread(target=target)
-    app_thread.start()
-    # Allow some time for the application to initialize and run
-    time.sleep(1)
-    yield
-    # Simulate KeyboardInterrupt after the test is done
-    app_thread.join(timeout=TIME_OUT)
+def run_app_in_background(responder_in_thread):
+    with responder_in_thread(responder_main):
+        yield
 
 
 @pytest.mark.asyncio
@@ -100,5 +79,3 @@ async def test_cisco_cpu_data(run_app_in_background, capsys):
     finally:
         if snmpEngine.transport_dispatcher:
             snmpEngine.transport_dispatcher.close_dispatcher()
-
-        await asyncio.sleep(TIME_OUT)

@@ -1,8 +1,5 @@
-import asyncio
 import os
 import sys
-import threading
-import time
 
 import pytest
 from pysnmp.hlapi.asyncio import *
@@ -95,31 +92,15 @@ def setup_args():
         "responder.py",
         f"--data-dir={data_dir}",
         f"--agent-udpv4-endpoint=127.0.0.1:{PORT_NUMBER}",
-        f"--timeout={TIME_OUT}",
     ]
     yield
     sys.argv = original_argv
 
 
 @pytest.fixture
-def run_app_in_background():
-    def target():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            responder_main()
-        except KeyboardInterrupt:
-            print("Application interrupted.")
-        finally:
-            print("Application stopped.")
-            loop.close()
-
-    app_thread = threading.Thread(target=target, daemon=True)
-    app_thread.start()
-    # Allow some time for the application to initialize and run
-    time.sleep(1)
-    yield
-    app_thread.join(timeout=TIME_OUT)
+def run_app_in_background(responder_in_thread):
+    with responder_in_thread(responder_main):
+        yield
 
 
 @pytest.mark.asyncio
