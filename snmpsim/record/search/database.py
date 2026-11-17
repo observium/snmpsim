@@ -9,6 +9,7 @@ import dbm
 import importlib
 import os
 import sys
+import threading
 from time import monotonic
 
 from snmpsim import confdir
@@ -39,7 +40,39 @@ def _select_dbm_backend():
     return backend
 
 
+def _let_gdbm_finalize_while_reading():
+    """Make PyPy's gdbm lock reentrant, lest the responder stop for good.
+
+    PyPy's `_gdbm` is written in Python. Every method of a handle takes one
+    lock of the module, a plain one, and a handle's `__del__` is `close()`,
+    which takes it again even for a handle closed long ago. PyPy runs
+    `__del__` whenever its collector finds a handle dead, in whatever thread
+    runs then - inside a `get()` of another handle, too, and that thread
+    then waits for the lock it holds itself, for good. An index just built
+    leaves such handles behind, and the next lookup could be the last one
+    the responder ever answered.
+
+    With a reentrant lock the collector closes the dead handle and the read
+    goes on: it only ever closes a handle nobody holds, never the one being
+    read. Threads still keep out of each other's way as before. CPython's
+    gdbm is in C and has no such lock, and is left alone.
+    """
+    try:
+        import _gdbm
+
+    except ImportError:
+        return
+
+    lock = getattr(_gdbm, "_lock", None)
+
+    if lock is not None and not isinstance(lock, type(threading.RLock())):
+        _gdbm._lock = threading.RLock()
+
+
 DBM_BACKEND = _select_dbm_backend()
+
+if DBM_BACKEND.__name__ == "dbm.gnu":
+    _let_gdbm_finalize_while_reading()
 
 # What each DBM implementation adds to the name it is asked to open, the file
 # holding the data first. An index is called the same whichever of them wrote

@@ -12,6 +12,13 @@ Changes carried by snmpsim-ng.
   one was parsed into an OBJECT IDENTIFIER only to be turned back into
   text for the lookup. A bulk walk is served about 1.2 times as fast on
   CPython, 1.1 times on PyPy, with the same answers.
+- Kept the responder answering on PyPy after an index was built. PyPy's
+  gdbm module guards every handle with one plain lock and closes a handle
+  its garbage collector finds dead with that lock as well, in whatever
+  thread runs then. A lookup in an index that came at the moment a handle
+  left by building one was collected waited for its own lock: the
+  responder answered no request from then on. The lock is made reentrant;
+  CPython's gdbm has none and is left as it is.
 
 Revision 2026.11.5, released on Nov 17, 2026
 --------------------------------------------
