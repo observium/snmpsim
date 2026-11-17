@@ -152,12 +152,14 @@ Faster operation
 ----------------
 
 The SNMPv3 architecture is inherently computationally heavy what makes SNMPv3
-operations slower that SNMPv1/v2c ones. The SNMP Simulator can run
-faster when it uses a much lighter and lower-level SNMPv1/v2c architecture
-at the expense of not supporting v3 operations.
+operations slower that SNMPv1/v2c ones. *snmpsim-command-responder*
+answers SNMPv1 and SNMPv2c without it, and encodes and decodes their reads
+itself rather than in pyasn1 (*--v1-v2c-path=fast*, the default). On PyPy,
+see :doc:`/quick-start`, it serves 1.4 to 1.9 times as many requests again;
+the *Performance* section of the README has the measurements.
 
-Invoke *snmpsim-command-responder-lite* tool to leverage the lightweight
-implementation.
+*snmpsim-command-responder-lite*, which used to be the faster one for
+SNMPv1/v2c, is the same responder under its old name since 2026.11.5.
 
 .. _tips-quick-startup:
 
@@ -166,10 +168,9 @@ Quicker startup
 
 When Simulator runs over thousands of device files, startup may take time
 (tens of seconds). Most of it goes into configuring SNMPv1/v2c credentials
-into SNMPv3 engine so startup time can be dramatically reduced by either
-using the lite version of command responder tool or by turning off
-SNMPv1/v2c configuration at SNMPv3 engine with *--v3-only* command-line
-flag of full version of command responder.
+into SNMPv3 engine so startup time can be dramatically reduced by turning
+off SNMPv1/v2c configuration at SNMPv3 engine with *--v3-only* command-line
+flag, where only SNMPv3 is to be served.
 
 The first start over a set of data files also has to index them. On Python
 3.13 and later that goes about twice as fast when Python has its *gdbm*

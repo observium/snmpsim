@@ -1,7 +1,7 @@
-"""SNMPv2c reads are decoded as pyasn1 decodes them, or left to pyasn1.
+"""SNMPv1/v2c reads are decoded as pyasn1 decodes them, or left to pyasn1.
 
 `ber.decode_read_request()` takes the plain shape of a GET, GETNEXT or
-GETBULK and nothing else. The rule held here is the one that keeps it safe:
+GETBULK (SNMPv2c only) and nothing else. The rule held here is the one that keeps it safe:
 whatever it takes, pyasn1 decodes to the same; whatever pyasn1 refuses or
 would have to judge, it leaves to pyasn1 (NotPlain). The limits pyasn1 has
 added for crafted input since 0.6.2 hold for it as well.
@@ -14,36 +14,56 @@ from pyasn1.codec.ber import encoder
 from pyasn1.type import univ
 from pysnmp.proto import api
 from pysnmp.proto import rfc1902
+from pysnmp.proto.proxy import rfc2576
 
 from snmpsim import ber
 
-PROTO = api.PROTOCOL_MODULES[api.SNMP_VERSION_2C]
+V1, V2C = api.SNMP_VERSION_1, api.SNMP_VERSION_2C
+
+PROTO = api.PROTOCOL_MODULES[V2C]
 
 READS = ("GetRequestPDU", "GetNextRequestPDU", "GetBulkRequestPDU")
 
+# every read by version: SNMPv1 has no GETBULK
+PLAIN_READS = [(V2C, pdu_type) for pdu_type in READS] + [
+    (V1, "GetRequestPDU"),
+    (V1, "GetNextRequestPDU"),
+]
 
-def request(pdu_type, oids, request_id=4242, first=0, second=0, community=b"public"):
-    pdu = getattr(PROTO, pdu_type)()
+PLAIN_READ_IDS = ["v%s-%s" % ({V1: 1, V2C: "2c"}[v], p) for v, p in PLAIN_READS]
+
+
+def request(
+    pdu_type,
+    oids,
+    request_id=4242,
+    first=0,
+    second=0,
+    community=b"public",
+    version=V2C,
+):
+    proto = api.PROTOCOL_MODULES[version]
+    pdu = getattr(proto, pdu_type)()
 
     if pdu_type == "GetBulkRequestPDU":
-        PROTO.apiBulkPDU.set_defaults(pdu)
-        PROTO.apiBulkPDU.set_non_repeaters(pdu, first)
-        PROTO.apiBulkPDU.set_max_repetitions(pdu, second)
+        proto.apiBulkPDU.set_defaults(pdu)
+        proto.apiBulkPDU.set_non_repeaters(pdu, first)
+        proto.apiBulkPDU.set_max_repetitions(pdu, second)
 
     else:
-        PROTO.apiPDU.set_defaults(pdu)
-        PROTO.apiPDU.set_error_status(pdu, first)
-        PROTO.apiPDU.set_error_index(pdu, second)
+        proto.apiPDU.set_defaults(pdu)
+        proto.apiPDU.set_error_status(pdu, first)
+        proto.apiPDU.set_error_index(pdu, second)
 
-    PROTO.apiPDU.set_request_id(pdu, request_id)
-    PROTO.apiPDU.set_varbinds(
+    proto.apiPDU.set_request_id(pdu, request_id)
+    proto.apiPDU.set_varbinds(
         pdu, [(rfc1902.ObjectName(oid), univ.Null("")) for oid in oids]
     )
 
-    msg = PROTO.Message()
-    PROTO.apiMessage.set_defaults(msg)
-    PROTO.apiMessage.set_community(msg, community)
-    PROTO.apiMessage.set_pdu(msg, pdu)
+    msg = proto.Message()
+    proto.apiMessage.set_defaults(msg)
+    proto.apiMessage.set_community(msg, community)
+    proto.apiMessage.set_pdu(msg, pdu)
 
     return encoder.encode(msg)
 
@@ -51,17 +71,43 @@ def request(pdu_type, oids, request_id=4242, first=0, second=0, community=b"publ
 def by_pyasn1(octets):
     """What pyasn1 and pysnmp make of a read, as decode_read_request() puts it.
 
-    Raises for anything that is not a plain SNMPv2c read with NULL values.
+    Raises for anything that is not a plain SNMPv1/v2c read with NULL values.
+    An SNMPv1 PDU is turned into its SNMPv2 counterpart, as pysnmp does
+    before it answers: what that refuses, the engine never answers either.
+    The fields are those of the message, before pysnmp's translation.
     """
-    msg, rest = decoder.decode(octets, asn1Spec=PROTO.Message())
+    for version in (V2C, V1):
+        proto = api.PROTOCOL_MODULES[version]
 
-    if rest or int(msg[0]) != 1:
-        raise ValueError("not a whole SNMPv2c message")
+        try:
+            msg, rest = decoder.decode(octets, asn1Spec=proto.Message())
 
-    pdu = PROTO.apiMessage.get_pdu(msg)
+        except Exception:
+            continue
 
-    if pdu.__class__.__name__ not in READS:
-        raise ValueError(pdu.__class__.__name__)
+        if int(msg[0]) == version:
+            break
+
+    else:
+        raise ValueError("not an SNMPv1/v2c message")
+
+    if rest:
+        raise ValueError("not a whole message")
+
+    pdu = proto.apiMessage.get_pdu(msg)
+    pdu_type = pdu.__class__.__name__
+
+    if pdu_type not in READS:
+        raise ValueError(pdu_type)
+
+    fields = int(pdu[0]), int(pdu[1]), int(pdu[2])
+
+    # pysnmp's message processing puts a request-id of its own in place of an
+    # SNMPv1 one, which may be any INTEGER, before the PDU is turned
+    if version == V1:
+        pdu = pdu.clone(cloneValueFlag=True)
+        pdu.setComponentByPosition(0, 0)
+        pdu = rfc2576.v1_to_v2(pdu)
 
     var_binds = PROTO.apiPDU.get_varbinds(pdu)
 
@@ -69,11 +115,10 @@ def by_pyasn1(octets):
         raise ValueError("a value other than NULL")
 
     return (
-        bytes(PROTO.apiMessage.get_community(msg)),
-        pdu.__class__.__name__,
-        int(pdu[0]),
-        int(pdu[1]),
-        int(pdu[2]),
+        version,
+        bytes(proto.apiMessage.get_community(msg)),
+        pdu_type,
+        *fields,
         [tuple(oid) for oid, _ in var_binds],
     )
 
@@ -107,8 +152,8 @@ def get_with_oid(oid_tlv):
     return ber.tlv(0x30, ber.tlv(2, b"\x01") + ber.tlv(4, b"public") + pdu)
 
 
-@pytest.mark.parametrize("pdu_type", READS)
-def test_a_plain_read_is_decoded_as_pyasn1_decodes_it(pdu_type):
+@pytest.mark.parametrize("version, pdu_type", PLAIN_READS, ids=PLAIN_READ_IDS)
+def test_a_plain_read_is_decoded_as_pyasn1_decodes_it(version, pdu_type):
     octets = request(
         pdu_type,
         ["1.3.6.1.2.1.1.5.0", "1.3.6.1.4.1.99999.2.4294967295"],
@@ -116,9 +161,37 @@ def test_a_plain_read_is_decoded_as_pyasn1_decodes_it(pdu_type):
         first=3 if pdu_type == "GetBulkRequestPDU" else 0,
         second=25 if pdu_type == "GetBulkRequestPDU" else 0,
         community=b"c" * 200,
+        version=version,
     )
 
     assert agrees(octets)
+    assert ber.decode_read_request(octets)[0] == version
+
+
+@pytest.mark.parametrize("version", [V1, V2C, 2, 3, -1, 256])
+def test_a_getbulk_is_plain_in_snmpv2c_only(version):
+    var_bind = ber.tlv(0x30, ber.encode_oid((1, 3, 6, 1)) + b"\x05\x00")
+    pdu = ber.tlv(
+        0xA5,
+        ber.tlv(2, b"\x01")
+        + ber.tlv(2, b"\x00")
+        + ber.tlv(2, b"\x05")
+        + ber.tlv(0x30, var_bind),
+    )
+    octets = ber.tlv(
+        0x30,
+        ber.tlv(2, ber.integer_contents(version)) + ber.tlv(4, b"public") + pdu,
+    )
+
+    if version == V2C:
+        assert agrees(octets)
+
+    else:
+        with pytest.raises(ber.NotPlain):
+            ber.decode_read_request(octets)
+
+        with pytest.raises(Exception):
+            by_pyasn1(octets)
 
 
 # Vectors from pyasn1's own decoder tests, tests/codec/ber/test_decoder.py
@@ -238,7 +311,7 @@ def test_pyasn1_oid_vectors(oid_tlv, arcs):
         assert agrees(octets)
 
         if arcs != "pyasn1":
-            assert ber.decode_read_request(octets)[5] == [arcs]
+            assert ber.decode_read_request(octets)[6] == [arcs]
 
 
 # what pyasn1's security fixes since 0.6.2 refuse, in a request: each is
@@ -278,22 +351,34 @@ def test_what_pyasn1s_fixes_are_about_is_left_to_pyasn1(octets):
 
 
 @pytest.mark.parametrize(
-    "request_id, first, second, pdu_type",
+    "version, request_id, first, second, pdu_type",
     [
-        (1, -1, 0, "GetBulkRequestPDU"),
-        (1, 2**31, 0, "GetBulkRequestPDU"),
-        (1, 0, -1, "GetBulkRequestPDU"),
-        (1, 0, 2**31, "GetBulkRequestPDU"),
-        (1, 0, -1, "GetRequestPDU"),
-        (1, 0, 2**31, "GetRequestPDU"),
-        (2**31, 0, 0, "GetRequestPDU"),
-        (-(2**31) - 1, 0, 0, "GetRequestPDU"),
+        (V2C, 1, -1, 0, "GetBulkRequestPDU"),
+        (V2C, 1, 2**31, 0, "GetBulkRequestPDU"),
+        (V2C, 1, 0, -1, "GetBulkRequestPDU"),
+        (V2C, 1, 0, 2**31, "GetBulkRequestPDU"),
+        (V2C, 1, 0, 2**31, "GetRequestPDU"),
+    ]
+    + [
+        (version, *fields)
+        for version in (V1, V2C)
+        for fields in [
+            (1, 0, -1, "GetRequestPDU"),
+            (1, 0, -1, "GetNextRequestPDU"),
+        ]
+    ]
+    + [
+        (V2C, 2**31, 0, 0, "GetRequestPDU"),
+        (V2C, -(2**31) - 1, 0, 0, "GetRequestPDU"),
+        (V2C, 2**31, 0, 0, "GetNextRequestPDU"),
     ],
 )
 def test_fields_out_of_pysnmps_ranges_are_left_to_pyasn1(
-    request_id, first, second, pdu_type
+    version, request_id, first, second, pdu_type
 ):
-    tag = {"GetRequestPDU": 0xA0, "GetBulkRequestPDU": 0xA5}[pdu_type]
+    tag = {"GetRequestPDU": 0xA0, "GetNextRequestPDU": 0xA1, "GetBulkRequestPDU": 0xA5}[
+        pdu_type
+    ]
     var_bind = ber.tlv(0x30, ber.encode_oid((1, 3, 6, 1)) + b"\x05\x00")
     pdu = ber.tlv(
         tag,
@@ -302,13 +387,48 @@ def test_fields_out_of_pysnmps_ranges_are_left_to_pyasn1(
         + ber.tlv(2, ber.integer_contents(second))
         + ber.tlv(0x30, var_bind),
     )
-    octets = ber.tlv(0x30, ber.tlv(2, b"\x01") + ber.tlv(4, b"public") + pdu)
+    octets = ber.tlv(
+        0x30,
+        ber.tlv(2, ber.integer_contents(version)) + ber.tlv(4, b"public") + pdu,
+    )
 
     with pytest.raises(ber.NotPlain):
         ber.decode_read_request(octets)
 
     with pytest.raises(Exception):
         by_pyasn1(octets)
+
+
+def snmpv1_get(error_index):
+    var_bind = ber.tlv(0x30, ber.encode_oid((1, 3, 6, 1)) + b"\x05\x00")
+    pdu = ber.tlv(
+        0xA0,
+        ber.tlv(2, b"\x01")
+        + ber.tlv(2, b"\x00")
+        + ber.tlv(2, ber.integer_contents(error_index))
+        + ber.tlv(0x30, var_bind),
+    )
+    return ber.tlv(0x30, ber.tlv(2, b"\x00") + ber.tlv(4, b"public") + pdu)
+
+
+@pytest.mark.parametrize("request_id", [2**31, -(2**31) - 1, 2**70, -(2**200)])
+def test_an_snmpv1_request_id_may_be_any_integer(request_id):
+    octets = request("GetRequestPDU", ["1.3.6.1"], request_id=request_id, version=V1)
+
+    assert agrees(octets)
+    assert ber.decode_read_request(octets)[3] == request_id
+
+
+def test_an_snmpv1_error_index_past_the_var_binds_is_left_to_pysnmp():
+    # pysnmp takes an SNMPv1 error-index of any size, cut down to the number
+    # of var-binds; one too large for an SNMPv2 PDU is left to it to cut
+    with pytest.raises(ber.NotPlain):
+        ber.decode_read_request(snmpv1_get(2**31))
+
+    assert by_pyasn1(snmpv1_get(2**31))[5] == 2**31
+
+    # within the range, it is taken as it comes
+    assert agrees(snmpv1_get(7))
 
 
 def random_oid(rng):
@@ -325,7 +445,7 @@ def test_random_reads_and_their_mutations_agree_with_pyasn1():
     taken = mutated_taken = 0
 
     for _ in range(600):
-        pdu_type = rng.choice(READS)
+        version, pdu_type = rng.choice(PLAIN_READS)
         bulk = pdu_type == "GetBulkRequestPDU"
         octets = request(
             pdu_type,
@@ -334,6 +454,7 @@ def test_random_reads_and_their_mutations_agree_with_pyasn1():
             first=rng.randrange(0, 10) if bulk else 0,
             second=rng.randrange(0, 100) if bulk else 0,
             community=bytes(rng.randrange(256) for _ in range(rng.choice([0, 6, 200]))),
+            version=version,
         )
 
         assert agrees(octets)
@@ -419,8 +540,10 @@ def test_shapes_pyasn1_refuses_are_not_plain(octets):
         by_pyasn1(octets)
 
 
-@pytest.mark.parametrize("pdu_type", READS)
-def test_the_fast_path_builds_the_same_request_either_way(pdu_type, monkeypatch):
+@pytest.mark.parametrize("version, pdu_type", PLAIN_READS, ids=PLAIN_READ_IDS)
+def test_the_fast_path_builds_the_same_request_either_way(
+    version, pdu_type, monkeypatch
+):
     from snmpsim import fastpath
 
     bulk = pdu_type == "GetBulkRequestPDU"
@@ -431,16 +554,20 @@ def test_the_fast_path_builds_the_same_request_either_way(pdu_type, monkeypatch)
         first=2 if bulk else 0,
         second=9 if bulk else 0,
         community=b"c" * 40,
+        version=version,
     )
 
-    plain = fastpath.decode_request(octets, 1)
+    plain = fastpath.decode_request(octets, version)
+
+    # read off its octets, not decoded by pyasn1
+    assert plain._message is None
 
     # the same message through pyasn1 alone
     def not_plain(octets):
         raise ber.NotPlain
 
     monkeypatch.setattr(ber, "decode_read_request", not_plain)
-    general = fastpath.decode_request(octets, 1)
+    general = fastpath.decode_request(octets, version)
 
     for field in ("version", "community", "kind", "pdu_type", "request_id"):
         assert getattr(plain, field) == getattr(general, field), field

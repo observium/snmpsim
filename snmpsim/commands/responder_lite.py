@@ -1,48 +1,39 @@
+#
 # This file is part of snmpsim software.
 #
 # Copyright (c) 2010-2019, Ilya Etingof <etingof@gmail.com>
 # Copyright (c) 2022-2025, LeXtudio Inc. <support@lextudio.com>
 # License: https://www.pysnmp.com/snmpsim/license.html
 #
-# SNMP Agent Simulator: lightweight SNMP v1/v2c command responder
+# SNMP Agent Simulator: the command line of the lightweight SNMP v1/v2c
+# command responder, kept for the systems that run it
 #
+"""`snmpsim-command-responder-lite`, served by `snmpsim-command-responder`.
+
+The lite responder was a command responder of its own for SNMPv1/v2c, which
+answered without pysnmp's SNMPv3 engine. The full responder answers SNMPv1/v2c
+that way too, faster and with all it does besides, so there is one responder
+now and this is its old name: it takes the options the lite responder took,
+as it took them - `--args-from-file` read ahead of the command line, one
+endpoint family - and starts `snmpsim-command-responder` with them.
+
+What the lite responder was is kept: it answers SNMPv1 and SNMPv2c only, and
+SIGHUP ends it rather than rescanning the recordings. `--v2c-arch` and
+`--v3-only`, which it took and did nothing with, are taken and do nothing.
+"""
 import argparse
-import asyncio
 import os
 import sys
 import traceback
 
 from pyasn1 import debug as pyasn1_debug
-from pyasn1.codec.ber import decoder
-from pyasn1.codec.ber import encoder
-from pyasn1.type import univ
 from pysnmp import debug as pysnmp_debug
-from pysnmp.carrier.asyncio.dgram import udp
-from pysnmp.carrier.asyncio.dgram import udp6
-from pysnmp.carrier.asyncio.dispatch import AsyncioDispatcher
-from pysnmp.proto import api
-from pysnmp.proto.api import verdec
-from pysnmp.proto import rfc1902
-from pysnmp.proto import rfc1905
 
-from snmpsim import confdir
-from snmpsim import controller
-from snmpsim import daemon
 from snmpsim import datafile
-from snmpsim import endpoints
 from snmpsim import log
 from snmpsim import utils
-from snmpsim import variation
-from snmpsim.error import NoDataNotification
-from snmpsim.error import SnmpsimError
+from snmpsim.commands import responder
 from snmpsim.reporting.manager import ReportingManager
-
-SNMP_2TO1_ERROR_MAP = {
-    rfc1902.Counter64.tagSet: 5,
-    rfc1905.NoSuchObject.tagSet: 2,
-    rfc1905.NoSuchInstance.tagSet: 2,
-    rfc1905.EndOfMibView.tagSet: 2,
-}
 
 DESCRIPTION = (
     "Lightweight SNMP agent simulator: responds to SNMP v1/v2c requests, "
@@ -51,8 +42,28 @@ DESCRIPTION = (
 )
 
 
-def main():
+def build_parser(raw=False):
+    """The lite responder's command line.
+
+    With `raw`, every value is kept as the string it was given and an option
+    not given is None (or empty): what the full responder is handed.
+    """
     parser = argparse.ArgumentParser(description=DESCRIPTION)
+
+    if raw:
+        add_argument = parser.add_argument
+
+        def raw_argument(*flags, **kwargs):
+            for key in ("type", "choices"):
+                kwargs.pop(key, None)
+
+            if kwargs.get("action") not in ("append", "store_true", "version"):
+                if "--pid-file" not in flags:
+                    kwargs["default"] = None
+
+            return add_argument(*flags, **kwargs)
+
+        parser.add_argument = raw_argument
 
     parser.add_argument("-v", "--version", action="version", version=utils.TITLE)
 
@@ -227,6 +238,15 @@ def main():
 
     endpoint_group = parser.add_mutually_exclusive_group(required=True)
 
+    if raw:
+        group_argument = endpoint_group.add_argument
+
+        def raw_group_argument(*flags, **kwargs):
+            kwargs.pop("type", None)
+            return group_argument(*flags, **kwargs)
+
+        endpoint_group.add_argument = raw_group_argument
+
     endpoint_group.add_argument(
         "--agent-udpv4-endpoint",
         type=str,
@@ -262,430 +282,98 @@ def main():
         "turned off from the command line",
     )
 
+    return parser
+
+
+def args_file(argv):
+    """The file `--args-from-file` names on the command line, or None."""
+    file_helper = argparse.ArgumentParser(add_help=False)
+    file_helper.add_argument("--args-from-file")
+
+    return file_helper.parse_known_args(argv)[0].args_from_file
+
+
+# options handed on as they are, by their name and dest
+VALUE_OPTIONS = (
+    ("--logging-method", "logging_method"),
+    ("--log-level", "log_level"),
+    ("--reporting-method", "reporting_method"),
+    ("--process-user", "process_user"),
+    ("--process-group", "process_group"),
+    ("--pid-file", "pid_file"),
+    ("--cache-dir", "cache_dir"),
+    ("--transport-id-offset", "transport_id_offset"),
+    ("--max-var-binds", "max_var_binds"),
+    ("--max-message-size", "max_message_size"),
+    ("--max-open-data-files", "max_open_data_files"),
+)
+
+SWITCHES = (
+    ("--quiet", "quiet"),
+    ("--daemonize", "daemonize"),
+    ("--force-index-rebuild", "force_index_rebuild"),
+    ("--validate-data", "validate_data"),
+)
+
+REPEATED = (
+    ("--debug", "debug"),
+    ("--debug-asn1", "debug_asn1"),
+    ("--variation-modules-dir", "variation_modules_dir"),
+    ("--variation-module-options", "variation_module_options"),
+    # what the full responder reads in order, after its other options
+    ("--data-dir", "data_dirs"),
+    ("--agent-udpv4-endpoint", "agent_udpv4_endpoints"),
+    ("--agent-udpv6-endpoint", "agent_udpv6_endpoints"),
+)
+
+
+def responder_arguments(args):
+    """The command line of the full responder for the lite one's `args`."""
+    argv = [flag for flag, dest in SWITCHES if getattr(args, dest)]
+
+    argv += [
+        f"{flag}={getattr(args, dest)}"
+        for flag, dest in VALUE_OPTIONS
+        if getattr(args, dest) is not None
+    ]
+
+    for flag, dest in REPEATED:
+        argv += [f"{flag}={value}" for value in getattr(args, dest) or ()]
+
+    return argv
+
+
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
+    parser = build_parser()
+
     # The file can hold the required options, so it has to be read before
     # the command line is checked for them. Its items go ahead of the
     # command line and the two are parsed as one: the last value wins for an
     # option that holds one, and the options that append collect both.
-    file_helper = argparse.ArgumentParser(add_help=False)
-    file_helper.add_argument("--args-from-file")
-
-    args_from_file = file_helper.parse_known_args()[0].args_from_file
-
+    path = args_file(argv)
     file_args = []
 
-    if args_from_file:
+    if path:
         try:
-            with open(args_from_file) as fl:
+            with open(path) as fl:
                 file_args = fl.read().split()
 
         except Exception as exc:
-            sys.stderr.write(
-                "ERROR: file %s opening failure: %s\r\n" % (args_from_file, exc)
-            )
+            sys.stderr.write("ERROR: file %s opening failure: %s\r\n" % (path, exc))
             parser.print_usage(sys.stderr)
             return 1
 
-    args = parser.parse_args(file_args + sys.argv[1:])
+    items = file_args + list(argv)
 
-    if args.debug:
-        pysnmp_debug.set_logger(pysnmp_debug.Debug(*args.debug))
+    # checked as the lite responder checked them, errors and all
+    parser.parse_args(items)
 
-    if args.debug_asn1:
-        pyasn1_debug.setLogger(pyasn1_debug.Debug(*args.debug_asn1))
+    args = build_parser(raw=True).parse_args(items)
 
-    if args.cache_dir:
-        confdir.cache = args.cache_dir
-
-    if args.variation_modules_dir:
-        confdir.variation = args.variation_modules_dir
-
-    variation_modules_options = variation.parse_modules_options(
-        args.variation_module_options
-    )
-
-    with daemon.PrivilegesOf(args.process_user, args.process_group):
-        proc_name = os.path.basename(sys.argv[0])
-
-        try:
-            log.set_logger(proc_name, *args.logging_method, force=True)
-
-            if args.log_level:
-                log.set_level(args.log_level)
-
-        except SnmpsimError as exc:
-            sys.stderr.write("%s\r\n" % exc)
-            parser.print_usage(sys.stderr)
-            return 1
-
-        datafile.set_max_open_files(args.max_open_data_files)
-
-        log.info("Data files kept open at most: %s" % args.max_open_data_files)
-
-        try:
-            ReportingManager.configure(*args.reporting_method)
-
-        except SnmpsimError as exc:
-            sys.stderr.write("%s\r\n" % exc)
-            parser.print_usage(sys.stderr)
-            return 1
-
-    if args.daemonize:
-        try:
-            daemon.daemonize(args.pid_file)
-
-        except Exception as exc:
-            sys.stderr.write("ERROR: cant daemonize process: %s\r\n" % exc)
-            parser.print_usage(sys.stderr)
-            return 1
-
-    # Python 3.14+ no longer auto-creates a default event loop. Create it only
-    # now: an event loop does not survive the fork() done by --daemonize, the
-    # daemon would inherit descriptors which are already invalid there.
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        asyncio.set_event_loop(asyncio.new_event_loop())
-
-    if not os.path.exists(confdir.cache):
-        try:
-            with daemon.PrivilegesOf(args.process_user, args.process_group):
-                os.makedirs(confdir.cache)
-
-        except OSError as exc:
-            log.error(
-                'failed to create cache directory "%s": %s' % (confdir.cache, exc)
-            )
-            return 1
-
-        else:
-            log.info('Cache directory "%s" created' % confdir.cache)
-
-    variation_modules = variation.load_variation_modules(
-        confdir.variation, variation_modules_options
-    )
-
-    with daemon.PrivilegesOf(args.process_user, args.process_group):
-        variation.initialize_variation_modules(variation_modules, mode="variating")
-
-    def configure_managed_objects(
-        data_dirs, data_index_instrum_controller, snmp_engine=None, snmp_context=None
-    ):
-        """Build pysnmp Managed Objects base from data files information"""
-
-        _mib_instrums = {}
-        _data_files = {}
-
-        for dataDir in data_dirs:
-            log.info(
-                'Scanning "%s" directory for %s data '
-                "files..."
-                % (
-                    dataDir,
-                    ",".join(
-                        [
-                            f" *{os.path.extsep}{x.ext}"
-                            for x in variation.RECORD_TYPES.values()
-                        ]
-                    ),
-                )
-            )
-
-            if not os.path.exists(dataDir):
-                log.info('Directory "%s" does not exist' % dataDir)
-                continue
-
-            log.msg.inc_ident()
-
-            for full_path, text_parser, community_name in datafile.get_data_files(
-                dataDir
-            ):
-                if community_name in _data_files:
-                    log.error(
-                        'ignoring duplicate Community/ContextName "%s" for data '
-                        "file %s (%s already loaded)"
-                        % (community_name, full_path, _data_files[community_name])
-                    )
-                    continue
-
-                elif full_path in _mib_instrums:
-                    mib_instrum = _mib_instrums[full_path]
-                    log.info(f"Configuring *shared* {mib_instrum}")
-
-                else:
-                    data_file = datafile.DataFile(
-                        full_path, text_parser, variation_modules
-                    )
-                    data_file.index_text(args.force_index_rebuild, args.validate_data)
-
-                    MibController = controller.MIB_CONTROLLERS[data_file.layout]
-                    mib_instrum = MibController(data_file)
-
-                    _mib_instrums[full_path] = mib_instrum
-                    _data_files[community_name] = full_path
-
-                    log.info(f"Configuring {mib_instrum}")
-
-                log.info(f"SNMPv1/2c community name: {community_name}")
-
-                contexts[univ.OctetString(community_name)] = mib_instrum
-
-                data_index_instrum_controller.add_data_file(full_path, community_name)
-
-            log.msg.dec_ident()
-
-        del _mib_instrums
-        del _data_files
-
-    def get_bulk_handler(
-        req_var_binds, non_repeaters, max_repetitions, read_next_vars, community_name
-    ):
-        """Only v2c arch GETBULK handler.
-
-        The response is cut short once it no longer fits into
-        `--max-message-size` octets: an oversized response goes out as a
-        fragmented datagram which the manager often never receives whole,
-        turning the walk into a timeout.
-        """
-        # the community name travels back in the response as well
-        max_response_size = (
-            args.max_message_size - utils.MESSAGE_ENVELOPE_SIZE - len(community_name)
-        )
-
-        return utils.get_bulk_var_binds(
-            read_next_vars,
-            req_var_binds,
-            non_repeaters,
-            max_repetitions,
-            args.max_var_binds,
-            max_response_size,
-        )
-
-    def commandResponderCbFun(
-        transport_dispatcher, transport_domain, transport_address, whole_msg
-    ):
-        """v2c arch command responder request handling callback"""
-        while whole_msg:
-            msg_ver = verdec.decode_message_version(whole_msg)
-
-            if msg_ver in api.PROTOCOL_MODULES:
-                p_mod = api.PROTOCOL_MODULES[msg_ver]
-
-            else:
-                log.error(f"Unsupported SNMP version {msg_ver}")
-                return
-
-            req_msg, whole_msg = decoder.decode(whole_msg, asn1Spec=p_mod.Message())
-
-            community_name = req_msg.getComponentByPosition(1)
-
-            for candidate in datafile.probe_context(
-                transport_domain,
-                transport_address,
-                context_engine_id=datafile.SELF_LABEL,
-                context_name=community_name,
-            ):
-                if candidate in contexts:
-                    log.info(
-                        "Using %s selected by candidate %s; transport ID %s, "
-                        "source address %s, context engine ID <empty>, "
-                        "community name "
-                        '"%s"'
-                        % (
-                            contexts[candidate],
-                            candidate,
-                            univ.ObjectIdentifier(transport_domain),
-                            transport_address[0],
-                            community_name,
-                        )
-                    )
-                    community_name = candidate
-                    break
-
-            else:
-                log.error(
-                    "No data file selected for transport ID %s, source "
-                    "address %s, community name "
-                    '"%s"'
-                    % (
-                        univ.ObjectIdentifier(transport_domain),
-                        transport_address[0],
-                        community_name,
-                    )
-                )
-                return whole_msg
-
-            rsp_msg = p_mod.apiMessage.get_response(req_msg)
-            rsp_pdu = p_mod.apiMessage.get_pdu(rsp_msg)
-            req_pdu = p_mod.apiMessage.get_pdu(req_msg)
-
-            if req_pdu.isSameTypeWith(p_mod.GetRequestPDU()):
-                backend_fun = contexts[community_name].read_variables
-
-            elif req_pdu.isSameTypeWith(p_mod.SetRequestPDU()):
-                backend_fun = contexts[community_name].write_variables
-
-            elif req_pdu.isSameTypeWith(p_mod.GetNextRequestPDU()):
-                backend_fun = contexts[community_name].read_next_variables
-
-            elif hasattr(p_mod, "GetBulkRequestPDU") and req_pdu.isSameTypeWith(
-                p_mod.GetBulkRequestPDU()
-            ):
-                if not msg_ver:
-                    log.info(
-                        "GETBULK over SNMPv1 from %s:%s"
-                        % (transport_domain, transport_address)
-                    )
-                    return whole_msg
-
-                def backend_fun(*var_binds):
-                    return get_bulk_handler(
-                        var_binds,
-                        p_mod.apiBulkPDU.get_non_repeaters(req_pdu),
-                        p_mod.apiBulkPDU.get_max_repetitions(req_pdu),
-                        contexts[community_name].read_next_variables,
-                        community_name,
-                    )
-
-            else:
-                log.error(
-                    "Unsupported PDU type %s from "
-                    "%s:%s"
-                    % (req_pdu.__class__.__name__, transport_domain, transport_address)
-                )
-                return whole_msg
-
-            try:
-                var_binds = backend_fun(*p_mod.apiPDU.get_varbinds(req_pdu))
-
-            except NoDataNotification:
-                return whole_msg
-
-            except Exception as exc:
-                log.error("Ignoring SNMP engine failure: %s" % exc)
-                return whole_msg
-
-            if not msg_ver:
-                for idx in range(len(var_binds)):
-                    oid, val = var_binds[idx]
-
-                    if val.tagSet in SNMP_2TO1_ERROR_MAP:
-                        var_binds = p_mod.apiPDU.get_varbinds(req_pdu)
-
-                        p_mod.apiPDU.set_error_status(
-                            rsp_pdu, SNMP_2TO1_ERROR_MAP[val.tagSet]
-                        )
-                        p_mod.apiPDU.set_error_index(rsp_pdu, idx + 1)
-
-                        break
-
-            p_mod.apiPDU.set_varbinds(rsp_pdu, var_binds)
-
-            transport_dispatcher.send_message(
-                encoder.encode(rsp_msg), transport_domain, transport_address
-            )
-
-        return whole_msg
-
-    # Configure access to data index
-
-    log.info(
-        "Maximum number of variable bindings in SNMP response: %s" % args.max_var_binds
-    )
-
-    log.info("Maximum size of SNMP response message: %s octets" % args.max_message_size)
-
-    data_index_instrum_controller = controller.DataIndexInstrumController()
-
-    contexts = {univ.OctetString("index"): data_index_instrum_controller}
-
-    with daemon.PrivilegesOf(args.process_user, args.process_group):
-        configure_managed_objects(
-            args.data_dirs or confdir.data, data_index_instrum_controller
-        )
-
-    contexts["index"] = data_index_instrum_controller
-
-    # Configure socket server
-    transport_dispatcher = AsyncioDispatcher()
-
-    transport_index = args.transport_id_offset
-    for agent_udpv4_endpoint in args.agent_udpv4_endpoints:
-        transport_domain = udp.DOMAIN_NAME + (transport_index,)
-        transport_index += 1
-
-        agent_udpv4_endpoint = endpoints.IPv4TransportEndpoints().add(
-            agent_udpv4_endpoint
-        )
-
-        transport_dispatcher.register_transport(
-            transport_domain, agent_udpv4_endpoint[0]
-        )
-
-        log.msg(
-            "Listening at UDP/IPv4 endpoint %s, transport ID "
-            "%s"
-            % (
-                agent_udpv4_endpoint[1],
-                ".".join([str(handler) for handler in transport_domain]),
-            )
-        )
-
-    transport_index = args.transport_id_offset
-
-    for agent_udpv6_endpoint in args.agent_udpv6_endpoints:
-        transport_domain = udp6.DOMAIN_NAME + (transport_index,)
-        transport_index += 1
-
-        agent_udpv6_endpoint = endpoints.IPv6TransportEndpoints().add(
-            agent_udpv6_endpoint
-        )
-
-        transport_dispatcher.register_transport(
-            transport_domain, agent_udpv6_endpoint[0]
-        )
-
-        log.msg(
-            "Listening at UDP/IPv6 endpoint %s, transport ID "
-            "%s"
-            % (
-                agent_udpv6_endpoint[1],
-                ".".join([str(handler) for handler in transport_domain]),
-            )
-        )
-
-    transport_dispatcher.register_recv_callback(commandResponderCbFun)
-
-    transport_dispatcher.job_started(1)  # server job would never finish
-
-    with daemon.PrivilegesOf(args.process_user, args.process_group, final=True):
-        try:
-            transport_dispatcher.run_dispatcher()
-
-        except KeyboardInterrupt:
-            log.info("Shutting down process...")
-
-        finally:
-            if variation_modules:
-                log.info("Shutting down variation modules:")
-
-                for name, contexts in variation_modules.items():
-                    body = contexts[0]
-                    try:
-                        body["shutdown"](options=body["args"], mode="variation")
-
-                    except Exception as exc:
-                        log.error(
-                            'Variation module "%s" shutdown FAILED: %s' % (name, exc)
-                        )
-
-                    else:
-                        log.info('Variation module "%s" shutdown OK' % name)
-
-            transport_dispatcher.close_dispatcher()
-
-            log.info("Process terminated")
-
-    return 0
+    return responder.main(responder_arguments(args), lite=True)
 
 
 if __name__ == "__main__":

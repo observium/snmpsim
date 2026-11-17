@@ -170,10 +170,10 @@ def response(version, community, request_id, error_status, error_index, var_bind
 
 # Decoding of requests.
 #
-# Only the plain shape of an SNMPv2c read is taken here: GET, GETNEXT or
-# GETBULK, every length in its shortest definite form of at most four octets,
-# one-octet tags, a NULL for every value, nothing left over. Anything else -
-# SNMPv1, a SET, an indefinite length, a constructed string, an odd tag, a
+# Only the plain shape of a read is taken here: an SNMPv1 GET or GETNEXT, an
+# SNMPv2c GET, GETNEXT or GETBULK, every length in its shortest definite form
+# of at most four octets, one-octet tags, a NULL for every value, nothing left
+# over. Anything else - a SET, an SNMPv1 GETBULK, an indefinite length, a constructed string, an odd tag, a
 # value out of the range pysnmp's PDU definition allows - raises NotPlain and
 # is left to pyasn1, with its own checks and limits. Whatever is taken here
 # decodes to what pyasn1 makes of it, which tests check on pyasn1's own
@@ -189,10 +189,17 @@ class NotPlain(Exception):
     """Not the plain shape this decoder takes: leave it to pyasn1."""
 
 
+# the reads of each version, SNMPv1 (0) having no GETBULK
 READ_PDUS = {
-    0xA0: "GetRequestPDU",
-    0xA1: "GetNextRequestPDU",
-    0xA5: "GetBulkRequestPDU",
+    0: {
+        0xA0: "GetRequestPDU",
+        0xA1: "GetNextRequestPDU",
+    },
+    1: {
+        0xA0: "GetRequestPDU",
+        0xA1: "GetNextRequestPDU",
+        0xA5: "GetBulkRequestPDU",
+    },
 }
 
 
@@ -290,9 +297,9 @@ def decode_read_request(octets):
 
 
 def _decode_read_request(octets):
-    """Decode an SNMPv2c GET, GETNEXT or GETBULK in its plain shape.
+    """Decode an SNMPv1 GET or GETNEXT, or an SNMPv2c GET, GETNEXT or GETBULK.
 
-    Returns the community, the PDU's name, request-id, the two integers that
+    Takes the plain shape only. Returns the version, the community, the PDU's name, request-id, the two integers that
     follow it (error-status and error-index, or non-repeaters and
     max-repetitions) and the OIDs asked for, each as arcs. Raises NotPlain
     for anything else: another version or PDU, a value other than NULL, a
@@ -305,14 +312,16 @@ def _decode_read_request(octets):
 
     version, offset = _integer(octets, start)
 
-    if version != 1:
+    reads = READ_PDUS.get(version)
+
+    if reads is None:
         raise NotPlain
 
     community_start, offset = _item(octets, offset, 0x04)
     community = octets[community_start:offset]
 
     pdu_tag = octets[offset]
-    pdu_type = READ_PDUS.get(pdu_tag)
+    pdu_type = reads.get(pdu_tag)
 
     if pdu_type is None:
         raise NotPlain
@@ -326,10 +335,16 @@ def _decode_read_request(octets):
     first, offset = _integer(octets, offset)
     second, offset = _integer(octets, offset)
 
-    # the ranges pysnmp's PDU definition holds them to: request-id is an
-    # Integer32; error-index, non-repeaters and max-repetitions are
-    # 0..max-bindings; error-status is free
-    if not -(2**31) <= request_id < 2**31 or not 0 <= second < 2**31:
+    # the ranges pysnmp's SNMPv2 PDU definition holds them to, an SNMPv1 PDU
+    # being turned into one: error-index, non-repeaters and max-repetitions
+    # are 0..max-bindings; error-status is free. request-id is an Integer32
+    # in SNMPv2c; an SNMPv1 one may be any INTEGER, as pysnmp's message
+    # processing puts one of its own in its place before the PDU is turned
+    # into an SNMPv2 one, and the original back into the response
+    if not 0 <= second < 2**31:
+        raise NotPlain
+
+    if version == 1 and not -(2**31) <= request_id < 2**31:
         raise NotPlain
 
     if pdu_type == "GetBulkRequestPDU" and not 0 <= first < 2**31:
@@ -357,4 +372,4 @@ def _decode_read_request(octets):
     if offset != list_end:
         raise NotPlain
 
-    return community, pdu_type, request_id, first, second, oids
+    return version, community, pdu_type, request_id, first, second, oids

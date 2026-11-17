@@ -51,12 +51,7 @@ def run_app_in_background():
 
 @pytest.mark.asyncio
 async def test_lite_responder_serves_v2c(run_app_in_background):
-    """The v2c-only responder answers GET, GETNEXT and GETBULK.
-
-    It talks to the MIB controllers directly rather than through an SNMP
-    engine, so it is the only user of that calling convention and breaks
-    without anyone noticing.
-    """
+    """The lite responder answers GET, GETNEXT and GETBULK."""
     snmpEngine = SnmpEngine()
 
     try:

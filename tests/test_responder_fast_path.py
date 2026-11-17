@@ -17,6 +17,8 @@ from pyasn1.type import univ
 from pysnmp.proto import api
 from pysnmp.proto import rfc1902
 
+from snmpsim import ber
+
 FAST_PORT = 1692
 ENGINE_PORT = 1693
 
@@ -151,12 +153,21 @@ def show(version, response):
         return "no response"
 
     proto = api.PROTOCOL_MODULES[version]
-    msg, _ = decoder.decode(response, asn1Spec=proto.Message())
+
+    # a value out of the range of its type is served as the device sent it,
+    # which pysnmp's types refuse to decode
+    try:
+        msg, _ = decoder.decode(response, asn1Spec=proto.Message())
+
+    except Exception:
+        return response.hex()
+
     pdu = proto.apiMessage.get_pdu(msg)
 
     return "error-status %s, error-index %s, %s" % (
         proto.apiPDU.get_error_status(pdu),
-        proto.apiPDU.get_error_index(pdu),
+        # as it came: pysnmp's getter refuses one past the var-binds
+        pdu.getComponentByPosition(2),
         ", ".join(
             f"{oid}={value.__class__.__name__}:{value.prettyPrint()}"
             for oid, value in proto.apiPDU.get_varbinds(pdu)
@@ -313,6 +324,70 @@ SAME = [
     ),
     ("v2c GET of no variables", V2C, "plain", "GetRequestPDU", [], {}),
     (
+        "v1 GET missing, then a Counter64",
+        V1,
+        "plain",
+        "GetRequestPDU",
+        [("1.3.6.1.2.1.1.9.9", None), (IF_HC_IN_OCTETS, None)],
+        {},
+    ),
+    (
+        "v1 GET Counter64, then missing",
+        V1,
+        "plain",
+        "GetRequestPDU",
+        [(IF_HC_IN_OCTETS, None), ("1.3.6.1.2.1.1.9.9", None)],
+        {},
+    ),
+    (
+        "v1 GET present, then two missing",
+        V1,
+        "plain",
+        "GetRequestPDU",
+        [(SYS_NAME, None), ("1.3.6.1.2.1.1.9.9", None), ("1.3.6.1.2.1.1.9.8", None)],
+        {},
+    ),
+    (
+        "v1 GETNEXT of three, the last onto a Counter64",
+        V1,
+        "plain",
+        "GetNextRequestPDU",
+        [
+            ("1.3.6.1.2.1.1.1", None),
+            ("1.3.6.1.2.1.2.2", None),
+            ("1.3.6.1.2.1.31.1.1.1.6", None),
+        ],
+        {},
+    ),
+    (
+        "v1 GETNEXT past the end and onto a Counter64",
+        V1,
+        "plain",
+        "GetNextRequestPDU",
+        [("1.3.6.1.9", None), ("1.3.6.1.2.1.31.1.1.1.6", None)],
+        {},
+    ),
+    (
+        "v1 GETNEXT into the error module",
+        V1,
+        "plain",
+        "GetNextRequestPDU",
+        [(SYS_LOCATION, None)],
+        {},
+    ),
+    ("v1 long community", V1, LONG_COMMUNITY, "GetRequestPDU", [(SYS_NAME, None)], {}),
+    ("v1 unknown community", V1, "nosuch", "GetRequestPDU", [(SYS_NAME, None)], {}),
+    ("v1 community above", V1, "../plain", "GetRequestPDU", [(SYS_NAME, None)], {}),
+    ("v1 GET of no variables", V1, "plain", "GetRequestPDU", [], {}),
+    (
+        "v1 data index",
+        V1,
+        "index",
+        "GetNextRequestPDU",
+        [("1.3.6.1.4.1.20408.999", None)],
+        {},
+    ),
+    (
         "v2c data index",
         V2C,
         "index",
@@ -323,11 +398,65 @@ SAME = [
 ]
 
 
+# values out of the range of their type, which SNMPv1 cannot carry, and a
+# module whose error names a variable past the request
+RANGES = """\
+1.3.6.1.2.1.2.2.1.10.1|65|-1
+1.3.6.1.2.1.2.2.1.10.2|65|8589934592
+1.3.6.1.2.1.2.2.1.10.3|66|4294967296
+1.3.6.1.2.1.2.2.1.10.4|67|-5
+1.3.6.1.2.1.2.2.1.10.5|65|7
+1.3.6.1.2.1.2.2.1.10.6|4:badidx|x
+"""
+
+BAD_INDEX = """\
+from pysnmp.smi import error
+
+
+def init(**context):
+    pass
+
+
+def variate(oid, tag, value, **context):
+    raise error.GenError(name=oid, idx=5)
+
+
+def shutdown(**context):
+    pass
+"""
+
+IF_IN_OCTETS = "1.3.6.1.2.1.2.2.1.10"
+
+SAME += [
+    (
+        f"{name} {kind} of {IF_IN_OCTETS}.{index}",
+        version,
+        "ranges",
+        pdu_type,
+        [(f"{IF_IN_OCTETS}.{index - (pdu_type == 'GetNextRequestPDU')}", None)],
+        {},
+    )
+    for index in range(1, 7)
+    for name, version in (("v1", V1), ("v2c", V2C))
+    for kind, pdu_type in (("GET", "GetRequestPDU"), ("GETNEXT", "GetNextRequestPDU"))
+] + [
+    (
+        "v1 GET of two, the module's error past the request",
+        V1,
+        "ranges",
+        "GetRequestPDU",
+        [(f"{IF_IN_OCTETS}.5", None), (f"{IF_IN_OCTETS}.6", None)],
+        {},
+    ),
+]
+
+
 @pytest.fixture(scope="module")
 def recordings(tmp_path_factory):
     data = tmp_path_factory.mktemp("data")
 
     (data / "plain.snmprec").write_text(PLAIN)
+    (data / "ranges.snmprec").write_text(RANGES)
     (data / f"{LONG_COMMUNITY}.snmprec").write_text(PLAIN)
 
     # one recording for the requests that come in by the transport and from
@@ -351,6 +480,7 @@ def recordings(tmp_path_factory):
 def variation_dir(tmp_path_factory):
     modules = tmp_path_factory.mktemp("variation")
     (modules / "ctxrec.py").write_text(CONTEXT_RECORDER)
+    (modules / "badidx.py").write_text(BAD_INDEX)
     return modules
 
 
@@ -406,6 +536,63 @@ def test_octets_past_the_message_are_dropped_on_both_paths(responders):
 
     assert ask(ENGINE_PORT, request) is None
     assert ask(FAST_PORT, request) is None
+
+
+def snmpv1_message(pdu_tag, request_id=7, error_index=0, version=0, long_form=False):
+    """An SNMPv1 read put together by hand, for what pysnmp cannot encode.
+
+    `long_form` gives the message a length in a longer form than it needs,
+    which BER allows and the plain decoder leaves to pyasn1.
+    """
+    var_bind = ber.tlv(0x30, ber.encode_oid((1, 3, 6, 1, 2, 1, 1, 5, 0)) + b"\x05\x00")
+    pdu = ber.tlv(
+        pdu_tag,
+        ber.tlv(2, ber.integer_contents(request_id))
+        + ber.tlv(2, b"\x00")
+        + ber.tlv(2, ber.integer_contents(error_index))
+        + ber.tlv(0x30, var_bind),
+    )
+    body = ber.tlv(2, ber.integer_contents(version)) + ber.tlv(4, b"plain") + pdu
+
+    if long_form:
+        return b"\x30\x81" + bytes([len(body)]) + body
+
+    return ber.tlv(0x30, body)
+
+
+@pytest.mark.parametrize(
+    "octets",
+    [
+        snmpv1_message(0xA5),
+        snmpv1_message(0xA0, request_id=2**31),
+        snmpv1_message(0xA1, request_id=-(2**70)),
+        snmpv1_message(0xA0, request_id=2**31, error_index=2**31),
+        snmpv1_message(0xA3, request_id=2**31),
+        snmpv1_message(0xA0, request_id=2**31, long_form=True),
+        snmpv1_message(0xA1, request_id=-(2**40), long_form=True),
+        snmpv1_message(0xA0, error_index=-1),
+        snmpv1_message(0xA0, error_index=2**31),
+        snmpv1_message(0xA1, error_index=9),
+    ],
+    ids=[
+        "v1 GETBULK",
+        "request-id past Integer32",
+        "negative request-id of 71 bits",
+        "request-id and error-index past Integer32",
+        "SET, request-id past Integer32",
+        "long form, request-id past Integer32",
+        "long form GETNEXT, negative request-id of 41 bits",
+        "negative error-index",
+        "error-index past Integer32",
+        "error-index past the var-binds",
+    ],
+)
+def test_odd_snmpv1_reads_are_answered_alike(responders, octets):
+    engine = ask(ENGINE_PORT, octets)
+    fast = ask(FAST_PORT, octets)
+
+    assert show(V1, fast) == show(V1, engine)
+    assert fast == engine
 
 
 def get_sys_name(port, community):

@@ -895,7 +895,13 @@ def wait_for_endpoints(bound_endpoints):
     return failed
 
 
-def main():
+def main(argv=None, lite=False):
+    """Run the command responder on `argv`, the command line by default.
+
+    `lite` is `snmpsim-command-responder-lite` (`commands.responder_lite`):
+    SNMPv1 and SNMPv2c served only, and SIGHUP ends the responder rather
+    than rescanning, as the lite responder did.
+    """
     parser = argparse.ArgumentParser(add_help=False)
 
     parser.add_argument("-v", "--version", action="version", version=utils.TITLE)
@@ -1239,7 +1245,7 @@ configured automatically based on simulation data file paths relative to
         help="SNMP simulation process timeout",
     )
 
-    args, unparsed_args = parser.parse_known_args()
+    args, unparsed_args = parser.parse_known_args(argv)
 
     if args.usage:
         snmp_helper.print_usage(sys.stderr)
@@ -1263,12 +1269,14 @@ configured automatically based on simulation data file paths relative to
     name = None
 
     for opt in unparsed_args:
-        if "=" in opt:
-            snmp_args.append(opt.split("="))
-
-        elif name:
+        # every one of these options takes a value, which may hold "=" itself:
+        # "--data-dir /srv/a=b" and "--data-dir=/srv/a=b" alike
+        if name:
             snmp_args.append((name, opt))
             name = None
+
+        elif "=" in opt:
+            snmp_args.append(opt.split("=", 1))
 
         else:
             name = opt
@@ -1380,7 +1388,8 @@ configured automatically based on simulation data file paths relative to
 
     rescanner = Rescanner(asyncio.get_event_loop())
 
-    if hasattr(signal, "SIGHUP"):
+    # the lite responder has always ended on SIGHUP, and scripts stop it so
+    if hasattr(signal, "SIGHUP") and not lite:
         # Takes the place of what --daemonize does on SIGHUP, which is to
         # exit, and of dying of it in the foreground. The event loop calls
         # this once it runs: a SIGHUP which comes while the responder is
@@ -1477,6 +1486,9 @@ configured automatically based on simulation data file paths relative to
     elif args.v2c_only:
         served_versions = {"2c"}
 
+    elif lite:
+        served_versions = {"1", "2c"}
+
     else:
         # --v3-only keeps its meaning: no community is configured for the
         # recordings, the processing models stay
@@ -1561,9 +1573,11 @@ configured automatically based on simulation data file paths relative to
 
                 config.add_v1_system(snmp_engine, "index", "index", contextName="index")
 
-                log.info("--- SNMPv3 USM configuration")
+                # the lite responder serves no SNMPv3, nor has a user for it
+                if not lite:
+                    log.info("--- SNMPv3 USM configuration")
 
-                if not v3_users:
+                if not v3_users and not lite:
                     v3_users = ["simulator"]
                     v3_auth_keys[v3_users[0]] = "auctoritas"
                     v3_auth_protos[v3_users[0]] = "MD5"

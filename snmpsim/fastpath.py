@@ -14,7 +14,7 @@ SNMPv3 keeps going through the engine.
 
 What goes back is what the engine path would send, octet for octet: the same
 recording, the same values, the same error-status and error-index, the same
-SNMPv1 translation (pysnmp's own, RFC 3584), the same GETBULK cut, and the
+SNMPv1 translation (RFC 3584, as pysnmp makes it), the same GETBULK cut, and the
 same call context for variation modules and activity reports. One thing is
 done as the documentation says rather than as the engine path does: a
 recording is chosen by the community, the transport the request came in by
@@ -36,7 +36,9 @@ from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.carrier.asyncio.dgram import udp6
 from pysnmp.proto import api
 from pysnmp.proto import error as proto_error
+from pysnmp.proto import rfc1155
 from pysnmp.proto import rfc1902
+from pysnmp.proto import rfc1905
 from pysnmp.proto.api import v2c
 from pysnmp.proto.proxy import rfc2576
 from pysnmp.smi import error as smi_error
@@ -62,6 +64,27 @@ SCOPED_PDU_ENVELOPE_SIZE = 64
 COMMUNITY_MODEL_ENVELOPE_SIZE = 128
 
 GET, NEXT, BULK, SET = "get", "next", "bulk", "set"
+
+NULL = univ.Null("")
+
+# what an SNMPv1 response cannot carry: a variable it names is answered with
+# noSuchName (RFC 3584, 4.1.2.2)
+EXCEPTION_TAG_SETS = frozenset(
+    (
+        rfc1905.NoSuchObject.tagSet,
+        rfc1905.NoSuchInstance.tagSet,
+        rfc1905.EndOfMibView.tagSet,
+    )
+)
+
+NO_SUCH_NAME = 2
+
+# the class of the OIDs of a request as pysnmp decodes it, by version: those
+# of an SNMPv1 PDU keep their own when it is turned into an SNMPv2 one
+OBJECT_NAMES = {
+    api.SNMP_VERSION_1: rfc1155.ObjectName,
+    api.SNMP_VERSION_2C: rfc1902.ObjectName,
+}
 
 PDU_KINDS = {
     v2c.GetRequestPDU.tagSet: GET,
@@ -125,43 +148,42 @@ PLAIN_KINDS = {
 def decode_request(whole_msg, version):
     """Decode an SNMPv1/v2c request, or return None for anything else.
 
-    An SNMPv2c read of the plain shape is read off its octets
-    (`ber.decode_read_request()`); anything else, SNMPv1 and SET among it,
-    is decoded by pyasn1 as before. The var-binds come as the engine path
-    sees them, pysnmp's OIDs and NULLs: an SNMPv1 PDU is turned into its
-    SNMPv2 counterpart first, as pysnmp does.
+    A read of the plain shape is read off its octets
+    (`ber.decode_read_request()`); anything else, SET among it, is decoded by
+    pyasn1 as before. The var-binds come as the engine path sees them,
+    pysnmp's OIDs and NULLs: an SNMPv1 PDU decoded by pyasn1 is turned into
+    its SNMPv2 counterpart first, as pysnmp does.
     """
-    if version == api.SNMP_VERSION_2C:
-        try:
-            (
-                community,
-                pdu_type,
-                request_id,
-                first,
-                second,
-                oids,
-            ) = ber.decode_read_request(whole_msg)
+    try:
+        (
+            plain_version,
+            community,
+            pdu_type,
+            request_id,
+            first,
+            second,
+            oids,
+        ) = ber.decode_read_request(whole_msg)
 
-        except ber.NotPlain:
-            pass
+    except ber.NotPlain:
+        pass
 
-        else:
-            request = Request()
-            request.version = version
-            request.community = community
-            request.pdu_type = pdu_type
-            request.kind = PLAIN_KINDS[pdu_type]
-            request.request_id = request_id
-            request.var_binds = [
-                (rfc1902.ObjectName(oid), univ.Null("")) for oid in oids
-            ]
-            request._message = request._v2_pdu = request._v1_pdu = None
+    else:
+        request = Request()
+        request.version = plain_version
+        request.community = community
+        request.pdu_type = pdu_type
+        request.kind = PLAIN_KINDS[pdu_type]
+        request.request_id = request_id
+        object_name = OBJECT_NAMES[plain_version]
+        request.var_binds = [(object_name(oid), NULL) for oid in oids]
+        request._message = request._v2_pdu = request._v1_pdu = None
 
-            if request.kind == BULK:
-                request.non_repeaters = first
-                request.max_repetitions = second
+        if request.kind == BULK:
+            request.non_repeaters = first
+            request.max_repetitions = second
 
-            return request
+        return request
 
     proto = api.PROTOCOL_MODULES[version]
 
@@ -181,7 +203,14 @@ def decode_request(whole_msg, version):
 
     if version == api.SNMP_VERSION_1:
         request._v1_pdu = pdu
-        pdu = rfc2576.v1_to_v2(pdu)
+
+        # pysnmp's message processing puts a request-id of its own in place
+        # of that of an SNMPv1 PDU, which may be any INTEGER, before it is
+        # turned into an SNMPv2 one, an Integer32 (`encode_response()` puts
+        # the original back)
+        translated = pdu.clone(cloneValueFlag=True)
+        translated.setComponentByPosition(0, 0)
+        pdu = rfc2576.v1_to_v2(translated)
 
     else:
         request._v1_pdu = None
@@ -192,7 +221,8 @@ def decode_request(whole_msg, version):
         return None
 
     request._v2_pdu = pdu
-    request.request_id = int(v2c.apiPDU.get_request_id(pdu))
+    original = pdu if request._v1_pdu is None else request._v1_pdu
+    request.request_id = int(original.getComponentByPosition(0))
     request.var_binds = list(v2c.apiPDU.get_varbinds(pdu))
 
     if request.kind == BULK:
@@ -205,16 +235,25 @@ def decode_request(whole_msg, version):
 def encode_response(request, error_status, error_index, var_binds, encoded=None):
     """Encode the response to `request`.
 
-    An SNMPv2c response is put together octet for octet (`snmpsim.ber`);
-    `encoded` may hold the encodings of its var-binds, made when they were
-    measured, by `id()` of the var-bind with the var-bind itself.
+    A response to SNMPv2c, or to a plain SNMPv1 read, is put together octet
+    for octet (`snmpsim.ber`); `encoded` may hold the encodings of its
+    var-binds, made when they were measured, by `id()` of the var-bind with
+    the var-bind itself. An SNMPv1 response is translated from the SNMPv2
+    one as pysnmp's `rfc2576.v2_to_v1()` translates it (`v1_response()`).
 
-    An SNMPv1 response is made out of the SNMPv2 one by pysnmp's own
-    translation; for GETNEXT it raises `StatusInformation` naming a Counter64
-    an SNMPv1 manager cannot be sent, to be read past, as the engine path
-    does.
+    The response to any other SNMPv1 request, a SET, is made out of the
+    SNMPv2 one by pysnmp's own translation.
+
+    For an SNMPv1 GETNEXT, either way raises `StatusInformation` naming a
+    Counter64 an SNMPv1 manager cannot be sent, to be read past, as the
+    engine path does.
     """
     if request._v1_pdu is None:
+        if request.version == api.SNMP_VERSION_1:
+            error_status, error_index, var_binds = v1_response(
+                request, error_status, error_index, var_binds
+            )
+
         var_bind_list = []
 
         for var_bind in var_binds:
@@ -243,8 +282,8 @@ def encode_response(request, error_status, error_index, var_binds, encoded=None)
     v2c.apiPDU.set_error_index(pdu, error_index)
     v2c.apiPDU.set_varbinds(pdu, var_binds)
 
-    if request._v1_pdu is not None:
-        pdu = rfc2576.v2_to_v1(pdu, request._v1_pdu)
+    pdu = rfc2576.v2_to_v1(pdu, request._v1_pdu)
+    pdu.setComponentByPosition(0, request._v1_pdu.getComponentByPosition(0))
 
     proto = api.PROTOCOL_MODULES[request.version]
 
@@ -252,6 +291,55 @@ def encode_response(request, error_status, error_index, var_binds, encoded=None)
     proto.apiMessage.set_pdu(message, pdu)
 
     return encoder.encode(message)
+
+
+def v1_response(request, error_status, error_index, var_binds):
+    """The SNMPv1 error-status, error-index and var-binds of an SNMPv2 answer.
+
+    What pysnmp's `rfc2576.v2_to_v1()` makes of a response to a GET or a
+    GETNEXT (RFC 3584, 4.1.2 and 4.4), step for step. The var-binds are
+    scanned from the last one: a variable the answer has no value for gets
+    noSuchName with its index, so the first such one is named; a Counter64
+    ends the scan, with noSuchName for a GET, while for a GETNEXT it raises
+    `StatusInformation` to be read past. An SNMPv2 error-status is mapped to
+    its SNMPv1 counterpart, its error-index kept, cut down to the number of
+    var-binds. Whatever error there is, the var-binds of the request are
+    sent back as they came. Without one, every value is made an SNMPv1 value
+    as pysnmp makes it, which raises for one out of the range of its SNMPv1
+    type - a recorded Counter32 of -1 - and the request is dropped, as the
+    engine drops it.
+    """
+    v1_error_status = v1_error_index = 0
+
+    for idx in range(len(var_binds) - 1, -1, -1):
+        tag_set = var_binds[idx][1].tagSet
+
+        if tag_set == rfc1902.Counter64.tagSet:
+            if request.kind == GET:
+                v1_error_status, v1_error_index = NO_SUCH_NAME, idx + 1
+                break
+
+            raise proto_error.StatusInformation(idx=idx)
+
+        if tag_set in EXCEPTION_TAG_SETS:
+            v1_error_status, v1_error_index = NO_SUCH_NAME, idx + 1
+
+    if isinstance(error_status, str):
+        error_status = ber.ERROR_STATUS[error_status]
+
+    if error_status:
+        v1_error_status = rfc2576.V2_TO_V1_ERROR_MAP.get(int(error_status), 5)
+        v1_error_index = min(int(error_index), len(var_binds))
+
+    if v1_error_status:
+        return v1_error_status, v1_error_index, request.var_binds
+
+    for _, value in var_binds:
+        # a value SNMPv1 has no type for, or one out of its type's range:
+        # pysnmp fails on it the same way
+        rfc2576.V2_TO_V1_VALUE_MAP[value.tagSet].clone(value)
+
+    return 0, 0, var_binds
 
 
 class Endpoint:

@@ -5,12 +5,60 @@ Revision 2026.11.5, unreleased
 
 Changes carried by snmpsim-ng.
 
+- Made ``snmpsim-command-responder-lite`` the full responder under its old
+  name. The lite responder was a command responder of its own, which
+  answered SNMPv1/v2c without pysnmp's SNMPv3 engine; the full responder
+  has done that since 2026.11.4, faster, and two answered the same
+  recordings each in its own way. The lite command now takes the options
+  it always took, as it took them - ``--args-from-file`` read ahead of the
+  command line, one endpoint family - and starts the full responder with
+  them, answering as it answers: with request counters in the ``fulljson``
+  reports, with ``--daemonize`` waiting for the daemon and resolving
+  relative paths. It still answers SNMPv1 and SNMPv2c only, and SIGHUP still
+  ends it; ``--v2c-arch`` and ``--v3-only``, which it took and did nothing
+  with, still do nothing. Its own implementation, 700 lines, is gone. What
+  it answered differently is answered as the full responder answers it: a
+  Counter64 to an SNMPv1 manager is noSuchName on GET and read past on
+  GETNEXT, where it was genErr; an error a variation module raises is an
+  error response, where the request went unanswered; a GETBULK is cut by
+  the full responder's measure; a datagram holding more than one message is
+  dropped, where each message in it was answered.
+- Took the value of an engine option on the command line of
+  ``snmpsim-command-responder`` whole, ``=`` signs and all, given as
+  ``--data-dir=/srv/a=b`` or as ``--data-dir /srv/a=b``. A path was cut at
+  the first ``=`` it held, and the recordings looked for in a directory
+  that is not there; as two words it was taken for an option of its own. A
+  USM key given as ``--v3-auth-key=ab=cd`` was ``ab`` and is ``ab=cd`` now.
+  ``--args-from-file`` took such values whole already.
+- Took an IPv6 endpoint without a port, ``::1``, ``[::1]`` or ``::``, in
+  ``--agent-udpv6-endpoint`` of ``snmpsim-command-responder`` and
+  ``snmpsim-record-commands``, as port 161. The port was looked for after
+  the last colon of the address, and the endpoint refused as an unknown
+  host, though the responder binds such an endpoint to port 161 and the
+  lite responder always took it.
+- Answered SNMPv1 GET and GETNEXT on the fast path without pyasn1 as well,
+  as SNMPv2c reads are: ``ber.decode_read_request()`` takes their plain
+  shape, and the response is translated as pysnmp's ``rfc2576.v2_to_v1()``
+  translates it (RFC 3584) - noSuchName for the first variable without a
+  value, a Counter64 refused to a GET and read past on a GETNEXT, the
+  SNMPv2 error-status mapped and its error-index cut to the var-binds, the
+  request's var-binds sent back with an error, a recorded value out of the
+  range of its SNMPv1 type dropped as the engine drops it. Tests hold it to the engine path on GETs and GETNEXTs of several
+  variables with Counter64s and missing ones in every order, on the error
+  module, on odd communities and on hand-made messages. An SNMPv1 GETNEXT
+  walk is served about four times as fast on CPython, as fast as SNMPv2c.
+- Answered an SNMPv1 request whose request-id does not fit an Integer32 on
+  the fast path, as the engine path answers it, rather than dropping it.
+  pysnmp's message processing puts a request-id of its own in place of an
+  SNMPv1 one, which may be any INTEGER, before the PDU is turned into an
+  SNMPv2 one, and the original back into the response; the fast path,
+  new in 2026.11.4, turned the PDU with the request-id it came with.
 - Decoded the SNMPv2c GET, GETNEXT and GETBULK requests of the fast path
   without pyasn1, which had become most of what a request cost once the
   responses were encoded without it. ``ber.decode_read_request()`` takes
   the plain shape of such a request only - one-octet tags, definite
   lengths in their shortest form, NULL values, nothing left over - and
-  leaves everything else, SNMPv1 and SET among it, to pyasn1 as before. It
+  leaves everything else, SET among it, to pyasn1 as before. It
   keeps the limits pyasn1 added for crafted input since 0.6.2, the 20
   continuation octets of an OID arc among them, and works in linear time.
   Tests hold it to pyasn1 on the vectors of pyasn1's own decoder tests,
