@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import os
 import socket
 import subprocess
 import sys
@@ -57,6 +58,38 @@ def snmp_get(port, oid, community="public", timeout=2):
         loop.close()
 
     return error_indication, error_status, var_binds
+
+
+def stop_process(process):
+    """End a process started with `sys.executable`, and whatever it started.
+
+    On Windows the python.exe of a virtual environment is a launcher which
+    runs the interpreter as a process of its own: terminating the launcher
+    leaves the responder serving, its port taken. The whole tree goes there.
+    """
+    if process.poll() is None:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+        else:
+            process.terminate()
+
+    try:
+        process.wait(timeout=10)
+
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+
+
+@pytest.fixture(scope="session")
+def process_stopper():
+    """Hand out `stop_process`, see there."""
+    return stop_process
 
 
 @contextlib.contextmanager
@@ -142,14 +175,7 @@ def running_responder(*options, port, oid, community="public"):
             yield f"127.0.0.1:{port}"
 
         finally:
-            responder.terminate()
-
-            try:
-                responder.wait(timeout=10)
-
-            except subprocess.TimeoutExpired:
-                responder.kill()
-                responder.wait()
+            stop_process(responder)
 
 
 @pytest.fixture(scope="session")

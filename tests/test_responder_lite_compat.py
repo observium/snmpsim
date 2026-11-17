@@ -151,7 +151,7 @@ def test_what_the_lite_responder_refused_is_refused(items):
 
 
 @contextlib.contextmanager
-def started(command, port, stderr, *options):
+def started(command, port, stderr, stop, *options):
     """A responder process, once it answers SNMPv2c on `port`."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
         probe.bind(("127.0.0.1", port))
@@ -175,9 +175,7 @@ def started(command, port, stderr, *options):
         yield process
 
     finally:
-        if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=30)
+        stop(process)
 
 
 def read(version, pdu_tag):
@@ -236,16 +234,19 @@ def ask_v3(port):
 
 
 @pytest.fixture(scope="module")
-def responders():
+def responders(process_stopper):
     with tempfile.TemporaryFile() as lite_err, tempfile.TemporaryFile() as full_err:
         # with the two options the lite responder took and did nothing with
         with started(
             "snmpsim.commands.responder_lite",
             LITE_PORT,
             lite_err,
+            process_stopper,
             "--v2c-arch",
             "--v3-only",
-        ) as lite, started("snmpsim.commands.responder", FULL_PORT, full_err) as full:
+        ) as lite, started(
+            "snmpsim.commands.responder", FULL_PORT, full_err, process_stopper
+        ) as full:
             yield lite, full
 
 
@@ -277,11 +278,13 @@ def test_snmpv3_is_not_answered(responders):
 
 
 @pytest.mark.skipif(not hasattr(signal, "SIGHUP"), reason="POSIX signals")
-def test_sighup_ends_the_lite_responder_and_not_the_full_one(responders):
+def test_sighup_ends_the_lite_responder_and_not_the_full_one(
+    responders, process_stopper
+):
     _, full = responders
 
     with tempfile.TemporaryFile() as stderr, started(
-        "snmpsim.commands.responder_lite", LITE_SIGHUP_PORT, stderr
+        "snmpsim.commands.responder_lite", LITE_SIGHUP_PORT, stderr, process_stopper
     ) as lite:
         full.send_signal(signal.SIGHUP)
         lite.send_signal(signal.SIGHUP)
@@ -303,11 +306,15 @@ def test_a_data_directory_with_an_equals_sign_is_served(
     data.mkdir()
     (data / "public.snmprec").write_text("1.3.6.1.2.1.1.1.0|4|equals\n")
 
-    # given as --data-dir=<path>, and as two words
-    for options in ([f"--data-dir={data}"], ["--data-dir", str(data)]):
-        with responder_process(*options, port=1698, oid=SYS_DESCR):
+    # given as --data-dir=<path>, and as two words; a port each, as one that
+    # was just given up may not be free at once
+    for port, options in (
+        (1698, [f"--data-dir={data}"]),
+        (1700, ["--data-dir", str(data)]),
+    ):
+        with responder_process(*options, port=port, oid=SYS_DESCR):
             error_indication, error_status, var_binds = get_from_responder(
-                1698, SYS_DESCR
+                port, SYS_DESCR
             )
 
         assert error_indication is None and not error_status
