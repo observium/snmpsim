@@ -52,7 +52,7 @@ master_doc = "index"
 
 # General information about the project.
 project = "snmpsim-ng"
-copyright = "2010-2019, Ilya Etingof. © Copyright 2022-2026, LeXtudio Inc. © Copyright 2026, Mikhail Stupalov"
+copyright = "2010-2019, Ilya Etingof. © Copyright 2026, Mikhail Stupalov"
 author = "Ilya Etingof (creator), Mikhail Stupalov (maintainer)"
 
 # The version info for the project you're documenting, acts as replacement for
