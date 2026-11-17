@@ -96,3 +96,20 @@ def test_a_port_somebody_else_listens_on_is_refused():
 
         with pytest.raises(SystemExit, match="in use"):
             bench.check_port_free(port)
+
+
+def test_options_are_passed_on_to_the_responder(tmp_path):
+    bench = load()
+
+    args = bench.parse_args(
+        [
+            f"--data-dir={DATA_DIR}",
+            "--community=public",
+            "--responder-option=--v1-v2c-path=engine",
+            "--responder-option=--max-var-binds=10",
+        ]
+    )
+
+    command = bench.responder_command(args, str(tmp_path))
+
+    assert command[-2:] == ["--v1-v2c-path=engine", "--max-var-binds=10"]

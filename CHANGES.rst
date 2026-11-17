@@ -1,4 +1,38 @@
-.. current-version: 2026.11.4 (managed by bump2version)
+.. current-version: 2026.11.5 (managed by bump2version)
+
+Revision 2026.11.5, unreleased
+------------------------------
+
+Changes carried by snmpsim-ng.
+
+- Decoded the SNMPv2c GET, GETNEXT and GETBULK requests of the fast path
+  without pyasn1, which had become most of what a request cost once the
+  responses were encoded without it. ``ber.decode_read_request()`` takes
+  the plain shape of such a request only - one-octet tags, definite
+  lengths in their shortest form, NULL values, nothing left over - and
+  leaves everything else, SNMPv1 and SET among it, to pyasn1 as before. It
+  keeps the limits pyasn1 added for crafted input since 0.6.2, the 20
+  continuation octets of an OID arc among them, and works in linear time.
+  Tests hold it to pyasn1 on the vectors of pyasn1's own decoder tests,
+  on the inputs its security fixes are about, on fields out of range, and
+  on random requests and thousands of mutations of them: whatever is
+  decoded here, pyasn1 decodes alike, and what pyasn1 refuses is left to
+  it. A GETNEXT walk is served about twice as fast again on CPython.
+- Encoded the SNMPv2c responses of the fast path, and the var-bind sizes
+  every responder cuts GETBULK by, without building them in pyasn1:
+  ``snmpsim.ber`` puts the octets together straight from the values, the
+  same octets pyasn1 makes, and hands pyasn1 any kind of value it does not
+  know. A GETBULK var-bind is encoded once, where it used to be encoded to
+  be measured and again for the message. A bulk walk and a GETNEXT walk are
+  served about 1.8 times as fast as with 2026.11.4 on CPython. Tests hold
+  the encoding to pyasn1's on edge values, random integers and OIDs, whole
+  responses, and the vectors of pyasn1's own encoder tests.
+- Required pyasn1 0.6.5 or later, and pysnmp 7.1.31 or later. pyasn1 was
+  not named at all, though the simulator imports it, and pysnmp 7.1.26 let
+  pyasn1 0.6.3 in, which decodes a crafted OBJECT IDENTIFIER in quadratic
+  time (CVE-2026-59885) and has the other decoder faults fixed in 0.6.4
+  and 0.6.5. ``uv.lock`` has pyasn1 0.6.5, and pysnmp 7.1.31 for Python
+  3.10, the last release that runs on it, 7.1.33 elsewhere.
 
 Revision 2026.11.4, released on Nov 17, 2026
 --------------------------------------------

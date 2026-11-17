@@ -68,6 +68,14 @@ def parse_args(argv=None):
         action="store_true",
         help="run the snmpsim the interpreter has installed, not this checkout",
     )
+    parser.add_argument(
+        "--responder-option",
+        metavar="OPTION",
+        action="append",
+        default=[],
+        help="pass an option on to the responder, e.g. "
+        "--responder-option=--v1-v2c-path=engine; may be given more than once",
+    )
     parser.add_argument("--port", type=int, default=11161)
     parser.add_argument("--bulk-oid", default=".1", help="subtree of the bulk walk")
     parser.add_argument(
@@ -156,7 +164,7 @@ def responder_command(args, cache_dir):
         f"--agent-udpv4-endpoint=127.0.0.1:{args.port}",
         "--log-level=error",
     ]
-    return command
+    return command + list(args.responder_option)
 
 
 def check_port_free(port):

@@ -36,22 +36,22 @@ scripts and recordings work unchanged.
 
 ## What snmpsim-ng adds
 
-Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 84 changes.
+Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 87 changes.
 Most of them are fixes: for what stopped working when pysnmp 7 renamed and reworked its API,
 and for what never worked. Every change is described in [CHANGES.rst](CHANGES.rst), also
 published as the [changelog](https://observium.github.io/snmpsim/changelog.html) of the
 documentation, and in the notes of each release. What answers differently from snmpsim 1.2.2
 is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/migrating.html).
 
-| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [2026.11.4](https://github.com/observium/snmpsim/releases/tag/2026.11.4) | Total |
-|---|--:|--:|--:|--:|--:|--:|
-| Command responders | 11 | 1 | 11 | 1 | 2 | **26** |
-| Recording tools | 3 | 2 | 5 | 1 | 0 | **11** |
-| Data files and conversion | 3 | 5 | 2 | 1 | 0 | **11** |
-| Variation modules | 0 | 10 | 2 | 1 | 0 | **13** |
-| Python, platforms and packaging | 7 | 3 | 1 | 1 | 3 | **15** |
-| Documentation | 1 | 1 | 3 | 2 | 1 | **8** |
-| **All** | **25** | **22** | **24** | **7** | **6** | **84** |
+| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [2026.11.4](https://github.com/observium/snmpsim/releases/tag/2026.11.4) | [next](CHANGES.rst) | Total |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| Command responders | 11 | 1 | 11 | 1 | 2 | 2 | **28** |
+| Recording tools | 3 | 2 | 5 | 1 | 0 | 0 | **11** |
+| Data files and conversion | 3 | 5 | 2 | 1 | 0 | 0 | **11** |
+| Variation modules | 0 | 10 | 2 | 1 | 0 | 0 | **13** |
+| Python, platforms and packaging | 7 | 3 | 1 | 1 | 3 | 1 | **16** |
+| Documentation | 1 | 1 | 3 | 2 | 1 | 0 | **8** |
+| **All** | **25** | **22** | **24** | **7** | **6** | **3** | **87** |
 
 Among them:
 
@@ -80,6 +80,9 @@ Among them:
 | 2026.11.2 | Nov 16, 2026 | 24 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.2), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-2-released-on-nov-16-2026) |
 | 2026.11.1 | Nov 15, 2026 | 22 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.1), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-1-released-on-nov-15-2026) |
 | 2026.11.0 | Nov 15, 2026 | 25 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.0), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-0-released-on-nov-15-2026) |
+
+"next" counts what is on `master` and not released yet: the topmost section of
+[CHANGES.rst](CHANGES.rst).
 
 ## The original author
 
@@ -152,8 +155,8 @@ under [What snmpsim-ng adds](#what-snmpsim-ng-adds).
 
 ### On PyPy
 
-The simulator runs unchanged on [PyPy](https://pypy.org/) 3.11, which answers two to two and a
-half times as many requests per second as CPython does (see [Performance](#performance)); the test suite
+The simulator runs unchanged on [PyPy](https://pypy.org/) 3.11, which answers 1.4 to 1.9 times
+as many requests per second as CPython does (see [Performance](#performance)); the test suite
 passes on it, and CI runs it there. `uv` fetches PyPy by itself:
 
 ```bash
@@ -279,13 +282,13 @@ an Apple M3 Max: net-snmp's `snmpbulkwalk -Cr25` over the whole recording and `s
 
 | Interpreter, responder, index | Index build and start | Bulk walk | GETNEXT walk |
 |---|--:|--:|--:|
-| CPython 3.14, full responder, gdbm | 18 s | 17,300 OIDs/s | 3,300 OIDs/s |
-| CPython 3.14, full responder through the engine, gdbm | 16 s | 14,700 OIDs/s | 2,600 OIDs/s |
-| CPython 3.14, full responder through the engine, `dbm.sqlite3` | 182 s | 15,200 OIDs/s | 2,700 OIDs/s |
-| CPython 3.14, lite responder, gdbm | 15 s | 18,800 OIDs/s | 3,300 OIDs/s |
-| PyPy 3.11, full responder, gdbm | 19 s | 38,300 OIDs/s | 8,500 OIDs/s |
-| PyPy 3.11, full responder through the engine, gdbm | 18 s | 30,500 OIDs/s | 6,500 OIDs/s |
-| PyPy 3.11, lite responder, gdbm | 19 s | 44,300 OIDs/s | 8,700 OIDs/s |
+| CPython 3.14, full responder, gdbm | 14 s | 35,200 OIDs/s | 11,400 OIDs/s |
+| CPython 3.14, full responder through the engine, gdbm | 14 s | 15,700 OIDs/s | 2,600 OIDs/s |
+| CPython 3.14, full responder through the engine, `dbm.sqlite3` | 159 s | 15,900 OIDs/s | 2,700 OIDs/s |
+| CPython 3.14, lite responder, gdbm | 15 s | 19,600 OIDs/s | 3,200 OIDs/s |
+| PyPy 3.11, full responder, gdbm | 16 s | 66,200 OIDs/s | 16,000 OIDs/s |
+| PyPy 3.11, full responder through the engine, gdbm | 16 s | 32,900 OIDs/s | 7,400 OIDs/s |
+| PyPy 3.11, lite responder, gdbm | 16 s | 47,000 OIDs/s | 8,700 OIDs/s |
 
 "Through the engine" is `--v1-v2c-path=engine`: SNMPv1/v2c sent through pysnmp's SNMPv3
 engine, as releases before 2026.11.4 did.
@@ -296,13 +299,15 @@ engine, as releases before 2026.11.4 did.
   `dbm.sqlite3` when gdbm is missing, as it is from Homebrew's Python unless
   `python-gdbm@3.x` is installed for its version; PyPy picks `dbm.ndbm` or `dbm.dumb`, see
   [On PyPy](#on-pypy).
-* Serving is bound by the CPU of a single core: the BER coding in pyasn1, the message
-  processing in pysnmp and the simulator's own lookup share it. PyPy runs all of it two to
-  two and a half times as fast without a change to the code.
-* The full responder answers SNMPv1/v2c without pysnmp's message processing, 1.2 to 1.3
-  times as fast as through the engine, with the same answers. The lite responder is faster
-  still on bulk walks, by 10 to 15%, but answers SNMPv1 and SNMPv2c only, and its `fulljson`
-  reports carry no request counters.
+* Serving is bound by the CPU of a single core. Through the engine, the BER coding in pyasn1,
+  the message processing in pysnmp and the simulator's own lookup share it; PyPy runs all of
+  it two to three times as fast.
+* The full responder answers SNMPv1/v2c without pysnmp's message processing, and encodes and
+  decodes SNMPv2c reads itself rather than in pyasn1 (`snmpsim.ber`), with the same answers:
+  about 2.2 times as fast as through the engine on a bulk walk, 4.4 times on a GETNEXT walk,
+  and faster than the lite responder, which answers SNMPv1 and SNMPv2c only and writes
+  `fulljson` reports without request counters. On PyPy the full responder is 1.4 to 1.9
+  times as fast again.
 
 To measure a recording of your own, with any interpreter and either responder:
 

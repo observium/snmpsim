@@ -16,6 +16,8 @@ import snmpsim
 
 from pyasn1.codec.ber import encoder
 
+from snmpsim import ber
+
 TITLE = """\
 SNMP Simulator version {}, written by Ilya Etingof <etingof@gmail.com>
 Using foundation libraries: pysmi {}, pysnmp {}, pyasn1 {}.
@@ -110,7 +112,7 @@ def var_bind_size(var_bind):
     name, value = var_bind
 
     # plus the tag and the length of the var-bind SEQUENCE itself
-    return len(encoder.encode(name)) + len(encoder.encode(value)) + 4
+    return len(ber.encode_oid(name)) + len(ber.encode_value(value)) + 4
 
 
 def get_bulk_var_binds(
@@ -120,6 +122,7 @@ def get_bulk_var_binds(
     max_repetitions,
     max_var_binds,
     max_response_size,
+    size=var_bind_size,
 ):
     """Produce var-binds for a GETBULK response.
 
@@ -142,16 +145,16 @@ def get_bulk_var_binds(
     else:
         rsp_var_binds = []
 
-    size = sum(var_bind_size(var_bind) for var_bind in rsp_var_binds)
+    total = sum(size(var_bind) for var_bind in rsp_var_binds)
 
     var_binds = req_var_binds[-R:]
 
     while M and R:
         for var_bind in read_next_vars(*var_binds):
-            size += var_bind_size(var_bind)
+            total += size(var_bind)
 
             # never come back empty-handed, the first var-bind always goes in
-            if size > max_response_size and rsp_var_binds:
+            if total > max_response_size and rsp_var_binds:
                 return rsp_var_binds
 
             rsp_var_binds.append(var_bind)
