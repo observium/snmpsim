@@ -443,8 +443,3 @@ are trying to monitor are welcome:
 
 Bug reports, fixes, suggestions, improvements, and your pull requests are very
 welcome!
-
-Copyright (c) 2010-2019, [Ilya Etingof](mailto:etingof@gmail.com).
-Copyright (c) 2022-2026, [LeXtudio Inc.](mailto:support@lextudio.com).
-Copyright (c) 2026, Mikhail Stupalov.
-All rights reserved.
