@@ -5,12 +5,12 @@
 #
 """SNMPv1 and SNMPv2c answered by the simulator itself.
 
-`snmpsim-command-responder` hands every message to pysnmp's SNMPv3 engine
-unless `--v1-v2c-path=fast` is given. With it, the dispatcher's routing
-callback reads the version off a message, and an SNMPv1 or SNMPv2c message
-comes here instead: no message processing model, no security model, no
-access control, which is most of what an answer costs on the engine path.
-SNMPv3 keeps going through the engine.
+`snmpsim-command-responder` reads the version off a message in the
+dispatcher's routing callback, and an SNMPv1 or SNMPv2c message comes here
+rather than to pysnmp's SNMPv3 engine: no message processing model, no
+security model, no access control, which is most of what an answer costs on
+the engine path. SNMPv3 keeps going through the engine, and so does every
+message with `--v1-v2c-path=engine`.
 
 What goes back is what the engine path would send, octet for octet: the same
 recording, the same values, the same error-status and error-index, the same

@@ -142,7 +142,12 @@ def variate(oid, tag, value, **context):
                 idx = max(0, context["varsTotal"] - context["varsRemaining"] - 1)
                 raise ERROR_TYPES[e](name=oid, idx=idx)
 
-        if moduleContext[oid]["type"].isSameTypeWith(context["origValue"]):
+        # the record's type is unconstrained, to serve what a device sent
+        # outside its range; the value written has the range of its type.
+        # They are the same type all the same
+        if moduleContext[oid]["type"].isSameTypeWith(
+            context["origValue"], matchConstraints=False
+        ):
             moduleContext["cache"][text_oid] = context["origValue"]
 
         else:

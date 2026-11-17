@@ -29,6 +29,14 @@ Changes carried by snmpsim-ng.
   index pool killed with the rest when one of them died was such a
   process. The file is now removed with the other files an index is made
   of.
+- Wrote integer values with the ``writecache`` variation module again. A
+  SET of an INTEGER, Counter32, Gauge32, TimeTicks or Counter64 was not
+  written since 2026.11.0, and was answered with noSuchInstance: the
+  record's value has the unconstrained type that serves what a device sent
+  outside the range of its type, and its type was compared, range
+  included, with that of the value set, which never matched. They are
+  compared without the range now. OCTET STRING, OBJECT IDENTIFIER, IpAddress and Opaque
+  were written all along.
 
 Revision 2026.11.5, released on Nov 17, 2026
 --------------------------------------------
