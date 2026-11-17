@@ -302,8 +302,12 @@ def v1_response(request, error_status, error_index, var_binds):
     noSuchName with its index, so the first such one is named; a Counter64
     ends the scan, with noSuchName for a GET, while for a GETNEXT it raises
     `StatusInformation` to be read past. An SNMPv2 error-status is mapped to
-    its SNMPv1 counterpart, its error-index kept. Whatever error there is, the
-    var-binds of the request are sent back as they came.
+    its SNMPv1 counterpart, its error-index kept, cut down to the number of
+    var-binds. Whatever error there is, the var-binds of the request are
+    sent back as they came. Without one, every value is made an SNMPv1 value
+    as pysnmp makes it, which raises for one out of the range of its SNMPv1
+    type - a recorded Counter32 of -1 - and the request is dropped, as the
+    engine drops it.
     """
     v1_error_status = v1_error_index = 0
 
@@ -325,14 +329,15 @@ def v1_response(request, error_status, error_index, var_binds):
 
     if error_status:
         v1_error_status = rfc2576.V2_TO_V1_ERROR_MAP.get(int(error_status), 5)
-        v1_error_index = error_index
+        v1_error_index = min(int(error_index), len(var_binds))
 
     if v1_error_status:
         return v1_error_status, v1_error_index, request.var_binds
 
     for _, value in var_binds:
-        # a value SNMPv1 has no type for: pysnmp fails on it the same way
-        rfc2576.V2_TO_V1_VALUE_MAP[value.tagSet]
+        # a value SNMPv1 has no type for, or one out of its type's range:
+        # pysnmp fails on it the same way
+        rfc2576.V2_TO_V1_VALUE_MAP[value.tagSet].clone(value)
 
     return 0, 0, var_binds
 
