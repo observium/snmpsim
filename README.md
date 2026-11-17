@@ -278,7 +278,19 @@ which is how it catches failures the retrying workflow lets through.
 Measured with [`scripts/bench_responder.py`](scripts/bench_responder.py) on one recording of
 a cable modem termination system, 188 MB with 3.29 million records, served by one process on
 an Apple M3 Max: net-snmp's `snmpbulkwalk -Cr25` over the whole recording and `snmpwalk`
-(one GETNEXT per OID) over its `.1.3.6.1.2.1.2` subtree, 27 thousand OIDs:
+(one GETNEXT per OID) over its `.1.3.6.1.2.1.2` subtree, 27 thousand OIDs.
+
+Against snmpsim 1.2.2, the release this fork started from, in OIDs per second, gdbm index:
+
+| Interpreter | Walk | snmpsim 1.2.2 | snmpsim 1.2.2 lite | snmpsim-ng 2026.11.5 | Faster than 1.2.2 / lite |
+|---|---|--:|--:|--:|--:|
+| CPython 3.14 | bulk | 14,700 | 18,800 | 35,200 | 2.4× / 1.9× |
+| CPython 3.14 | GETNEXT | 2,600 | 3,300 | 11,400 | 4.4× / 3.5× |
+| PyPy 3.11 | bulk | 30,500 | 44,300 | 66,200 | 2.2× / 1.5× |
+| PyPy 3.11 | GETNEXT | 6,500 | 8,700 | 16,000 | 2.5× / 1.8× |
+
+The 1.2.2 figures were taken on snmpsim-ng 2026.11.3, which still answered every request the
+way 1.2.2 does, through pysnmp's engine and pyasn1. In detail, with every way of running it:
 
 | Interpreter, responder, index | Index build and start | Bulk walk | GETNEXT walk |
 |---|--:|--:|--:|
