@@ -14,26 +14,21 @@ The messages are made and read here, octet for octet, SNMPv3 ones as well
 Integer32, which is served as the device sent it, and leaves the request to
 time out.
 """
-import socket
-
 import pytest
-from pyasn1.codec.ber import decoder
+import snmp_messages
 from pyasn1.codec.ber import encoder
 from pyasn1.type import univ
-from pysnmp.proto import api
 from pysnmp.proto import rfc1902
 from pysnmp.proto import rfc1905
-from pysnmp.proto.mpmod.rfc3412 import ScopedPDU
-from pysnmp.proto.mpmod.rfc3412 import SNMPv3Message
-from pysnmp.proto.secmod.rfc3414.service import UsmSecurityParameters
+from snmp_messages import V1
+from snmp_messages import V2C
+from snmp_messages import answer
+from snmp_messages import ask
+from snmp_messages import engine_id
 
 from snmpsim.grammar import unconstrained
 
 PORTS = {"fast": 1696, "engine": 1697}
-
-V1 = api.SNMP_VERSION_1
-V2C = api.SNMP_VERSION_2C
-V3 = 3
 
 # a USM user without keys: noAuthNoPriv
 V3_USER = "typer"
@@ -120,165 +115,14 @@ EDGES_RECORDING = f"""\
 """
 
 
-def pdu(pdu_type, oids, repetitions=0):
-    proto = api.PROTOCOL_MODULES[V2C]
-
-    request = getattr(proto, pdu_type)()
-
-    if pdu_type == "GetBulkRequestPDU":
-        proto.apiBulkPDU.set_defaults(request)
-        proto.apiBulkPDU.set_max_repetitions(request, repetitions)
-
-    else:
-        proto.apiPDU.set_defaults(request)
-
-    proto.apiPDU.set_request_id(request, 4242)
-    proto.apiPDU.set_varbinds(
-        request, [(rfc1902.ObjectName(oid), univ.Null("")) for oid in oids]
-    )
-
-    return request
-
-
 def message(version, pdu_type, oids, repetitions=0, community="types"):
-    if version == V2C:
-        request = pdu(pdu_type, oids, repetitions)
-
-    else:
-        proto = api.PROTOCOL_MODULES[version]
-        request = getattr(proto, pdu_type)()
-        proto.apiPDU.set_defaults(request)
-        proto.apiPDU.set_request_id(request, 4242)
-        proto.apiPDU.set_varbinds(
-            request, [(rfc1902.ObjectName(oid), univ.Null("")) for oid in oids]
-        )
-
-    proto = api.PROTOCOL_MODULES[version]
-
-    msg = proto.Message()
-    proto.apiMessage.set_defaults(msg)
-    proto.apiMessage.set_community(msg, community)
-    proto.apiMessage.set_pdu(msg, request)
-
-    return encoder.encode(msg)
+    return snmp_messages.message(version, pdu_type, oids, community, repetitions)
 
 
 def v3_message(pdu_type, oids, engine_id, repetitions=0, context="types", user=V3_USER):
-    """An SNMPv3 request, noAuthNoPriv, reportable."""
-    scoped = ScopedPDU()
-    scoped["contextEngineId"] = engine_id
-    scoped["contextName"] = context
-
-    request = pdu(pdu_type, oids, repetitions)
-    scoped["data"].setComponentByType(request.tagSet, request)
-
-    security = UsmSecurityParameters()
-    security["msgAuthoritativeEngineId"] = engine_id
-    security["msgAuthoritativeEngineBoots"] = 0
-    security["msgAuthoritativeEngineTime"] = 0
-    security["msgUserName"] = user
-    security["msgAuthenticationParameters"] = b""
-    security["msgPrivacyParameters"] = b""
-
-    msg = SNMPv3Message()
-    msg["msgVersion"] = 3
-    msg["msgGlobalData"]["msgID"] = 777
-    msg["msgGlobalData"]["msgMaxSize"] = 65507
-    msg["msgGlobalData"]["msgFlags"] = b"\x04"
-    msg["msgGlobalData"]["msgSecurityModel"] = 3
-    msg["msgSecurityParameters"] = encoder.encode(security)
-    msg["msgData"]["plaintext"] = scoped
-
-    return encoder.encode(msg)
-
-
-def ask(port, request):
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.settimeout(3)
-        sock.sendto(request, ("127.0.0.1", port))
-
-        try:
-            return sock.recv(65535)
-
-        except socket.timeout:
-            return None
-
-
-def items(octets):
-    """The BER items one after the other in `octets`: (tag, contents, whole)."""
-    offset = 0
-
-    while offset < len(octets):
-        tag = octets[offset]
-        length = octets[offset + 1]
-        start = offset + 2
-
-        if length & 0x80:
-            count = length & 0x7F
-            length = int.from_bytes(octets[start : start + count], "big")
-            start += count
-
-        yield tag, octets[start : start + length], octets[offset : start + length]
-        offset = start + length
-
-
-def scoped_pdu(response):
-    """The PDU of a response, SNMPv1, v2c or v3 (plaintext), and its tag."""
-    ((_, message, _),) = items(response)
-    parts = list(items(message))
-
-    if parts[0][1] == b"\x03":
-        # version, msgGlobalData, msgSecurityParameters, msgData
-        _, _, _, (_, scoped, _) = parts
-        _, _, (tag, contents, _) = list(items(scoped))
-
-    else:
-        # version, community, PDU
-        _, _, (tag, contents, _) = parts
-
-    return tag, contents
-
-
-def answer(response):
-    """Error-status, error-index and the var-binds of a response.
-
-    Read off the octets rather than decoded by pysnmp's message definition,
-    which refuses an INTEGER outside the range of Integer32 - and such an
-    integer is served as the device sent it. A var-bind is its OID and the
-    whole of the value's encoding.
-    """
-    _, contents = scoped_pdu(response)
-    _, (_, error_status, _), (_, error_index, _), (_, var_bind_list, _) = list(
-        items(contents)
+    return snmp_messages.v3_message(
+        pdu_type, oids, engine_id, context, user, repetitions
     )
-
-    var_binds = []
-
-    for _, var_bind, _ in items(var_bind_list):
-        (_, _, oid), (_, _, value) = items(var_bind)
-        oid, _ = decoder.decode(oid, asn1Spec=univ.ObjectIdentifier())
-        var_binds.append((str(oid), value))
-
-    return (
-        int.from_bytes(error_status, "big"),
-        int.from_bytes(error_index, "big"),
-        var_binds,
-    )
-
-
-def engine_id(port):
-    """The engine ID a responder reports to an SNMPv3 discovery."""
-    report = ask(port, v3_message("GetRequestPDU", [], b"", user=""))
-
-    assert report is not None
-
-    ((_, message, _),) = items(report)
-    _, _, _, (_, scoped, _) = list(items(message))
-    (_, context_engine_id, _), _, (tag, _, _) = list(items(scoped))
-
-    assert tag == 0xA8  # a Report-PDU
-
-    return context_engine_id
 
 
 @pytest.fixture(scope="module")
