@@ -201,7 +201,8 @@ def ask(port, request, timeout=1):
         try:
             return sock.recv(65535)
 
-        except socket.timeout:
+        # Windows tells of a port nobody listens on yet with a reset
+        except (socket.timeout, ConnectionResetError):
             return None
 
 
