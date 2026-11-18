@@ -224,6 +224,11 @@ start unless they already exist and not outdated.
 
 Default is `$TEMPDIR/snmpsim`.
 
+An index is named after the whole path of its recording, with the directory
+separators made into ``_``. Where that name is longer than 242 octets, which
+leaves room for what the dbm backends add to it within the 255 octets a file
+name may have, it is cut and ended with a hash of the whole of it.
+
 The indices are built with *gdbm* where the Python interpreter has it, as
 the *dbm.sqlite3* backend that Python 3.13 made its default writes every
 entry to the disk on its own and takes about twice as long. On Debian and

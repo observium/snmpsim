@@ -13,6 +13,13 @@ Changes carried by snmpsim-ng.
   it does not start the responder. The tests that compared the two paths
   compare the answers with those the engine gave in 2026.11.6, kept with
   them. SNMPv3 is answered through the engine as before.
+- Built the index of a recording whose path, made into the name of its
+  index, is longer than a file name may be: a recording deep in the data
+  directory or named after a long community. The index was named after the
+  whole path, with ``_`` for the separators, and could not be made, so the
+  responder did not start. Such a name is now cut to fit, with a hash of
+  the whole of it at the end; the names that fit stay as they were, and the
+  indexes built under them are still used.
 
 Revision 2026.11.6, released on Nov 18, 2026
 --------------------------------------------

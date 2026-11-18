@@ -6,6 +6,7 @@
 #
 
 import dbm
+import hashlib
 import importlib
 import os
 import sys
@@ -97,6 +98,41 @@ PART_SUFFIX = ".part"
 BERKELEY_DB_TEMP_PREFIX = "__db."
 BERKELEY_DB_SUFFIX = ".db"
 
+# The octets a file name may have on the file systems in use, and the most
+# an index name is given on top of its own: Berkeley DB's prefix and its
+# suffix to the name an index is built under, or sqlite3's journal to it.
+NAME_MAX = 255
+NAME_ADDED = max(
+    len(BERKELEY_DB_TEMP_PREFIX) + len(PART_SUFFIX) + len(BERKELEY_DB_SUFFIX),
+    len(PART_SUFFIX)
+    + max(len(suffix) for suffixes in DBM_FILES.values() for suffix in suffixes),
+)
+
+
+def index_name(name):
+    """The file name of an index named `name`, which fits into NAME_MAX.
+
+    `name` is the whole path of the recording with its separators made into
+    `_`, and with a long path, or a long community, it does not fit. Such a
+    name is cut, between characters, and ended with a hash of the whole of
+    it, so that two names cut alike stay apart and every process makes the
+    same of one. A name that fits is left as it is: the indexes built under
+    it are still found.
+    """
+    stem, extension = os.path.splitext(name)
+    encoded = os.fsencode(name)
+
+    if len(encoded) + NAME_ADDED <= NAME_MAX:
+        return name
+
+    digest = "-" + hashlib.sha256(encoded).hexdigest()[:32]
+    room = NAME_MAX - NAME_ADDED - len(os.fsencode(digest + extension))
+
+    while len(os.fsencode(stem)) > room:
+        stem = stem[:-1]
+
+    return stem + digest + extension
+
 
 class RecordIndex:
     # an open data file is looked at for changes no more often than this,
@@ -119,7 +155,7 @@ class RecordIndex:
 
         self._db_file = os.path.join(
             confdir.cache,
-            os.path.splitdrive(self._db_file)[1].replace(os.path.sep, "_"),
+            index_name(os.path.splitdrive(self._db_file)[1].replace(os.path.sep, "_")),
         )
 
         self._db = self._text = None
