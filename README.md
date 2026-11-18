@@ -43,7 +43,7 @@ published as the [changelog](https://observium.github.io/snmpsim/changelog.html)
 documentation, and in the notes of each release. What answers differently from snmpsim 1.2.2
 is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/migrating.html).
 
-| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [2026.11.4](https://github.com/observium/snmpsim/releases/tag/2026.11.4) | [2026.11.5](https://github.com/observium/snmpsim/releases/tag/2026.11.5) | [next](CHANGES.rst) | Total |
+| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [2026.11.4](https://github.com/observium/snmpsim/releases/tag/2026.11.4) | [2026.11.5](https://github.com/observium/snmpsim/releases/tag/2026.11.5) | [2026.11.6](https://github.com/observium/snmpsim/releases/tag/2026.11.6) | Total |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
 | Command responders | 11 | 1 | 11 | 1 | 2 | 7 | 2 | **35** |
 | Recording tools | 3 | 2 | 5 | 1 | 0 | 0 | 0 | **11** |
@@ -75,15 +75,13 @@ Among them:
 
 | Release | Date | Changes | Details |
 |---|---|--:|---|
+| 2026.11.6 | Nov 18, 2026 | 8 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.6), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-6-released-on-nov-18-2026) |
 | 2026.11.5 | Nov 17, 2026 | 8 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.5), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-5-released-on-nov-17-2026) |
 | 2026.11.4 | Nov 17, 2026 | 6 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.4), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-4-released-on-nov-17-2026) |
 | 2026.11.3 | Nov 16, 2026 | 7 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.3), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-3-released-on-nov-16-2026) |
 | 2026.11.2 | Nov 16, 2026 | 24 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.2), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-2-released-on-nov-16-2026) |
 | 2026.11.1 | Nov 15, 2026 | 22 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.1), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-1-released-on-nov-15-2026) |
 | 2026.11.0 | Nov 15, 2026 | 25 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.0), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-0-released-on-nov-15-2026) |
-
-"next" counts what is on `master` and not released yet: the topmost section of
-[CHANGES.rst](CHANGES.rst).
 
 ## The original author
 
@@ -131,26 +129,26 @@ with `pipx`, which keeps the simulator in an environment of its own and puts its
 your `PATH`:
 
 ```bash
-pipx install "git+https://github.com/observium/snmpsim.git@2026.11.5"
+pipx install "git+https://github.com/observium/snmpsim.git@2026.11.6"
 ```
 
 or from the release's wheel, without git:
 
 ```bash
-pipx install https://github.com/observium/snmpsim/releases/download/2026.11.5/snmpsim_ng-2026.11.5-py3-none-any.whl
+pipx install https://github.com/observium/snmpsim/releases/download/2026.11.6/snmpsim_ng-2026.11.6-py3-none-any.whl
 ```
 
 With `pip`, into the environment of your choice, or as a `uv` tool, the same specifiers work:
 
 ```bash
-pip install "git+https://github.com/observium/snmpsim.git@2026.11.5"
+pip install "git+https://github.com/observium/snmpsim.git@2026.11.6"
 ```
 
 ```bash
-uv tool install "git+https://github.com/observium/snmpsim.git@2026.11.5"
+uv tool install "git+https://github.com/observium/snmpsim.git@2026.11.6"
 ```
 
-Replace `2026.11.5` with the release you want. snmpsim-ng is not on PyPI yet, and
+Replace `2026.11.6` with the release you want. snmpsim-ng is not on PyPI yet, and
 `pip install snmpsim` installs the other release line, which has none of the changes summed up
 under [What snmpsim-ng adds](#what-snmpsim-ng-adds).
 
@@ -161,13 +159,13 @@ as many requests per second as CPython does (see [Performance](#performance)); t
 passes on it, and CI runs it there. `uv` fetches PyPy by itself:
 
 ```bash
-uv tool install --python pypy3.11 "git+https://github.com/observium/snmpsim.git@2026.11.5"
+uv tool install --python pypy3.11 "git+https://github.com/observium/snmpsim.git@2026.11.6"
 ```
 
 `pipx` takes a PyPy that is installed already, by name or path:
 
 ```bash
-pipx install --python pypy3.11 "git+https://github.com/observium/snmpsim.git@2026.11.5"
+pipx install --python pypy3.11 "git+https://github.com/observium/snmpsim.git@2026.11.6"
 ```
 
 Install the gdbm library before PyPy (`brew install gdbm` on macOS; most Linux systems have
@@ -199,18 +197,18 @@ Any commit works the same way, for example `@8c804dc`.
 An installation from git or from a wheel has no package index to compare against, so nothing
 upgrades by itself. Install the newer release over the top, with the flag which says "yes,
 replace what is there" - in the commands below, put the release you are moving to in place of
-`2026.11.5`; a wheel URL takes `--force` the same way:
+`2026.11.6`; a wheel URL takes `--force` the same way:
 
 ```bash
-pipx install --force "git+https://github.com/observium/snmpsim.git@2026.11.5"
+pipx install --force "git+https://github.com/observium/snmpsim.git@2026.11.6"
 ```
 
 ```bash
-pip install --upgrade --force-reinstall "git+https://github.com/observium/snmpsim.git@2026.11.5"
+pip install --upgrade --force-reinstall "git+https://github.com/observium/snmpsim.git@2026.11.6"
 ```
 
 ```bash
-uv tool install --force "git+https://github.com/observium/snmpsim.git@2026.11.5"
+uv tool install --force "git+https://github.com/observium/snmpsim.git@2026.11.6"
 ```
 
 `pipx` keeps packages added with `pipx inject` across a `--force` reinstall, and dependencies

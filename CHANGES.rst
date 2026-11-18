@@ -1,7 +1,7 @@
 .. current-version: 2026.11.6 (managed by bump2version)
 
-Revision 2026.11.6, unreleased
-------------------------------
+Revision 2026.11.6, released on Nov 18, 2026
+--------------------------------------------
 
 Changes carried by snmpsim-ng.
 
