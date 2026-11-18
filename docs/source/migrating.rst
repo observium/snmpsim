@@ -243,6 +243,15 @@ Variation modules
   *noSuchName*. On SET *noSuchObject* and *noSuchInstance* are
   *notWritable*, as for any variable a SET cannot write, and ``endOfMib`` is
   *genErr*.
+* A *vlist* of :ref:`writecache <variate-writecache>` or
+  :ref:`error <variate-error>` names its errors in any case, as documented:
+  ``vlist=eq:13:wrongValue`` answers *wrongValue* to a SET of 13. Only the
+  lower-case names were known; the others raised nothing, and the value
+  was written.
+* The control variable of :ref:`multiplex <variate-multiplex>` switches
+  snapshots, which a SET of it never did: it was answered with *genErr*,
+  and so was a SET of any other variable of a multiplexed subtree, which
+  is *notWritable* now.
 * :ref:`numeric <variate-numeric>` cuts ``deviation`` to a whole number,
   and its documentation states the formula the module computes. On Python
   3.12 and later a record with a ``deviation`` used to fail every request.

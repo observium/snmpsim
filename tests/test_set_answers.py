@@ -41,6 +41,19 @@ LIMITED = f"{BASE}.4.0"
 REFUSING = f"{BASE}.5.0"
 # the error module takes a SET where it is given no error for it
 ERROR_WRITABLE = f"{BASE}.6.0"
+# the errors of a vlist are named in any case
+WRITECACHE_BUT_13 = f"{BASE}.6.1"
+ERROR_BUT_13 = f"{BASE}.6.2"
+# multiplex serves the subtree from the snapshot the control variable names
+MULTIPLEXED = f"{BASE}.7"
+CONTROL = f"{MULTIPLEXED}.999"
+FROM_SNAPSHOT = f"{MULTIPLEXED}.1.0"
+SNAPSHOTS = ("00000", "00001")
+# another recording with a multiplexed subtree at the same OID, of one
+# snapshot, and one switched by time
+OTHER_CONTEXT = "multiplexed-too"
+TIMED = f"{BASE}.8"
+FROM_TIMED = f"{TIMED}.1.0"
 BETWEEN = f"{BASE}.1.5"
 BELOW_A_RECORD = f"{READ_ONLY}.1"
 PAST_THE_END = f"{BASE}.99.0"
@@ -53,12 +66,14 @@ RECORDING = f"""\
 {LIMITED}|2:writecache|value=1,vlist=lt:0:wrongvalue
 {REFUSING}|4:writecache|value=kept,op=set,status=notwritable
 {ERROR_WRITABLE}|4:error|value=open
+{WRITECACHE_BUT_13}|2:writecache|value=1,vlist=eq:13:wrongValue
+{ERROR_BUT_13}|2:error|vlist=eq:13:WrongValue,value=1
 """
 
-NOT_WRITABLE, WRONG_TYPE = 17, 7
+NOT_WRITABLE, WRONG_TYPE, WRONG_VALUE = 17, 7, 10
 NO_SUCH_NAME, BAD_VALUE = 2, 3
 
-V1_ERRORS = {NOT_WRITABLE: NO_SUCH_NAME, WRONG_TYPE: BAD_VALUE}
+V1_ERRORS = {NOT_WRITABLE: NO_SUCH_NAME, WRONG_TYPE: BAD_VALUE, WRONG_VALUE: BAD_VALUE}
 
 TEXT = rfc1902.OctetString(b"text")
 NUMBER = rfc1902.Integer32(5)
@@ -72,7 +87,24 @@ VERSIONS = pytest.mark.parametrize("version", [V1, V2C, V3], ids=["v1", "v2c", "
 @pytest.fixture(scope="module")
 def responder(tmp_path_factory, responder_process):
     data = tmp_path_factory.mktemp("data")
-    (data / f"{CONTEXT}.snmprec").write_text(RECORDING)
+    snapshots = tmp_path_factory.mktemp("snapshots")
+
+    for name in SNAPSHOTS:
+        (snapshots / f"{name}.snmprec").write_text(f"{FROM_SNAPSHOT}|4|from {name}\n")
+
+    (data / f"{CONTEXT}.snmprec").write_text(
+        RECORDING + f"{MULTIPLEXED}|:multiplex|dir={snapshots},control={CONTROL}\n"
+    )
+
+    other = tmp_path_factory.mktemp("other-snapshots")
+    (other / "00000.snmprec").write_text(
+        f"{FROM_SNAPSHOT}|4|other 00000\n{FROM_TIMED}|4|timed 00000\n"
+    )
+
+    (data / f"{OTHER_CONTEXT}.snmprec").write_text(
+        f"{MULTIPLEXED}|:multiplex|dir={other},control={CONTROL}\n"
+        f"{TIMED}|:multiplex|dir={other},period=100000\n"
+    )
 
     with responder_process(
         f"--data-dir={data}",
@@ -203,9 +235,9 @@ def test_the_data_index_is_not_writable(responder, version):
     )
 
 
-def read(responder, oid):
+def read(responder, oid, context=CONTEXT):
     _, _, ((_, value),) = answer(
-        ask(PORT, message(V2C, "GetRequestPDU", [oid], CONTEXT))
+        ask(PORT, message(V2C, "GetRequestPDU", [oid], context))
     )
 
     return value
@@ -239,3 +271,110 @@ def test_a_refusing_record_is_not_written(responder):
     set_request(responder, V2C, [(REFUSING, TEXT)])
 
     assert read(responder, REFUSING) == encoder.encode(rfc1902.OctetString(b"kept"))
+
+
+@VERSIONS
+@pytest.mark.parametrize("oid", [WRITECACHE_BUT_13, ERROR_BUT_13])
+def test_a_value_list_names_its_error_in_any_case(responder, version, oid):
+    var_binds = [(oid, rfc1902.Integer32(13))]
+
+    assert set_request(responder, version, var_binds) == refused(
+        version, WRONG_VALUE, 1, var_binds
+    )
+
+
+@VERSIONS
+@pytest.mark.parametrize("snapshot", [1, 0])
+def test_the_control_variable_switches_the_snapshot(responder, version, snapshot):
+    var_binds = [(CONTROL, rfc1902.Integer32(snapshot))]
+
+    assert set_request(responder, version, var_binds) == (
+        0,
+        0,
+        [(CONTROL, encoder.encode(rfc1902.Integer32(snapshot)))],
+    )
+
+    assert read(responder, CONTROL) == encoder.encode(rfc1902.Integer32(snapshot))
+    assert read(responder, FROM_SNAPSHOT) == encoder.encode(
+        rfc1902.OctetString(f"from {SNAPSHOTS[snapshot]}".encode())
+    )
+
+
+@VERSIONS
+@pytest.mark.parametrize(
+    "value, error_status",
+    [
+        (rfc1902.Integer32(len(SNAPSHOTS)), WRONG_VALUE),
+        (rfc1902.Integer32(-1), WRONG_VALUE),
+        (TEXT, WRONG_TYPE),
+        (rfc1902.Gauge32(1), WRONG_TYPE),
+    ],
+    ids=["past-the-snapshots", "negative", "string", "gauge"],
+)
+def test_the_control_variable_takes_the_place_of_a_snapshot_only(
+    responder, version, value, error_status
+):
+    before = read(responder, CONTROL)
+    var_binds = [(CONTROL, value)]
+
+    assert set_request(responder, version, var_binds) == refused(
+        version, error_status, 1, var_binds
+    )
+
+    assert read(responder, CONTROL) == before
+
+
+@VERSIONS
+def test_a_switch_in_a_set_that_fails_is_taken_back(responder, version):
+    set_request(responder, version, [(CONTROL, rfc1902.Integer32(0))])
+
+    var_binds = [(CONTROL, rfc1902.Integer32(1)), (READ_ONLY, TEXT)]
+
+    assert set_request(responder, version, var_binds) == refused(
+        version, NOT_WRITABLE, 2, var_binds
+    )
+
+    assert read(responder, CONTROL) == encoder.encode(rfc1902.Integer32(0))
+
+
+@VERSIONS
+def test_the_rest_of_the_multiplexed_subtree_is_not_writable(responder, version):
+    var_binds = [(FROM_SNAPSHOT, TEXT)]
+
+    assert set_request(responder, version, var_binds) == refused(
+        version, NOT_WRITABLE, 1, var_binds
+    )
+
+
+@VERSIONS
+def test_a_multiplex_error_names_its_own_variable(responder, version):
+    var_binds = [(WRITABLE, TEXT), (CONTROL, rfc1902.Integer32(len(SNAPSHOTS)))]
+
+    assert set_request(responder, version, var_binds) == refused(
+        version, WRONG_VALUE, 2, var_binds
+    )
+
+
+def test_a_switch_is_made_in_its_own_recording_only(responder):
+    # the other recording has one snapshot: the place of the second one
+    # would be past its end
+    set_request(responder, V2C, [(CONTROL, rfc1902.Integer32(1))])
+
+    assert read(responder, CONTROL, OTHER_CONTEXT) == encoder.encode(
+        rfc1902.Integer32(0)
+    )
+    assert read(responder, FROM_SNAPSHOT, OTHER_CONTEXT) == encoder.encode(
+        rfc1902.OctetString(b"other 00000")
+    )
+    assert read(responder, FROM_TIMED, OTHER_CONTEXT) == encoder.encode(
+        rfc1902.OctetString(b"timed 00000")
+    )
+
+
+@VERSIONS
+def test_a_subtree_switched_by_time_is_not_writable(responder, version):
+    var_binds = [(FROM_TIMED, TEXT)]
+
+    assert set_request(responder, version, var_binds, OTHER_CONTEXT) == refused(
+        version, NOT_WRITABLE, 1, var_binds
+    )

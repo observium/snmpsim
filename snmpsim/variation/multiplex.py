@@ -12,6 +12,7 @@ import os
 import time
 
 from pysnmp.proto import rfc1902
+from pysnmp.smi import error as smi_error
 
 from snmpsim import confdir
 from snmpsim import error
@@ -175,48 +176,66 @@ def variate(oid, tag, value, **context):
     if "ready" not in recordContext:
         return context["origOid"], tag, context["errorStatus"]
 
-    if oid not in moduleContext:
-        moduleContext[oid] = {}
+    # which snapshot this recording serves the subtree from: the module is
+    # shared by every recording, which may have a record at the same OID
+    state = recordContext.setdefault("served", {})
 
     if context["setFlag"]:
-        if "control" in (
-            recordContext["settings"]
-            and recordContext["settings"]["control"] == context["origOid"]
-        ):
-            fileno = int(context["origValue"])
-            if fileno >= len(recordContext["keys"]):
-                log.info(
-                    "multiplex: .snmprec file number %s over limit of"
-                    " %s" % (fileno, len(recordContext["keys"]))
-                )
+        settings = recordContext["settings"]
 
-                return context["origOid"], tag, context["errorStatus"]
-
-            moduleContext[oid]["fileno"] = fileno
-
-            log.info(
-                "multiplex: switched to file #%s "
-                "(%s)"
-                % (
-                    recordContext["keys"][fileno],
-                    recordContext["dirmap"][recordContext["keys"][fileno]],
-                )
-            )
-
-            return context["origOid"], tag, context["origValue"]
-
-        else:
+        if "control" not in settings or settings["control"] != context["origOid"]:
             return context["origOid"], tag, context["errorStatus"]
 
+        idx = max(0, context["varsTotal"] - context["varsRemaining"] - 1)
+
+        # the control variable is an INTEGER, the place of a snapshot among
+        # them: anything else could never be set (RFC 3416, 4.2.5)
+        if context["origValue"].tagSet != rfc1902.Integer32.tagSet:
+            raise smi_error.WrongTypeError(name=context["origOid"], idx=idx)
+
+        fileno = int(context["origValue"])
+
+        if not 0 <= fileno < len(recordContext["keys"]):
+            log.info(
+                "multiplex: .snmprec file number %s out of the range of"
+                " %s" % (fileno, len(recordContext["keys"]))
+            )
+
+            raise smi_error.WrongValueError(name=context["origOid"], idx=idx)
+
+        # taken back should a variable after this one fail the SET
+        undo = context.get("setUndo")
+
+        if undo is not None:
+            if "fileno" in state:
+                previous = state["fileno"]
+                undo.append(lambda: state.__setitem__("fileno", previous))
+
+            else:
+                undo.append(lambda: state.pop("fileno", None))
+
+        state["fileno"] = fileno
+
+        log.info(
+            "multiplex: switched to file #%s "
+            "(%s)"
+            % (
+                recordContext["keys"][fileno],
+                recordContext["dirmap"][recordContext["keys"][fileno]],
+            )
+        )
+
+        return context["origOid"], tag, context["origValue"]
+
     if "control" in recordContext["settings"]:
-        if "fileno" not in moduleContext[oid]:
-            moduleContext[oid]["fileno"] = 0
+        if "fileno" not in state:
+            state["fileno"] = 0
 
         if (
             not context["nextFlag"]
             and recordContext["settings"]["control"] == context["origOid"]
         ):
-            val = rfc1902.Integer32(moduleContext[oid]["fileno"])
+            val = rfc1902.Integer32(state["fileno"])
 
             return context["origOid"], tag, val
 
@@ -231,42 +250,37 @@ def variate(oid, tag, value, **context):
         fileno = bisect.bisect(recordContext["keys"], fileslot) - 1
 
         if (
-            "fileno" not in moduleContext[oid]
-            or moduleContext[oid]["fileno"] < fileno
+            "fileno" not in state
+            or state["fileno"] < fileno
             or recordContext["settings"]["wrap"]
         ):
-            moduleContext[oid]["fileno"] = fileno
+            state["fileno"] = fileno
 
-    datafile = recordContext["dirmap"][
-        recordContext["keys"][moduleContext[oid]["fileno"]]
-    ]
+    datafile = recordContext["dirmap"][recordContext["keys"][state["fileno"]]]
 
     parser = recordContext["parsermap"][datafile]
 
-    if (
-        "datafile" not in moduleContext[oid]
-        or moduleContext[oid]["datafile"] != datafile
-    ):
-        if "datafileobj" in moduleContext[oid]:
-            moduleContext[oid]["datafileobj"].close()
+    if "datafile" not in state or state["datafile"] != datafile:
+        if "datafileobj" in state:
+            state["datafileobj"].close()
 
         recordIndex = RecordIndex(datafile, parser).create()
 
-        moduleContext[oid]["datafileobj"] = recordIndex
+        state["datafileobj"] = recordIndex
 
-        moduleContext[oid]["datafile"] = datafile
+        state["datafile"] = datafile
 
         log.info(
             "multiplex: switching to data file %s for "
             "%s" % (datafile, context["origOid"])
         )
 
-    text, db = moduleContext[oid]["datafileobj"].get_handles()
+    text, db = state["datafileobj"].get_handles()
 
     textOid = str(rfc1902.OctetString(".".join(["%s" % x for x in context["origOid"]])))
 
     try:
-        line = moduleContext[oid]["datafileobj"].lookup(textOid)
+        line = state["datafileobj"].lookup(textOid)
 
     except KeyError:
         offset = search_record_by_oid(context["origOid"], text, parser)

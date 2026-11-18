@@ -666,6 +666,14 @@ The following command will switch multiplex module to use the first
 
     $ snmpset -v2c -c variation/multiplex localhost 1.3.6.1.2.1.2.999 i 0
 
+The control OID has to be in the subtree of the record, and it is not
+walked. It takes an INTEGER, the place of a snapshot in the order of their
+numbers, counted from 0: with *00000.snmprec* and *00005.snmprec*, 1 is the
+second one. A GET of it tells the place of the snapshot served. A SET of a
+number outside the snapshots is answered with *wrongValue*, of a value of
+another type with *wrongType*, and a SET of the rest of the subtree with
+*notWritable*. Each recording keeps the place of its own snapshot.
+
 Whenever *control* OID is present in multiplex module options, the
 time-based multiplexing will not be used.
 

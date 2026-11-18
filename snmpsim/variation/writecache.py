@@ -80,6 +80,9 @@ def variate(oid, tag, value, **context):
             while recordContext["settings"]["vlist"]:
                 o, v, e = recordContext["settings"]["vlist"][:3]
 
+                # the names of the errors are not case-sensitive
+                e = e.lower()
+
                 vl = recordContext["settings"]["vlist"][3:]
                 recordContext["settings"]["vlist"] = vl
 

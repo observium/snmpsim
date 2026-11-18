@@ -45,11 +45,11 @@ Changes carried by snmpsim-ng.
 - Answered a SET that cannot be done with the error that says why, and
   made it change nothing, as net-snmp's snmpd does (RFC 3416, 4.2.5).
   A variable the recording does not hold, or holds in a plain record,
-  which is read-only, is notWritable, and so is a variable of the data index or
-  one a variation module does not write - ``numeric`` always, ``sql`` for
-  a row that is not read-write, a misconfigured ``notification`` or
-  ``redis`` record. A value of another type than that of
-  a ``writecache`` record is wrongType, as it is for ``redis``, where it
+  which is read-only, is notWritable, and so is a variable of the data
+  index or one a variation module does not write - ``numeric`` always,
+  ``sql`` for a row that is not read-write, a misconfigured
+  ``notification`` or ``redis`` record. A value of another type than that
+  of a ``writecache`` record is wrongType, as it is for ``redis``, where it
   was wrongValue; ``writecache`` checks a ``status`` it is given before
   the type, and the type before its ``vlist``. A record that cannot be
   read is genErr. The error names the first variable of the request that
@@ -63,8 +63,24 @@ Changes carried by snmpsim-ng.
   when the whole of it is done, where it committed at the last variable
   of the request only if that variable was its own, and otherwise left
   the transaction open, for a later failed request to roll back; a commit
-  that fails is commitFailed, and the SET keeps nothing. A ``writecache`` record with
-  a ``status`` for SET no longer takes the value it refuses.
+  that fails is commitFailed, and the SET keeps nothing. A ``writecache``
+  record with a ``status`` for SET no longer takes the value it refuses.
+- Made the control variable of the ``multiplex`` variation module
+  switch snapshots. The test that a SET was of the control variable was
+  written so that it failed every time, and a SET of it, or of any other
+  variable of the subtree, in time-based mode too, was answered with
+  genErr. The control variable takes an INTEGER, the place of a snapshot
+  in the order of their numbers, from 0: a number outside the snapshots
+  is wrongValue, any other type wrongType, and a switch in a SET that
+  fails is taken back. A SET of the rest of the subtree is notWritable.
+  The snapshot served is kept for each recording: it was kept for the
+  OID of the record, and a switch in one recording switched every other
+  one with a record at that OID, or left it serving nothing when it had
+  fewer snapshots.
+- Took the names of the errors in a ``vlist`` of the ``writecache`` and
+  ``error`` variation modules in any case, as the documentation says.
+  ``vlist=eq:13:wrongValue`` raised nothing and let the value be
+  written: only ``wrongvalue`` was known.
 
 Revision 2026.11.5, released on Nov 17, 2026
 --------------------------------------------
