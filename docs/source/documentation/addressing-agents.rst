@@ -14,9 +14,8 @@ SNMP managers differently.
 SNMPv1 and SNMPv2c
 ------------------
 
-SNMPv1 and SNMPv2c requests are answered without the SNMPv3 framework
-(with the default ``--v1-v2c-path=fast``, and always by
-*snmpsim-command-responder-lite*). That implies that SNMPv3 infrastructure
+SNMPv1 and SNMPv2c requests are answered without the SNMPv3 framework.
+That implies that SNMPv3 infrastructure
 can't be used for agent addressing.
 
 For such a request, SNMP Simulator attempts to find a *.snmprec* file to
@@ -80,9 +79,7 @@ can be handled.
 
 The same filesystem mapping rules apply to SNMP community name, but also to SNMPv3
 context name. The path to .snmprec file for fulfilling response is probed at these
-locations in the following order (for SNMPv1/v2c with the default
-``--v1-v2c-path=fast``; with ``--v1-v2c-path=engine`` a community is served
-only by a recording of exactly its name):
+locations in the following order:
 
 1. *context-engine-id / context-name / transport-ID / source-address* .snmprec
 2. *context-engine-id / context-name / transport-ID* .snmprec

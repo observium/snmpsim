@@ -1,4 +1,18 @@
-.. current-version: 2026.11.6 (managed by bump2version)
+.. current-version: 2026.11.7 (managed by bump2version)
+
+Revision 2026.11.7, unreleased
+------------------------------
+
+Changes carried by snmpsim-ng.
+
+- Removed ``--v1-v2c-path`` from ``snmpsim-command-responder``. SNMPv1 and
+  SNMPv2c are answered by the simulator itself, as they have been by
+  default since 2026.11.4; ``--v1-v2c-path=engine``, which sent them
+  through pysnmp's SNMPv3 engine as before, was there to compare the two,
+  and two releases have found no difference. A command line that still has
+  it does not start the responder. The tests that compared the two paths
+  compare the answers with those the engine gave in 2026.11.6, kept with
+  them. SNMPv3 is answered through the engine as before.
 
 Revision 2026.11.6, released on Nov 18, 2026
 --------------------------------------------

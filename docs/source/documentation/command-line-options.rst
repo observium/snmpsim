@@ -129,8 +129,17 @@ SNMP command responders
 -----------------------
 
 SNMP Simulator runs as *snmpsim-command-responder*. It answers every SNMP
-version, SNMPv1 and SNMPv2c without pysnmp's SNMPv3 engine (see
-*--v1-v2c-path*).
+version: SNMPv1 and SNMPv2c by itself, SNMPv3 through pysnmp's SNMPv3
+engine. Up to 2026.11.6 *--v1-v2c-path=engine* sent SNMPv1 and SNMPv2c
+through the engine as well, as every release before 2026.11.4 did; the
+option is gone, and the responder does not start with it. SNMPv1 and SNMPv2c
+are answered as the engine answered them: the same values, error-status and
+error-index, the same SNMPv1 translation, the same *GETBULK* cut, the same
+call context for variation modules and activity reports, about 2.2 times as
+fast on a bulk walk and 4.4 times on a GETNEXT walk (CPython 3.14). The
+recording is chosen as :ref:`addressing-simulation-data` describes, by
+community, transport and source address, where the engine served only a
+recording named exactly like the community.
 
 *snmpsim-command-responder-lite* is the name of what used to be a
 lightweight command responder of its own, for SNMPv1 and SNMPv2c. Since
@@ -540,28 +549,6 @@ at startup.
 
 Default is to answer SNMPv1, SNMPv2c and SNMPv3.
 
-
-**--v1-v2c-path**
-+++++++++++++++++
-
-How SNMPv1 and SNMPv2c requests are answered. With *fast*, the default, the
-simulator answers them itself; with *engine* they go through pysnmp's SNMPv3
-engine, as every release before 2026.11.4 did. SNMPv3 always goes through
-the engine.
-
-Both answer alike: the same values, error-status and error-index, the same
-SNMPv1 translation, the same *GETBULK* cut, and the same call context for
-variation modules and activity reports. *fast* skips the message processing,
-security and access control models of the engine, encodes and decodes
-SNMPv1 and SNMPv2c reads itself rather than in pyasn1, and serves a bulk walk about
-2.2 times as fast, a GETNEXT walk about 4.4 times (CPython 3.14). It also chooses the
-recording as :ref:`addressing-simulation-data` describes, by community,
-transport and source address; *engine* serves only a recording named exactly
-like the community. *engine* is there for one release, in case something
-answers differently after all.
-
-With *--v3-only* there is nothing to answer SNMPv1/v2c with, and the option
-makes no difference.
 
 **--index-workers**
 +++++++++++++++++++

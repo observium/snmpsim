@@ -9,16 +9,17 @@
 dispatcher's routing callback, and an SNMPv1 or SNMPv2c message comes here
 rather than to pysnmp's SNMPv3 engine: no message processing model, no
 security model, no access control, which is most of what an answer costs on
-the engine path. SNMPv3 keeps going through the engine, and so does every
-message with `--v1-v2c-path=engine`.
+the engine path. SNMPv3 keeps going through the engine, and so does a
+message this module cannot read.
 
-What goes back is what the engine path would send, octet for octet: the same
-recording, the same values, the same error-status and error-index, the same
-SNMPv1 translation (RFC 3584, as pysnmp makes it), the same GETBULK cut, and the
-same call context for variation modules and activity reports. One thing is
-done as the documentation says rather than as the engine path does: a
-recording is chosen by the community, the transport the request came in by
-and the manager's address, the most specific one first
+What goes back is what the engine sent octet for octet, as long as
+`--v1-v2c-path=engine` could still ask for it (up to 2026.11.6; the tests keep
+those answers): the same recording, the same values, the same error-status and
+error-index, the same SNMPv1 translation (RFC 3584, as pysnmp makes it), the
+same GETBULK cut, and the same call context for variation modules and activity
+reports. One thing is done as the documentation says rather than as the engine
+did: a recording is chosen by the community, the transport the request came in
+by and the manager's address, the most specific one first
 (`datafile.probe_context`).
 
 pyasn1 is touched in two functions only, `decode_request()` and

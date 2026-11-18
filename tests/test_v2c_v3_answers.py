@@ -119,8 +119,6 @@ def responder(tmp_path_factory, responder_process):
     with responder_process(
         f"--data-dir={data}",
         f"--cache-dir={tmp_path_factory.mktemp('cache')}",
-        # SNMPv1/v2c on the fast path, whatever the default
-        "--v1-v2c-path=fast",
         f"--v3-user={V3_USER}",
         port=PORT,
         oid=PLAIN,

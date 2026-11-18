@@ -2,12 +2,12 @@
 
 A recording with each type `.snmprec` knows - the SMIv2 ones, Opaque and
 Counter64, the three exceptions - in the plain, the hex (`x`) and the escaped
-(`e`) forms, with the values at the edges of each type's range. The engine
-path is the reference: each value has to come back as the octets the value
-of its type encodes to, and the fast path has to answer every request the
-way the engine path does, SNMPv1 included, where Counter64 and the
-exceptions have no place. SNMPv3, which always goes through the engine, has
-to serve every value as SNMPv2c does.
+(`e`) forms, with the values at the edges of each type's range. Each value
+has to come back as the octets the value of its type encodes to, and every
+SNMPv1/v2c request has to be answered the way pysnmp's engine answered it up
+to 2026.11.6 (`engine_answers.py`), SNMPv1 included, where Counter64 and the
+exceptions have no place. SNMPv3, which goes through the engine, has to serve
+every value as SNMPv2c does.
 
 The messages are made and read here, octet for octet, SNMPv3 ones as well
 (noAuthNoPriv): pysnmp's own client refuses an INTEGER outside the range of
@@ -16,6 +16,7 @@ time out.
 """
 import pytest
 import snmp_messages
+from engine_answers import engine_answer
 from pyasn1.codec.ber import encoder
 from pyasn1.type import univ
 from pysnmp.proto import rfc1902
@@ -28,7 +29,7 @@ from snmp_messages import engine_id
 
 from snmpsim.grammar import unconstrained
 
-PORTS = {"fast": 1696, "engine": 1697}
+PORT = 1696
 
 # a USM user without keys: noAuthNoPriv
 V3_USER = "typer"
@@ -133,34 +134,25 @@ def responders(tmp_path_factory, responder_process):
 
     with responder_process(
         f"--data-dir={data}",
-        f"--cache-dir={tmp_path_factory.mktemp('fast-cache')}",
-        "--v1-v2c-path=fast",
+        f"--cache-dir={tmp_path_factory.mktemp('cache')}",
         # the long string and all the others in one GETBULK response
         "--max-message-size=65000",
         f"--v3-user={V3_USER}",
-        port=PORTS["fast"],
-        oid=OIDS[0],
-        community="types",
-    ), responder_process(
-        f"--data-dir={data}",
-        f"--cache-dir={tmp_path_factory.mktemp('engine-cache')}",
-        "--v1-v2c-path=engine",
-        "--max-message-size=65000",
-        f"--v3-user={V3_USER}",
-        port=PORTS["engine"],
+        port=PORT,
         oid=OIDS[0],
         community="types",
     ):
-        yield {path: engine_id(port) for path, port in PORTS.items()}
+        yield engine_id(PORT)
 
 
 def both(request):
-    fast, engine = ask(PORTS["fast"], request), ask(PORTS["engine"], request)
+    """The answer to an SNMPv1/v2c request, which must be the engine's."""
+    response, engine = ask(PORT, request), engine_answer(request)
 
     assert engine is not None
-    assert fast == engine
+    assert response == engine
 
-    return engine
+    return response
 
 
 @pytest.mark.parametrize(
@@ -300,23 +292,10 @@ def test_get_of_a_recorded_exception_answers_with_it(responders):
 
 
 def both_v3(responders, pdu_type, oids, repetitions=0, context="types"):
-    """The answer of both responders to an SNMPv3 request, which must agree.
-
-    Each has an engine ID of its own, so the messages differ; what they
-    carry must not.
-    """
-    answers = [
-        answer(
-            ask(
-                port, v3_message(pdu_type, oids, responders[path], repetitions, context)
-            )
-        )
-        for path, port in PORTS.items()
-    ]
-
-    assert answers[0] == answers[1]
-
-    return answers[0]
+    """The answer to an SNMPv3 request, which the engine answers."""
+    return answer(
+        ask(PORT, v3_message(pdu_type, oids, responders, repetitions, context))
+    )
 
 
 @pytest.mark.parametrize(

@@ -139,8 +139,10 @@ The responders
   ``public.snmprec`` and ``public/<transport-ID>/<address>.snmprec`` are
   there, a manager at that address now gets the second one.
 * SNMPv1 and SNMPv2c are answered without pysnmp's SNMPv3 engine, the same
-  answers faster. ``--v1-v2c-path=engine`` sends them through it as before;
-  see :doc:`/documentation/command-line-options`.
+  answers faster; see :doc:`/documentation/command-line-options`. The
+  ``--v1-v2c-path`` option, with which 2026.11.4 to 2026.11.6 could still
+  send them through the engine, is gone: a command line that still has it does not start the
+  responder, so take it out before upgrading.
 * ``--daemonize``, ``--reporting-method`` and
   ``snmpsim-command-responder-lite`` work, which they did not on pysnmp 7.
   ``--reporting-method`` takes a directory with a drive letter, and the

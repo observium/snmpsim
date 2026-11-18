@@ -105,11 +105,11 @@ def test_options_are_passed_on_to_the_responder(tmp_path):
         [
             f"--data-dir={DATA_DIR}",
             "--community=public",
-            "--responder-option=--v1-v2c-path=engine",
+            "--responder-option=--max-open-data-files=8",
             "--responder-option=--max-var-binds=10",
         ]
     )
 
     command = bench.responder_command(args, str(tmp_path))
 
-    assert command[-2:] == ["--v1-v2c-path=engine", "--max-var-binds=10"]
+    assert command[-2:] == ["--max-open-data-files=8", "--max-var-binds=10"]

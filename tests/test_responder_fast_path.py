@@ -1,12 +1,16 @@
-"""SNMPv1 and SNMPv2c answered by the simulator itself, as the engine answers them.
+"""SNMPv1 and SNMPv2c answered by the simulator itself, as the engine answered them.
 
-`--v1-v2c-path=fast` answers SNMPv1/v2c requests without pysnmp's SNMPv3
-engine, `--v1-v2c-path=engine` sends them through it, as every release before
-did. The engine path is the reference: the same raw request sent to a
-responder on each path must come back as the same octets.
+Up to 2026.11.6 `--v1-v2c-path=engine` sent SNMPv1/v2c requests through
+pysnmp's SNMPv3 engine, as every release before 2026.11.4 did, and that was
+the reference: the same raw request sent to a responder on each path had to
+come back as the same octets. The option is gone; what the engine answered is
+kept in data/engine-answers.json (see engine_answers.py), and the answers of
+today have to be those octets.
 """
+import ast
 import hashlib
 import json
+import os
 import socket
 import time
 
@@ -17,10 +21,12 @@ from pyasn1.type import univ
 from pysnmp.proto import api
 from pysnmp.proto import rfc1902
 
+from engine_answers import engine_answer
+from engine_answers import engine_value
+
 from snmpsim import ber
 
 FAST_PORT = 1692
-ENGINE_PORT = 1693
 
 V1 = api.SNMP_VERSION_1
 V2C = api.SNMP_VERSION_2C
@@ -60,11 +66,20 @@ def init(**context):
     moduleContext["path"] = context["options"]
 
 
+def shown(value):
+    # a pyasn1 value by its class and value, which do not change with the
+    # pyasn1 release as its repr() may
+    if hasattr(value, "prettyPrint"):
+        return "%s:%s" % (value.__class__.__name__, value.prettyPrint())
+
+    return repr(value)
+
+
 def variate(oid, tag, value, **context):
     if not context["nextFlag"] and not context["exactMatch"]:
         return context["origOid"], tag, context["errorStatus"]
 
-    seen = {key: repr(context.get(key)) for key in CALL_KEYS}
+    seen = {key: shown(context.get(key)) for key in CALL_KEYS}
 
     # the peer's port differs from one request to the next, its host does not;
     # the two responders listen on ports of their own
@@ -175,7 +190,7 @@ def show(version, response):
     )
 
 
-# requests whose answers the two paths must agree on octet for octet
+# requests whose answers have to be what the engine answered, octet for octet
 SAME = [
     ("v2c GET", V2C, "plain", "GetRequestPDU", [(SYS_NAME, None)], {}),
     ("v1 GET", V1, "plain", "GetRequestPDU", [(SYS_NAME, None)], {}),
@@ -486,32 +501,24 @@ def variation_dir(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def responders(recordings, variation_dir, tmp_path_factory, responder_process):
-    """One responder on each path, over the same recordings.
+    """A responder over the recordings.
 
-    Returns where each wrote down the contexts its variation modules saw and
-    where each keeps its activity reports.
+    Returns where the recordings are, and where it writes down the contexts
+    its variation modules saw and keeps its activity reports.
     """
-    seen = {}
-
-    def options(path):
-        scratch = tmp_path_factory.mktemp(path)
-        seen[path] = scratch
-
-        return (
-            f"--data-dir={recordings}",
-            f"--cache-dir={scratch / 'cache'}",
-            f"--variation-modules-dir={variation_dir}",
-            f"--variation-module-options=ctxrec:{scratch / 'contexts'}",
-            f"--reporting-method=fulljson:{scratch / 'reports'}:1",
-            f"--v1-v2c-path={path}",
-        )
+    scratch = tmp_path_factory.mktemp("fast")
 
     with responder_process(
-        *options("fast"), port=FAST_PORT, oid=SYS_NAME, community="plain"
-    ), responder_process(
-        *options("engine"), port=ENGINE_PORT, oid=SYS_NAME, community="plain"
+        f"--data-dir={recordings}",
+        f"--cache-dir={scratch / 'cache'}",
+        f"--variation-modules-dir={variation_dir}",
+        f"--variation-module-options=ctxrec:{scratch / 'contexts'}",
+        f"--reporting-method=fulljson:{scratch / 'reports'}:1",
+        port=FAST_PORT,
+        oid=SYS_NAME,
+        community="plain",
     ):
-        yield seen
+        yield {"recordings": recordings, "scratch": scratch}
 
 
 @pytest.mark.parametrize(
@@ -519,22 +526,37 @@ def responders(recordings, variation_dir, tmp_path_factory, responder_process):
     [case[1:] for case in SAME],
     ids=[case[0] for case in SAME],
 )
-def test_both_paths_answer_alike(
+def test_answers_are_what_the_engine_answered(
     responders, version, community, pdu_type, var_binds, bulk
 ):
     request = message(version, community, pdu_type, var_binds, **bulk)
 
-    engine = ask(ENGINE_PORT, request)
     fast = ask(FAST_PORT, request)
+
+    if community == "index":
+        # The data index names the recordings by where they are, in the
+        # order the directory is listed in, which is the file system's: the
+        # first row has to be one of them, in the form the engine answered
+        name = next(case[0] for case in SAME if case[1:3] == (version, community))
+        shown = show(version, fast).replace(str(responders["recordings"]), "<data>")
+        head, recording = shown.split("<data>/")
+        engine_head, engine_recording = engine_value(f"{name} answer").split("<data>/")
+
+        assert head == engine_head
+        assert recording.endswith(".snmprec")
+        assert (responders["recordings"] / recording).is_file()
+        return
+
+    engine = engine_answer(request)
 
     assert show(version, fast) == show(version, engine)
     assert fast == engine
 
 
-def test_octets_past_the_message_are_dropped_on_both_paths(responders):
+def test_octets_past_the_message_are_dropped(responders):
     request = message(V2C, "plain", "GetRequestPDU", [(SYS_NAME, None)]) + b"\x00\x00"
 
-    assert ask(ENGINE_PORT, request) is None
+    # as the engine dropped them
     assert ask(FAST_PORT, request) is None
 
 
@@ -587,8 +609,8 @@ def snmpv1_message(pdu_tag, request_id=7, error_index=0, version=0, long_form=Fa
         "error-index past the var-binds",
     ],
 )
-def test_odd_snmpv1_reads_are_answered_alike(responders, octets):
-    engine = ask(ENGINE_PORT, octets)
+def test_odd_snmpv1_reads_are_answered_as_the_engine_answered(responders, octets):
+    engine = engine_answer(octets)
     fast = ask(FAST_PORT, octets)
 
     assert show(V1, fast) == show(V1, engine)
@@ -601,19 +623,18 @@ def get_sys_name(port, community):
     )
 
 
-def test_the_fast_path_chooses_by_transport_and_address_as_documented(responders):
-    # only a recording for the transport and the address: the engine path
-    # admits a community only if a recording is named exactly so
+def test_a_recording_is_chosen_by_transport_and_address_as_documented(responders):
+    # only a recording for the transport and the address, which the engine
+    # did not answer: it admitted a community only if a recording was named
+    # exactly so
     assert "by-address" in get_sys_name(FAST_PORT, "byaddr")
-    assert get_sys_name(ENGINE_PORT, "byaddr") == "no response"
 
-    # the most specific recording first
+    # the most specific recording first, where the engine took the community's
     assert "both-by-address" in get_sys_name(FAST_PORT, "both")
-    assert "both-plain" in get_sys_name(ENGINE_PORT, "both")
 
 
-def recorded_contexts(responders, path):
-    recorded = responders[path] / "contexts"
+def recorded_contexts(responders):
+    recorded = responders["scratch"] / "contexts"
 
     if not recorded.exists():
         return []
@@ -631,18 +652,22 @@ def recorded_contexts(responders, path):
         (V2C, "GetBulkRequestPDU"),
     ],
 )
-def test_variation_modules_are_told_the_same_on_both_paths(
+def test_variation_modules_are_told_what_the_engine_told_them(
     responders, version, pdu_type
 ):
     oid = SYS_CONTACT if pdu_type == "GetRequestPDU" else "1.3.6.1.2.1.1.3.0"
     request = message(version, "plain", pdu_type, [(oid, None)], repetitions=1)
 
-    before = {path: len(recorded_contexts(responders, path)) for path in responders}
+    before = len(recorded_contexts(responders))
 
-    assert ask(FAST_PORT, request) == ask(ENGINE_PORT, request)
+    assert ask(FAST_PORT, request) == engine_answer(request)
 
-    fast = recorded_contexts(responders, "fast")[before["fast"] :]
-    engine = recorded_contexts(responders, "engine")[before["engine"] :]
+    fast = recorded_contexts(responders)[before:]
+    engine = engine_value(f"contexts of a v{'1' if version == V1 else '2c'} {pdu_type}")
+
+    # the recording by its name: the engine was asked about one somewhere else
+    for seen in fast:
+        seen["dataFile"] = repr(os.path.basename(ast.literal_eval(seen["dataFile"])))
 
     assert len(fast) == len(engine) == 1
 
@@ -661,8 +686,8 @@ def plain_branches(report):
 
     The dimensions from the endpoint down to the recording make the key:
     transport, endpoint host, peer, engine, security model, level and name,
-    context engine ID, PDU type. Ports and engine IDs differ from one
-    responder to the other and are left out; counters of other recordings,
+    context engine ID, PDU type. Ports and engine IDs differ from one run
+    to the next and are left out; counters of other recordings,
     and the per-peer packet count they share, are not looked at.
     """
     branches = {}
@@ -700,17 +725,17 @@ def plain_branches(report):
     return branches
 
 
-def read_reports(responders, path):
+def read_reports(responders):
     merged = {}
 
-    for report in sorted((responders[path] / "reports" / "fulljson").glob("*.json")):
+    for report in sorted((responders["scratch"] / "reports" / "fulljson").glob("*.json")):
         merge(merged, json.loads(report.read_text()))
 
     return plain_branches(merged)
 
 
 def flushed_reports(responders):
-    """The reports of both responders with everything asked so far in them.
+    """The reports of the responder with everything asked so far in them.
 
     A report is written when a request comes after its period, a second
     here, is over: wait it out, then ask for a recording of its own.
@@ -719,23 +744,17 @@ def flushed_reports(responders):
 
     nudge = message(V2C, LONG_COMMUNITY, "GetRequestPDU", [(SYS_NAME, None)])
 
-    for port in (FAST_PORT, ENGINE_PORT):
-        assert ask(port, nudge) is not None
+    assert ask(FAST_PORT, nudge) is not None
 
-    reports = {}
+    deadline = time.monotonic() + 15
 
-    for path in responders:
-        deadline = time.monotonic() + 15
+    while True:
+        reports = read_reports(responders)
 
-        while True:
-            reports[path] = read_reports(responders, path)
+        if reports or time.monotonic() > deadline:
+            return reports
 
-            if reports[path] or time.monotonic() > deadline:
-                break
-
-            time.sleep(0.2)
-
-    return reports
+        time.sleep(0.2)
 
 
 def difference(after, before):
@@ -749,8 +768,8 @@ def difference(after, before):
     }
 
 
-def test_activity_reports_count_the_same_on_both_paths(responders):
-    # what came before - the readiness probe of each responder among it,
+def test_activity_reports_count_what_the_engine_counted(responders):
+    # what came before - the readiness probe of the responder among it,
     # which a slow start may have sent twice - is not compared
     before = flushed_reports(responders)
 
@@ -761,15 +780,18 @@ def test_activity_reports_count_the_same_on_both_paths(responders):
     ]
 
     for request in requests:
-        assert ask(FAST_PORT, request) == ask(ENGINE_PORT, request)
+        assert ask(FAST_PORT, request) == engine_answer(request)
 
     after = flushed_reports(responders)
 
-    counted = {path: difference(after[path], before[path]) for path in responders}
-
     # one branch by PDU type and security model, each with what was asked
-    assert len(counted["fast"]) == 3
-    assert counted["fast"] == counted["engine"]
+    counted = {
+        " / ".join(branch): counters
+        for branch, counters in difference(after, before).items()
+    }
+
+    assert len(counted) == 3
+    assert counted == engine_value("activity report counters")
 
 
 def merge(into, report):

@@ -1073,16 +1073,6 @@ def main(argv=None, lite=False):
     )
 
     parser.add_argument(
-        "--v1-v2c-path",
-        choices=("fast", "engine"),
-        default="fast",
-        help="How SNMPv1 and SNMPv2c requests are answered: by the simulator "
-        "itself (the default), or through pysnmp's SNMPv3 engine, as releases "
-        "before 2026.11.4 did, which is slower. SNMPv3 always goes through "
-        "the engine",
-    )
-
-    parser.add_argument(
         "--max-open-data-files",
         metavar="<N>",
         type=datafile.open_files_limit,
@@ -1465,7 +1455,7 @@ configured automatically based on simulation data file paths relative to
     # to answer them under with --v3-only
     fast_path = None
 
-    if args.v1_v2c_path == "fast" and not args.v3_only:
+    if not args.v3_only:
         fast_path = fastpath.FastPath()
 
         transport_dispatcher.register_routing_callback(fast_path.route)

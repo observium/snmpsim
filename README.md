@@ -36,22 +36,22 @@ scripts and recordings work unchanged.
 
 ## What snmpsim-ng adds
 
-Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 100 changes.
+Compared with snmpsim 1.2.2, the release it was forked from, snmpsim-ng carries 101 changes.
 Most of them are fixes: for what stopped working when pysnmp 7 renamed and reworked its API,
 and for what never worked. Every change is described in [CHANGES.rst](CHANGES.rst), also
 published as the [changelog](https://observium.github.io/snmpsim/changelog.html) of the
 documentation, and in the notes of each release. What answers differently from snmpsim 1.2.2
 is collected in [Migrating from snmpsim](https://observium.github.io/snmpsim/migrating.html).
 
-| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [2026.11.4](https://github.com/observium/snmpsim/releases/tag/2026.11.4) | [2026.11.5](https://github.com/observium/snmpsim/releases/tag/2026.11.5) | [2026.11.6](https://github.com/observium/snmpsim/releases/tag/2026.11.6) | Total |
-|---|--:|--:|--:|--:|--:|--:|--:|--:|
-| Command responders | 11 | 1 | 11 | 1 | 2 | 7 | 2 | **35** |
-| Recording tools | 3 | 2 | 5 | 1 | 0 | 0 | 0 | **11** |
-| Data files and conversion | 3 | 5 | 2 | 1 | 0 | 0 | 2 | **13** |
-| Variation modules | 0 | 10 | 2 | 1 | 0 | 0 | 3 | **16** |
-| Python, platforms and packaging | 7 | 3 | 1 | 1 | 3 | 1 | 1 | **17** |
-| Documentation | 1 | 1 | 3 | 2 | 1 | 0 | 0 | **8** |
-| **All** | **25** | **22** | **24** | **7** | **6** | **8** | **8** | **100** |
+| Area | [2026.11.0](https://github.com/observium/snmpsim/releases/tag/2026.11.0) | [2026.11.1](https://github.com/observium/snmpsim/releases/tag/2026.11.1) | [2026.11.2](https://github.com/observium/snmpsim/releases/tag/2026.11.2) | [2026.11.3](https://github.com/observium/snmpsim/releases/tag/2026.11.3) | [2026.11.4](https://github.com/observium/snmpsim/releases/tag/2026.11.4) | [2026.11.5](https://github.com/observium/snmpsim/releases/tag/2026.11.5) | [2026.11.6](https://github.com/observium/snmpsim/releases/tag/2026.11.6) | [next](CHANGES.rst) | Total |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| Command responders | 11 | 1 | 11 | 1 | 2 | 7 | 2 | 1 | **36** |
+| Recording tools | 3 | 2 | 5 | 1 | 0 | 0 | 0 | 0 | **11** |
+| Data files and conversion | 3 | 5 | 2 | 1 | 0 | 0 | 2 | 0 | **13** |
+| Variation modules | 0 | 10 | 2 | 1 | 0 | 0 | 3 | 0 | **16** |
+| Python, platforms and packaging | 7 | 3 | 1 | 1 | 3 | 1 | 1 | 0 | **17** |
+| Documentation | 1 | 1 | 3 | 2 | 1 | 0 | 0 | 0 | **8** |
+| **All** | **25** | **22** | **24** | **7** | **6** | **8** | **8** | **1** | **101** |
 
 Among them:
 
@@ -82,6 +82,9 @@ Among them:
 | 2026.11.2 | Nov 16, 2026 | 24 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.2), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-2-released-on-nov-16-2026) |
 | 2026.11.1 | Nov 15, 2026 | 22 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.1), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-1-released-on-nov-15-2026) |
 | 2026.11.0 | Nov 15, 2026 | 25 | [release notes](https://github.com/observium/snmpsim/releases/tag/2026.11.0), [changelog](https://observium.github.io/snmpsim/changelog.html#revision-2026-11-0-released-on-nov-15-2026) |
+
+"next" counts what is on `master` and not released yet: the topmost section of
+[CHANGES.rst](CHANGES.rst).
 
 ## The original author
 
@@ -300,7 +303,7 @@ way 1.2.2 does, through pysnmp's engine and pyasn1. In detail, with every way of
 | PyPy 3.11, full responder through the engine, gdbm | 16 s | 32,900 OIDs/s | 7,400 OIDs/s |
 
 "Through the engine" is `--v1-v2c-path=engine`: SNMPv1/v2c sent through pysnmp's SNMPv3
-engine, as releases before 2026.11.4 did.
+engine, as releases before 2026.11.4 did. The option was there up to 2026.11.6.
 
 * The dbm module decides how long an index takes to build, not how fast it is served: every
   record has its own key in the index, so a request for an OID in the recording costs one

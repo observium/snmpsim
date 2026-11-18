@@ -74,7 +74,7 @@ def parse_args(argv=None):
         action="append",
         default=[],
         help="pass an option on to the responder, e.g. "
-        "--responder-option=--v1-v2c-path=engine; may be given more than once",
+        "--responder-option=--max-open-data-files=8; may be given more than once",
     )
     parser.add_argument("--port", type=int, default=11161)
     parser.add_argument("--bulk-oid", default=".1", help="subtree of the bulk walk")

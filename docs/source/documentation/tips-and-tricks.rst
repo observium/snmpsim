@@ -154,7 +154,7 @@ Faster operation
 The SNMPv3 architecture is inherently computationally heavy what makes SNMPv3
 operations slower that SNMPv1/v2c ones. *snmpsim-command-responder*
 answers SNMPv1 and SNMPv2c without it, and encodes and decodes their reads
-itself rather than in pyasn1 (*--v1-v2c-path=fast*, the default). On PyPy,
+itself rather than in pyasn1. On PyPy,
 see :doc:`/quick-start`, it serves 1.4 to 1.9 times as many requests again;
 the *Performance* section of the README has the measurements.
 

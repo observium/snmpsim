@@ -5,9 +5,9 @@
 #
 """What a command responder answers, shared by both ways of answering.
 
-SNMPv1 and SNMPv2c requests are answered either through pysnmp's SNMPv3
-engine or by the simulator itself (`--v1-v2c-path`). What goes back must not
-depend on which: the rules both of them follow live here.
+SNMPv1 and SNMPv2c requests are answered by the simulator itself, SNMPv3 ones
+through pysnmp's engine. What goes back must not depend on which: the rules
+both of them follow live here.
 """
 from pysnmp.entity.rfc3413 import cmdrsp
 

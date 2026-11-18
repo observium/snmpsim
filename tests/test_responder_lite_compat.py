@@ -138,10 +138,9 @@ def test_an_option_left_out_is_left_to_the_full_responder():
         ],
         # what the full responder takes and the lite one never did
         ["--agent-udpv4-endpoint=127.0.0.1:1161", "--v3-user=simulator"],
-        ["--agent-udpv4-endpoint=127.0.0.1:1161", "--v1-v2c-path=engine"],
         ["--agent-udpv4-endpoint=127.0.0.1:1161", "--log-level=chatty"],
     ],
-    ids=["no endpoint", "both families", "v3 user", "v1-v2c-path", "log level"],
+    ids=["no endpoint", "both families", "v3 user", "log level"],
 )
 def test_what_the_lite_responder_refused_is_refused(items):
     with pytest.raises(SystemExit) as exc:
