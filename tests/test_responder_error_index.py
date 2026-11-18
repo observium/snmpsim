@@ -47,6 +47,8 @@ NINTH = BASE + ".9.0"
 GEN_ERROR = BASE + ".10.0"
 ELEVENTH = BASE + ".11.0"
 READ_ONLY_ON_SET = BASE + ".12.0"
+# the one record a SET writes to: a plain one is read-only, and fails first
+WRITABLE = BASE + ".13.0"
 TOO_BIG = BASE + ".14.0"
 LAST = BASE + ".15.0"
 
@@ -199,7 +201,7 @@ async def test_set_points_at_the_failed_variable(version):
 
     assert (
         await request(
-            set_cmd, version, (FIRST, new), (READ_ONLY_ON_SET, new), (THIRD, new)
+            set_cmd, version, (WRITABLE, new), (READ_ONLY_ON_SET, new), (WRITABLE, new)
         )
     )[:2] == (READ_ONLY_STATUS, 2)
 

@@ -27,7 +27,8 @@ READ_ONLY_ON_SET = "1.3.6.1.4.1.99999.3.4.0"
 GEN_ERROR = "1.3.6.1.4.1.99999.3.5.0"
 WRONG_VALUE_ON_SET = "1.3.6.1.4.1.99999.3.6.0"
 TOO_BIG = "1.3.6.1.4.1.99999.3.7.0"
-LAST = "1.3.6.1.4.1.99999.3.8.0"
+# the one record a SET writes to
+WRITABLE = "1.3.6.1.4.1.99999.3.8.0"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -118,7 +119,7 @@ async def test_v1_set_reports_read_only():
 @pytest.mark.asyncio
 async def test_v1_set_points_at_the_failed_variable():
     error_status, error_index, _ = await request(
-        set_cmd, V1, (LAST, octets("new")), (READ_ONLY_ON_SET, octets("new"))
+        set_cmd, V1, (WRITABLE, octets("new")), (READ_ONLY_ON_SET, octets("new"))
     )
 
     assert (error_status, error_index) == (4, 2)

@@ -21,7 +21,7 @@
 import random
 import time
 
-from pysnmp.smi.error import WrongValueError
+from pysnmp.smi.error import WrongTypeError
 
 from snmpsim import error, log
 from snmpsim import utils
@@ -200,7 +200,7 @@ def variate(oid, tag, value, **context):
 
             if unpackTag(prevTag)[0] != unpackTag(textTag)[0]:
                 idx = max(0, context["varsTotal"] - context["varsRemaining"] - 1)
-                raise WrongValueError(name=origOid, idx=idx)
+                raise WrongTypeError(name=origOid, idx=idx)
 
         else:
             dbConn.linsert(

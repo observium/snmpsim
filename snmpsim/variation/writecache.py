@@ -115,7 +115,32 @@ def variate(oid, tag, value, **context):
 
     text_oid = str(oid)
 
+    # whether the variable is writable at all comes first, then the type of
+    # the value, then the value itself, as net-snmp's snmpd checks a SET
+    if "status" in recordContext["settings"]:
+        if (
+            "op" not in recordContext["settings"]
+            or recordContext["settings"]["op"] == "any"
+            or recordContext["settings"]["op"] == "set"
+            and context["setFlag"]
+            or recordContext["settings"]["op"] == "get"
+            and not context["setFlag"]
+        ):
+            e = recordContext["settings"]["status"]
+
+            if e in ERROR_TYPES:
+                raise ERROR_TYPES[e](name=oid, idx=position(context))
+
     if context["setFlag"]:
+        # the record's type is unconstrained, to serve what a device sent
+        # outside its range; the value written has the range of its type.
+        # They are the same type all the same. A value of another type is
+        # wrongType (RFC 3416, 4.2.5)
+        if not moduleContext[oid]["type"].isSameTypeWith(
+            context["origValue"], matchConstraints=False
+        ):
+            raise error.WrongTypeError(name=oid, idx=position(context))
+
         if "vlist" in recordContext["settings"]:
             if (
                 "eq" in recordContext["settings"]["vlist"]
@@ -139,34 +164,9 @@ def variate(oid, tag, value, **context):
                 e = None
 
             if e in ERROR_TYPES:
-                idx = max(0, context["varsTotal"] - context["varsRemaining"] - 1)
-                raise ERROR_TYPES[e](name=oid, idx=idx)
+                raise ERROR_TYPES[e](name=oid, idx=position(context))
 
-        # the record's type is unconstrained, to serve what a device sent
-        # outside its range; the value written has the range of its type.
-        # They are the same type all the same
-        if moduleContext[oid]["type"].isSameTypeWith(
-            context["origValue"], matchConstraints=False
-        ):
-            moduleContext["cache"][text_oid] = context["origValue"]
-
-        else:
-            return context["origOid"], tag, context["errorStatus"]
-
-    if "status" in recordContext["settings"]:
-        if (
-            "op" not in recordContext["settings"]
-            or recordContext["settings"]["op"] == "any"
-            or recordContext["settings"]["op"] == "set"
-            and context["setFlag"]
-            or recordContext["settings"]["op"] == "get"
-            and not context["setFlag"]
-        ):
-            e = recordContext["settings"]["status"]
-
-            if e in ERROR_TYPES:
-                idx = max(0, context["varsTotal"] - context["varsRemaining"] - 1)
-                raise ERROR_TYPES[e](name=oid, idx=idx)
+        write(text_oid, context["origValue"], context.get("setUndo"))
 
     if text_oid in moduleContext["cache"]:
         return oid, tag, moduleContext["cache"][text_oid]
@@ -185,6 +185,26 @@ def variate(oid, tag, value, **context):
 
     else:
         return oid, tag, context["errorStatus"]
+
+
+def position(context):
+    """The place of the variable in the request, counted from 0."""
+    return max(0, context["varsTotal"] - context["varsRemaining"] - 1)
+
+
+def write(text_oid, value, undo):
+    """Write `value`, and add to `undo` what takes it back."""
+    cache = moduleContext["cache"]
+
+    if undo is not None:
+        if text_oid in cache:
+            previous = cache[text_oid]
+            undo.append(lambda: cache.__setitem__(text_oid, previous))
+
+        else:
+            undo.append(lambda: cache.pop(text_oid, None))
+
+    cache[text_oid] = value
 
 
 def shutdown(**context):

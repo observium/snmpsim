@@ -291,10 +291,19 @@ def _variate(db_conn, oid, tag, value, **context):
                 "'read-write')" % (db_table, sql_oid, text_tag, text_value)
             )
 
-        if context["varsRemaining"] == 0:  # last OID in PDU
-            db_conn.commit()
-
         cursor.close()
+
+        # The responder commits when the whole SET is done, or rolls back
+        # when a variable after this one fails it, which then changes
+        # nothing; committing at the last variable would leave what a SET
+        # ending in another module wrote open, for a later failed SET to
+        # roll back
+        if context.get("setDone") is not None:
+            context["setDone"].append(db_conn.commit)
+            context["setUndo"].append(lambda: _rollback(db_conn))
+
+        elif context["varsRemaining"] == 0:  # last OID in PDU
+            db_conn.commit()
 
         return orig_oid, text_tag, context["origValue"]
 

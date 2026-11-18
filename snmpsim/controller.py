@@ -8,6 +8,7 @@
 #
 
 from pysnmp.proto import rfc1902
+from pysnmp.smi import error
 from pysnmp.smi import exval, indices
 from pysnmp.carrier.asyncio.dgram import udp
 from pysnmp.carrier.asyncio.dgram import udp6
@@ -128,9 +129,50 @@ class MibInstrumController:
         )
 
     def write_variables(self, *var_binds, **context):
-        return self._data_file.process_var_binds(
-            var_binds, **self._get_call_context(False, True, **context)
-        )
+        """Write the variables of a SET, all of them or none.
+
+        A SET either is done as a whole or changes nothing (RFC 3416,
+        4.2.5), as net-snmp's snmpd does it. A variation module that writes
+        a variable adds to `setUndo` what takes the write back, run when a
+        variable after it fails, the last write first, and to `setDone`
+        what makes the write stay, run once every variable is written.
+        Should one of these fail, the SET is commitFailed and taken back;
+        what another one has kept by then stays, as there is no commit in
+        two phases.
+        """
+        undo = []
+        done = []
+
+        try:
+            var_binds = self._data_file.process_var_binds(
+                var_binds,
+                setUndo=undo,
+                setDone=done,
+                **self._get_call_context(False, True, **context),
+            )
+
+            for step in done:
+                try:
+                    step()
+
+                except Exception as exc:
+                    log.error("SET not kept in %s: %s" % (self, exc))
+
+                    # what failed is the request as a whole, not one of its
+                    # variables: the first one is named
+                    raise error.CommitFailedError(name=var_binds[0][0], idx=0)
+
+            return var_binds
+
+        except BaseException:
+            for step in reversed(undo):
+                try:
+                    step()
+
+                except Exception as exc:
+                    log.error("SET not taken back in %s: %s" % (self, exc))
+
+            raise
 
 
 class DataIndexInstrumController:
@@ -163,7 +205,11 @@ class DataIndexInstrumController:
         return [self._get_next_val(vb[0], exval.endOfMib) for vb in var_binds]
 
     def write_variables(self, *var_binds, **context):
-        return [(vb[0], exval.noSuchInstance) for vb in var_binds]
+        # the index is read-only, as any variable a manager cannot write
+        if var_binds:
+            raise error.NotWritableError(name=var_binds[0][0], idx=0)
+
+        return []
 
     def add_data_file(self, *args):
         """Add a row of the given columns, return what removes it."""

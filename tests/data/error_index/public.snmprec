@@ -10,6 +10,6 @@
 1.3.6.1.4.1.99999.4.10.0|4:error|status=genError,value=broken
 1.3.6.1.4.1.99999.4.11.0|4|eleventh
 1.3.6.1.4.1.99999.4.12.0|4:error|op=set,status=readOnly,value=fixed
-1.3.6.1.4.1.99999.4.13.0|4|thirteenth
+1.3.6.1.4.1.99999.4.13.0|4:writecache|value=thirteenth
 1.3.6.1.4.1.99999.4.14.0|4:error|status=tooBig,value=huge
 1.3.6.1.4.1.99999.4.15.0|4|last

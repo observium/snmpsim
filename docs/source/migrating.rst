@@ -170,6 +170,18 @@ The responders
 * The error-index of an error response points at the variable that failed.
   It used to point at the first variable of the request unless the failed
   one was the last.
+* A SET that cannot be done is answered with an error and changes
+  nothing, as net-snmp's snmpd does it: *notWritable* for an OID the
+  recording does not hold or holds in a plain record, or one a variation
+  module such as ``numeric`` does not write; *wrongType* for a value of
+  another type than that of a ``writecache`` or ``redis`` record, where
+  ``redis`` answered *wrongValue*; *genErr* for a record that cannot be
+  read. An SNMPv1 manager gets *noSuchName* and *badValue*.
+  It used to be answered with error-status 0 and *noSuchInstance* as the
+  value, which a manager took for a SET done, and the variables ahead of
+  the failed one stayed written. A ``redis`` record keeps what it wrote
+  still, and ``notification`` and ``subprocess`` have done what they do
+  by then. See :ref:`variate-writecache`.
 * Data files and variation modules are also looked for under
   ``/usr/local/share/snmpsim`` on Linux, and under the real profile
   directory of the user on Windows. A recording left in one of these
@@ -228,7 +240,9 @@ Variation modules
   longer *genErr* either: on GET, GETNEXT and GETBULK an SNMPv2c or SNMPv3
   manager gets error-status 0 with the exception as the value of that
   variable, next to the values of the others, and an SNMPv1 manager gets
-  *noSuchName*. On SET they are still *genErr*.
+  *noSuchName*. On SET *noSuchObject* and *noSuchInstance* are
+  *notWritable*, as for any variable a SET cannot write, and ``endOfMib`` is
+  *genErr*.
 * :ref:`numeric <variate-numeric>` cuts ``deviation`` to a whole number,
   and its documentation states the formula the module computes. On Python
   3.12 and later a record with a ``deviation`` used to fail every request.

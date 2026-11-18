@@ -40,8 +40,31 @@ Changes carried by snmpsim-ng.
   record's value has the unconstrained type that serves what a device sent
   outside the range of its type, and its type was compared, range
   included, with that of the value set, which never matched. They are
-  compared without the range now. OCTET STRING, OBJECT IDENTIFIER, IpAddress and Opaque
-  were written all along.
+  compared without the range now. OCTET STRING, OBJECT IDENTIFIER,
+  IpAddress and Opaque were written all along.
+- Answered a SET that cannot be done with the error that says why, and
+  made it change nothing, as net-snmp's snmpd does (RFC 3416, 4.2.5).
+  A variable the recording does not hold, or holds in a plain record,
+  which is read-only, is notWritable, and so is a variable of the data index or
+  one a variation module does not write - ``numeric`` always, ``sql`` for
+  a row that is not read-write, a misconfigured ``notification`` or
+  ``redis`` record. A value of another type than that of
+  a ``writecache`` record is wrongType, as it is for ``redis``, where it
+  was wrongValue; ``writecache`` checks a ``status`` it is given before
+  the type, and the type before its ``vlist``. A record that cannot be
+  read is genErr. The error names the first variable of the request that
+  fails, and the variables come back as they were sent; an SNMPv1 manager
+  gets noSuchName and badValue. Such a SET used to be answered with
+  error-status 0 and noSuchInstance in place of the value, which a manager
+  took for a SET done. A SET that fails no longer keeps what it wrote to
+  ``writecache``, ``error`` and ``sql`` records ahead of the variable that
+  failed; ``redis`` keeps it still, and ``notification`` and
+  ``subprocess`` have done what they do by then. ``sql`` commits a SET
+  when the whole of it is done, where it committed at the last variable
+  of the request only if that variable was its own, and otherwise left
+  the transaction open, for a later failed request to roll back; a commit
+  that fails is commitFailed, and the SET keeps nothing. A ``writecache`` record with
+  a ``status`` for SET no longer takes the value it refuses.
 
 Revision 2026.11.5, released on Nov 17, 2026
 --------------------------------------------

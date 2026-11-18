@@ -6,9 +6,11 @@ import types
 
 import pytest
 from pysnmp.proto import rfc1902, rfc1905
+from pysnmp.smi import error as smi_error
 
 import snmpsim
 from snmpsim import error
+from snmpsim.controller import MibInstrumController
 
 MODULE = os.path.join(os.path.dirname(snmpsim.__file__), "variation", "sql.py")
 
@@ -251,6 +253,134 @@ def test_refused_statement_undoes_the_request_it_failed(module, database):
 
     assert variate(module, FIRST) == (FIRST, "4", "first")
     assert stored(database, FIRST) == ("4", "first")
+
+
+def set_through_responder(module, oid, value, fails):
+    """One SET of `oid` and a variable after it, which fails it or not.
+
+    The module hands over what makes its write stay and what takes it
+    back; the responder runs the one or the other, as the SET goes.
+    """
+    done, undo = [], []
+
+    module["variate"](
+        oid,
+        "4",
+        "",
+        origOid=rfc1902.ObjectName(oid),
+        origValue=value,
+        errorStatus=rfc1905.noSuchInstance,
+        setFlag=True,
+        nextFlag=False,
+        varsRemaining=1,
+        setDone=done,
+        setUndo=undo,
+    )
+
+    for step in reversed(undo) if fails else done:
+        step()
+
+
+def test_a_set_that_fails_after_the_write_is_taken_back(module, database):
+    set_through_responder(module, FIRST, rfc1902.OctetString("half"), fails=True)
+
+    assert variate(module, FIRST) == (FIRST, "4", "first")
+    assert stored(database, FIRST) == ("4", "first")
+
+
+def test_a_set_done_stays_whatever_the_next_one_does(module, database):
+    # the variable written is not the last of its SET, which is done
+    set_through_responder(module, FIRST, rfc1902.OctetString("done"), fails=False)
+
+    assert stored(database, FIRST) == ("4", "done")
+
+    set_through_responder(module, SECOND, rfc1902.Integer32(7), fails=True)
+
+    assert variate(module, FIRST) == (FIRST, "4", "done")
+    assert stored(database, FIRST) == ("4", "done")
+    assert stored(database, SECOND) == ("2", "42")
+
+
+class DataFile:
+    """Asks the module for every variable of a SET, as a data file does."""
+
+    def __init__(self, module, between=None):
+        self.module = module
+        self.between = between
+
+    def process_var_binds(self, var_binds, **context):
+        answered = []
+
+        for place, (oid, value) in enumerate(var_binds):
+            if place and self.between:
+                self.between()
+
+            _, _, value = self.module["variate"](
+                str(oid),
+                "4",
+                "",
+                **dict(
+                    context,
+                    origOid=rfc1902.ObjectName(oid),
+                    origValue=value,
+                    errorStatus=rfc1905.noSuchInstance,
+                    nextFlag=False,
+                    varsRemaining=len(var_binds) - place - 1,
+                ),
+            )
+
+            answered.append((oid, value))
+
+        return answered
+
+
+def write(data_file, *var_binds):
+    return MibInstrumController(data_file).write_variables(
+        *[(rfc1902.ObjectName(oid), value) for oid, value in var_binds]
+    )
+
+
+def test_a_set_the_connection_dropped_in_keeps_nothing(spying_driver, database):
+    module = start(spying_driver, database)
+
+    try:
+        data_file = DataFile(module, between=lambda: drop_connection(module))
+
+        # the first variable went with the connection: keeping the second
+        # alone would keep half of the SET
+        with pytest.raises(smi_error.CommitFailedError):
+            write(
+                data_file,
+                (FIRST, rfc1902.OctetString("a")),
+                (SECOND, rfc1902.OctetString("b")),
+            )
+
+        assert stored(database, FIRST) == ("4", "first")
+        assert stored(database, SECOND) == ("2", "42")
+
+        data_file.between = None
+
+        write(
+            data_file,
+            (FIRST, rfc1902.OctetString("c")),
+            (SECOND, rfc1902.OctetString("d")),
+        )
+
+        assert stored(database, FIRST) == ("4", "c")
+        assert stored(database, SECOND) == ("4", "d")
+
+    finally:
+        module["shutdown"](mode="variating")
+
+
+def test_a_variable_set_twice_keeps_the_last_value(module, database):
+    write(
+        DataFile(module),
+        (FIRST, rfc1902.OctetString("a")),
+        (FIRST, rfc1902.OctetString("b")),
+    )
+
+    assert stored(database, FIRST) == ("4", "b")
 
 
 class Connection:

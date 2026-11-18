@@ -170,7 +170,20 @@ def variate(oid, tag, value, **context):
         )
 
     if context["setFlag"]:
-        recordContext["settings"]["value"] = context["origValue"]
+        settings = recordContext["settings"]
+        undo = context.get("setUndo")
+
+        # what takes the write back, should a variable after this one fail
+        # the SET
+        if undo is not None:
+            if "value" in settings:
+                previous = settings["value"]
+                undo.append(lambda: settings.__setitem__("value", previous))
+
+            else:
+                undo.append(lambda: settings.pop("value", None))
+
+        settings["value"] = context["origValue"]
 
     return oid, tag, recordContext["settings"].get("value", context["errorStatus"])
 

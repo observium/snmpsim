@@ -533,6 +533,14 @@ parameters in *.snmprec* value field:
   - *noSuchInstance*
   - *endOfMib*
 
+A SET of a value of another type than that of the record is answered with
+*wrongType* and not written. A *status* the record is given for SET comes
+first, the type next, and *vlist* last. A plain record is read-only: a SET to
+it, or to an OID the recording does not hold, is answered with
+*notWritable*. The error names the first variable of the request that fails,
+and a SET that fails writes none of its values, as net-snmp's snmpd answers.
+An SNMPv1 manager gets *badValue* and *noSuchName* instead.
+
 .. note::
 
    The optional tag modifier of the :ref:`.snmprec file <snmprec>` tells how

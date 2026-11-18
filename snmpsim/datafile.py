@@ -22,7 +22,9 @@ from pysnmp.carrier.asyncio.dgram import udp6
 from pysnmp.proto import rfc1902
 from pysnmp.proto import rfc1905
 from pysnmp.smi import exval
+from pysnmp.smi.error import GenError
 from pysnmp.smi.error import MibOperationError
+from pysnmp.smi.error import NotWritableError
 
 from snmpsim import confdir
 from snmpsim import log
@@ -536,10 +538,17 @@ class DataFile(AbstractLayout):
                 **context,
             )
 
+            # nothing is written to a recording that cannot be read
+            if context.get("setFlag") and var_binds:
+                raise GenError(name=var_binds[0][0], idx=0)
+
             return [(vb[0], error_status) for vb in var_binds]
 
         vars_remaining = vars_total = len(var_binds)
         err_total = 0
+
+        # what fails a SET, raised once the request is counted
+        refused = None
 
         # every value is turned into text for these two lines, which is not
         # worth doing for a log that drops them
@@ -713,9 +722,32 @@ class DataFile(AbstractLayout):
                         subtree_flag = False
                         continue
 
+                    # a SET of a broken record cannot be done, for no
+                    # reason the manager could act on
+                    if context.get("setFlag"):
+                        refused = GenError(
+                            name=oid, idx=vars_total - vars_remaining - 1
+                        )
+
                     _oid = oid
                     _val = error_status
 
+                break
+
+            # A variable which is not written - one the recording does not
+            # hold, or holds in a plain record, which is read-only - fails
+            # the SET as notWritable (RFC 3416, 4.2.5), and the first
+            # variable to fail is the one named, as net-snmp answers
+            if (
+                refused is None
+                and context.get("setFlag")
+                and getattr(_val, "tagSet", None) in EXCEPTION_TAG_SETS
+            ):
+                refused = NotWritableError(
+                    name=oid, idx=vars_total - vars_remaining - 1
+                )
+
+            if refused is not None:
                 break
 
             rsp_var_binds.append((_oid, _val))
@@ -738,6 +770,9 @@ class DataFile(AbstractLayout):
             transport_call_count=1,
             **context,
         )
+
+        if refused is not None:
+            raise refused
 
         return rsp_var_binds
 
