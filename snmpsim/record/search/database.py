@@ -272,6 +272,20 @@ class RecordIndex:
         if db_type not in DBM_FILES:
             return "Unsupported index format, rebuilding index %s" % self._db_file
 
+        # another Python, sharing the cache directory, may have written it
+        # with a module this one is built without - gdbm, as often as not
+        try:
+            importlib.import_module(db_type)
+
+        except ImportError:
+            return (
+                "Index %s is written with %s, which this Python lacks, rebuilding"
+                % (
+                    self._db_file,
+                    db_type,
+                )
+            )
+
         # only the files of the implementation that will read the index may
         # be there: next to another one's, `dbm.whichdb()` says which it
         # looked at first, not which is the index of the data file as it is

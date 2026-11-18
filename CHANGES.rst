@@ -29,6 +29,11 @@ Changes carried by snmpsim-ng.
   index pool killed with the rest when one of them died was such a
   process. The file is now removed with the other files an index is made
   of.
+- Built an index again that another Python, sharing the cache directory,
+  wrote with a dbm module this one is built without - gdbm, which many
+  Pythons lack. The index was up to date with its recording, so it
+  was read with that module, and the responder ended on starting with
+  ``No module named '_gdbm'``. It is built with what this Python has now.
 - Wrote integer values with the ``writecache`` variation module again. A
   SET of an INTEGER, Counter32, Gauge32, TimeTicks or Counter64 was not
   written since 2026.11.0, and was answered with noSuchInstance: the

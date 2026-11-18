@@ -9,6 +9,7 @@ hold the files of two of them, and `dbm.whichdb()` looks at ndbm's first.
 import importlib
 import itertools
 import os
+import sys
 import time
 
 import pytest
@@ -244,3 +245,31 @@ def test_an_index_is_built_over_what_a_killed_berkeley_db_left(
         index.close()
 
     assert not [name for name in os.listdir(cache) if name.startswith("__db.")]
+
+
+@pytest.mark.parametrize("first,second", BACKEND_PAIRS)
+def test_an_index_this_python_cannot_read_is_built_again(
+    first, second, cache, recording, tmp_path, monkeypatch
+):
+    """An index another interpreter wrote with a module this one lacks.
+
+    A cache directory shared by two Pythons - one of them built without
+    gdbm, as many are - holds an index up to date with the recording, in
+    a format the second one has no module for. It cannot be read, and is
+    built again.
+    """
+    _write(recording, NEW_RECORDING, age=300)
+
+    _build(recording, first, monkeypatch).close()
+
+    monkeypatch.setitem(sys.modules, first.__name__, None)
+
+    index = _build(recording, second, monkeypatch)
+
+    try:
+        assert _line_of(index, NEW_OID) == NEW_RECORDING
+
+    finally:
+        index.close()
+
+    assert _suffixes(cache) == _index_files_of(recording, second, tmp_path)
