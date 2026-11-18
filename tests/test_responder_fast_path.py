@@ -538,13 +538,21 @@ def test_answers_are_what_the_engine_answered(
         # order the directory is listed in, which is the file system's: the
         # first row has to be one of them, in the form the engine answered
         name = next(case[0] for case in SAME if case[1:3] == (version, community))
-        shown = show(version, fast).replace(str(responders["recordings"]), "<data>")
-        head, recording = shown.split("<data>/")
-        engine_head, engine_recording = engine_value(f"{name} answer").split("<data>/")
+        head, recording = show(version, fast).split("=OctetString:")
+        engine_head, _ = engine_value(f"{name} answer").split("=OctetString:")
+        recordings = os.path.normcase(os.path.realpath(responders["recordings"]))
 
         assert head == engine_head
         assert recording.endswith(".snmprec")
-        assert (responders["recordings"] / recording).is_file()
+        assert os.path.isfile(recording)
+        assert (
+            os.path.normcase(
+                os.path.commonpath(
+                    [os.path.normcase(os.path.realpath(recording)), recordings]
+                )
+            )
+            == recordings
+        )
         return
 
     engine = engine_answer(request)
@@ -728,7 +736,9 @@ def plain_branches(report):
 def read_reports(responders):
     merged = {}
 
-    for report in sorted((responders["scratch"] / "reports" / "fulljson").glob("*.json")):
+    for report in sorted(
+        (responders["scratch"] / "reports" / "fulljson").glob("*.json")
+    ):
         merge(merged, json.loads(report.read_text()))
 
     return plain_branches(merged)

@@ -100,7 +100,8 @@ def responder(tmp_path_factory, responder_process):
     with responder_process(
         f"--data-dir={data}",
         f"--cache-dir={tmp_path_factory.mktemp('cache')}",
-        f"--variation-module-options=sql:dbtype:sqlite3,database:{database}",
+        # a doubled colon parts the option from a value with a drive letter
+        f"--variation-module-options=sql:dbtype:sqlite3,database::{database}",
         f"--v3-user={V3_USER}",
         port=PORT,
         oid=BEFORE,
