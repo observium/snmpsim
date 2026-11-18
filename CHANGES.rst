@@ -33,6 +33,10 @@ Changes carried by snmpsim-ng.
   variable that has a value, and a GET of an endOfMibView answered with
   noSuchInstance. They sent them as they were, which stopped a manager's
   walk of the subtree at the first. ``redis`` still sends them.
+- Ran the test suite on macOS again, on Python 3.10 and 3.15, in a
+  workflow of its own (``macos.yml``) for each release tag and by hand.
+  GitHub's macOS runners are scarce, and in the workflow of every push a
+  job that got none failed it on code that was fine.
 
 Revision 2026.11.6, released on Nov 18, 2026
 --------------------------------------------
