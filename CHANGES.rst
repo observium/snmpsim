@@ -27,6 +27,12 @@ Changes carried by snmpsim-ng.
   sends one on GET. A record whose tag has a colon and no variation module
   after it, such as ``130:``, is a plain record and now answers as one, on
   GETNEXT and GETBULK as well: it was taken for one a module had made.
+- Made the ``multiplex`` and ``sql`` variation modules answer the
+  noSuchObject, noSuchInstance and endOfMibView their snapshots and tables
+  hold as a recording does: stepped over on GETNEXT and GETBULK to the next
+  variable that has a value, and a GET of an endOfMibView answered with
+  noSuchInstance. They sent them as they were, which stopped a manager's
+  walk of the subtree at the first. ``redis`` still sends them.
 
 Revision 2026.11.6, released on Nov 18, 2026
 --------------------------------------------

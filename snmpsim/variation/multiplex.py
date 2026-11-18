@@ -12,6 +12,7 @@ import os
 import time
 
 from pysnmp.proto import rfc1902
+from pysnmp.proto import rfc1905
 from pysnmp.smi import error as smi_error
 
 from snmpsim import confdir
@@ -26,6 +27,15 @@ from snmpsim.record.search.database import RecordIndex
 from snmpsim.record.search.file import get_record
 from snmpsim.record.search.file import search_record_by_oid
 from snmpsim.utils import split
+
+# the values a variable has when it has none, as a snapshot may hold them
+EXCEPTION_TAG_SETS = frozenset(
+    (
+        rfc1905.NoSuchObject.tagSet,
+        rfc1905.NoSuchInstance.tagSet,
+        rfc1905.EndOfMibView.tagSet,
+    )
+)
 
 # data file types and parsers
 RECORD_SET = {
@@ -302,16 +312,31 @@ def variate(oid, tag, value, **context):
         if not exactMatch:
             return context["origOid"], tag, context["errorStatus"]
 
-    if not line:
-        return context["origOid"], tag, context["errorStatus"]
+    while True:
+        if not line:
+            return context["origOid"], tag, context["errorStatus"]
 
-    try:
-        oid, value = parser.evaluate(line)
+        try:
+            oid, value = parser.evaluate(line)
 
-    except error.SnmpsimError:
-        oid, value = context["origOid"], context["errorStatus"]
+        except error.SnmpsimError:
+            return context["origOid"], tag, context["errorStatus"]
 
-    return oid, tag, value
+        if value.tagSet not in EXCEPTION_TAG_SETS:
+            return oid, tag, value
+
+        # A recorded exception is answered as a recording answers it (RFC
+        # 3416): stepped over on GETNEXT and GETBULK, to the next variable
+        # that has a value (4.2.2); an endOfMibView is no answer to a GET
+        # (4.2.1), which gets what a variable not there gets
+        if context["nextFlag"]:
+            line, _, _ = get_record(text)
+
+        elif value.tagSet == rfc1905.EndOfMibView.tagSet:
+            return context["origOid"], tag, context["errorStatus"]
+
+        else:
+            return oid, tag, value
 
 
 def record(oid, tag, value, **context):

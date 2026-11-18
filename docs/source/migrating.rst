@@ -236,6 +236,11 @@ Converting data files
 Variation modules
 +++++++++++++++++
 
+* :ref:`multiplex <variate-multiplex>` and :ref:`sql <variate-sql>` step
+  over the noSuchObject, noSuchInstance and endOfMibView their snapshots
+  and tables hold on GETNEXT and GETBULK, as a recording does, and answer
+  a GET of an endOfMibView with *noSuchInstance*. They used to send them,
+  and a manager's walk of the subtree stopped at the first.
 * :ref:`subprocess <variate-subprocess>` drops the line ending of the
   program's output. ``4:subprocess|echo hello`` answers five octets, not
   six. A record written with ``echo -n`` answers what it did.

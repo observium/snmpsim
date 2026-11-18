@@ -557,3 +557,44 @@ def test_broken_dsn_fails_at_start(tmp_path):
 
     # nothing to close, nothing to trip over
     ctx["shutdown"](mode="variating")
+
+
+def test_getnext_steps_over_exceptions_whatever_the_tag_column_is(tmp_path):
+    # a tag column of no declared type keeps numbers as numbers, and a tag
+    # may be padded: neither is an exception the less
+    os.makedirs(tmp_path / "untyped")
+    conn = sqlite3.connect(tmp_path / "untyped" / "agent.db")
+    conn.execute("CREATE TABLE snmprec (oid, tag, value, maxaccess)")
+    conn.executemany(
+        "insert into snmprec values (?, ?, ?, 'read-only')",
+        [
+            (sql_oid(FIRST), "4", "first"),
+            (sql_oid("1.3.6.1.4.1.99999.6.1.5"), 130, ""),
+            (sql_oid("1.3.6.1.4.1.99999.6.1.6"), " 129", ""),
+            (sql_oid(SECOND), 2, "42"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+
+    try:
+        ctx = load()
+        ctx["init"](
+            options="dbtype:sqlite3,database:%s" % os.path.join("untyped", "agent.db"),
+            mode="variating",
+        )
+
+        try:
+            assert variate(ctx, FIRST, next_flag=True) == (SECOND, "2", "42")
+
+            # a GET of the endOfMibView: as for a variable not there
+            assert variate(ctx, "1.3.6.1.4.1.99999.6.1.5")[2] is rfc1905.noSuchInstance
+
+        finally:
+            ctx["shutdown"](mode="variating")
+
+    finally:
+        os.chdir(cwd)

@@ -48,7 +48,7 @@ NO_SUCH_OBJECT = b"\x80\x00"
 NO_SUCH_INSTANCE = b"\x81\x00"
 END_OF_MIB_VIEW = b"\x82\x00"
 
-CONTEXTS = ["wrapped"]
+CONTEXTS = ["wrapped", "multiplexed", "tabled"]
 
 # the same, the exceptions in records with a colon and no module after it
 WRAPPED = {"2.0": "128:|", "3.0": "129:|", "4.0": "130:|"}

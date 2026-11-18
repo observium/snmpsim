@@ -63,8 +63,10 @@ all three to the next variable that has a value, as
 :RFC:`3416#section-4.2.2` has it, rather than sending them, which would stop
 a manager's walk there. To have an agent send one anyway, use the
 :ref:`error variation module <variate-error>` with *status=noSuchObject* and
-the like. What a variation module serving a whole subtree, such as
-*multiplex* or *sql*, takes from its own data is sent as it is.
+the like. The :ref:`multiplex <variate-multiplex>` and
+:ref:`sql <variate-sql>` modules, which serve a whole subtree from
+snapshots and from a table, answer the exceptions these hold in the same
+way; the *redis* module still sends them as they are.
 
 A value is everything after the second pipe, up to the end of the line.
 Spaces at the end of it belong to the value: a string may end with them,

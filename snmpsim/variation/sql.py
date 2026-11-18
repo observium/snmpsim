@@ -25,6 +25,11 @@ from snmpsim import log
 from snmpsim.grammar.snmprec import SnmprecGrammar
 from snmpsim.utils import split
 
+# the tags of the values a variable has when it has none: noSuchObject,
+# noSuchInstance, endOfMibView
+EXCEPTION_TAGS = ("128", "129", "130")
+END_OF_MIB_VIEW_TAG = "130"
+
 ISOLATION_LEVELS = {
     "0": "READ UNCOMMITTED",
     "1": "READ COMMITTED",
@@ -309,12 +314,21 @@ def _variate(db_conn, oid, tag, value, **context):
 
     else:
         if context["nextFlag"]:
-            cursor.execute(
-                "select oid from %s where oid>'%s' order by oid "
-                "limit 1" % (db_table, sql_oid)
-            )
+            # a recorded exception is stepped over, to the next variable
+            # that has a value (RFC 3416, 4.2.2); the tag is told here, not
+            # in the query, where the type of its column would decide
+            while True:
+                cursor.execute(
+                    "select oid, tag from %s where oid>'%s' order by oid "
+                    "limit 1" % (db_table, sql_oid)
+                )
 
-            resultset = cursor.fetchone()
+                resultset = cursor.fetchone()
+
+                if not resultset or str(resultset[1]).strip() not in EXCEPTION_TAGS:
+                    break
+
+                sql_oid = resultset[0]
 
             if resultset:
                 orig_oid = orig_oid.clone(
@@ -335,7 +349,9 @@ def _variate(db_conn, oid, tag, value, **context):
 
         cursor.close()
 
-        if resultset:
+        # an endOfMibView is no answer to a GET (RFC 3416, 4.2.1), which
+        # gets what a variable not there gets
+        if resultset and str(resultset[0]).strip() != END_OF_MIB_VIEW_TAG:
             return orig_oid, str(resultset[0]), str(resultset[1])
 
         else:
