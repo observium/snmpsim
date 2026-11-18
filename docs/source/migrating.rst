@@ -130,6 +130,12 @@ The responders
   single-arc OID value such as ``6|0`` is served as ``0.0``, and an integer
   outside the range of its type is served with the octets the device sent.
   See :ref:`snmpsim-lint-records`, the new tool that finds such records.
+* A GET of a recorded *endOfMibView* (tag 130) is answered with
+  *noSuchInstance*, as for a variable the recording does not hold: RFC 3416
+  has *endOfMibView* for GETNEXT and GETBULK only. It used to be sent as
+  recorded. A GETNEXT or GETBULK steps over it, as over the other two
+  exceptions, and the :ref:`error variation module <variate-error>` with
+  *status=endOfMib* still sends it on GET.
 * A recording filed under the source address of the manager is chosen
   again for SNMPv3, see :ref:`addressing-simulation-data`. With snmpsim on
   pysnmp 7 every manager was served the plain recording. For SNMPv1/v2c the

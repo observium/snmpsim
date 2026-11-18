@@ -20,6 +20,13 @@ Changes carried by snmpsim-ng.
   responder did not start. Such a name is now cut to fit, with a hash of
   the whole of it at the end; the names that fit stay as they were, and the
   indexes built under them are still used.
+- Answered a GET of a recorded endOfMibView (tag 130) with noSuchInstance,
+  as a GET of a variable the recording does not hold is answered, rather
+  than with the endOfMibView: RFC 3416 has endOfMibView for GETNEXT and
+  GETBULK only. The error variation module with ``status=endOfMib`` still
+  sends one on GET. A record whose tag has a colon and no variation module
+  after it, such as ``130:``, is a plain record and now answers as one, on
+  GETNEXT and GETBULK as well: it was taken for one a module had made.
 
 Revision 2026.11.6, released on Nov 18, 2026
 --------------------------------------------

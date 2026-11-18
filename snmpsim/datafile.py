@@ -46,6 +46,11 @@ EXCEPTION_TAG_SETS = frozenset(
     )
 )
 
+END_OF_MIB_VIEW_TAG_SET = rfc1905.EndOfMibView.tagSet
+
+# the tags of those values in a .snmprec record
+EXCEPTION_TAGS = frozenset(("128", "129", "130"))
+
 SELF_LABEL = "self"
 
 
@@ -686,20 +691,31 @@ class DataFile(AbstractLayout):
                         continue
 
                     # A recorded noSuchObject, noSuchInstance or
-                    # endOfMibView is the answer to a GET of that variable
-                    # only: GETNEXT and GETBULK name the next variable that
-                    # has a value (RFC 3416, 4.2.2), and a manager's walk
-                    # stops at an exception. A variation module asked for
-                    # one - the error module simulating an agent that sends
-                    # it - still has it sent.
+                    # endOfMibView is no answer to GETNEXT or GETBULK, which
+                    # name the next variable that has a value (RFC 3416,
+                    # 4.2.2): a manager's walk stops at an exception. One a
+                    # variation module made of a record of another type -
+                    # the error module simulating an agent that sends it -
+                    # is still sent.
                     if (
                         context.get("nextFlag")
                         and _val.tagSet in EXCEPTION_TAG_SETS
-                        and not self._names_variation_module(line)
+                        and self._records_exception(line)
                     ):
                         exact_match = True
                         subtree_flag = False
                         continue
+
+                    # endOfMibView is no answer to a GET (RFC 3416, 4.2.1):
+                    # a recorded one says the agent had nothing there, and
+                    # the GET is answered as for a variable the recording
+                    # does not hold
+                    if (
+                        not context.get("nextFlag")
+                        and _val.tagSet == END_OF_MIB_VIEW_TAG_SET
+                        and self._records_exception(line)
+                    ):
+                        _val = error_status
 
                 except NoDataNotification:
                     raise
@@ -776,17 +792,20 @@ class DataFile(AbstractLayout):
 
         return rsp_var_binds
 
-    def _names_variation_module(self, line):
-        """Tell if a record has a variation module make its value.
+    def _records_exception(self, line):
+        """Tell if an exception a record is served as is the one it records.
 
-        Only `.snmprec` records name one, after a colon in their tag.
+        A `.snmprec` record of tag 128, 129 or 130 records one, with a
+        variation module after a colon in its tag or without; a record of
+        another type served as one has a variation module make it. The other
+        formats record no exceptions at all.
         """
         if not isinstance(self._text_parser, variation.SnmprecRecordMixIn):
-            return False
+            return True
 
         _, tag, _ = self._text_parser.grammar.parse(line)
 
-        return ":" in tag
+        return tag.split(":", 1)[0] in EXCEPTION_TAGS
 
     def __str__(self):
         return "%s controller" % self._text_file

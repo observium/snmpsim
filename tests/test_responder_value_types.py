@@ -85,7 +85,9 @@ VALUES = [
     # of it, stepped over by GETNEXT and GETBULK (RFC 3416, 4.2.2)
     ("128", "", rfc1905.NoSuchObject("")),
     ("129", "", rfc1905.NoSuchInstance("")),
-    ("130", "", rfc1905.EndOfMibView("")),
+    # endOfMibView is no answer to a GET (RFC 3416, 4.2.1): as for a
+    # variable the recording does not hold
+    ("130", "", rfc1905.NoSuchInstance("")),
     # a value behind them, which a walk has to reach
     ("4", "after the exceptions", rfc1902.OctetString(b"after the exceptions")),
     # the error module asked to send one: it is sent, GETNEXT included
@@ -282,13 +284,15 @@ def test_getbulk_steps_over_a_run_of_exceptions(responders):
     assert all(value == b"\x82\x00" for _, value in var_binds[2:])
 
 
-def test_get_of_a_recorded_exception_answers_with_it(responders):
+def test_get_of_a_recorded_exception_answers_with_it_but_endofmibview(responders):
     error_status, _, var_binds = ask_edges(
         V2C, "GetRequestPDU", [f"{EDGES}.3.0", f"{EDGES}.4.0", f"{EDGES}.4.1"]
     )
 
+    # noSuchObject and noSuchInstance as recorded, endOfMibView as a
+    # variable the recording does not hold: noSuchInstance
     assert error_status == 0
-    assert [value for _, value in var_binds] == [b"\x80\x00", b"\x81\x00", b"\x82\x00"]
+    assert [value for _, value in var_binds] == [b"\x80\x00", b"\x81\x00", b"\x81\x00"]
 
 
 def both_v3(responders, pdu_type, oids, repetitions=0, context="types"):

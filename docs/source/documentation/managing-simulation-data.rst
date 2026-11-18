@@ -55,8 +55,10 @@ Valid tag values and their corresponding ASN.1/SNMP types are:
 
 The last three have no value (``1.3.6.1.2.1.1.9.0|128|``): they record that
 the agent had nothing for the variable. A GET of it is answered with what
-is recorded - an *endOfMibView* as well, though :RFC:`3416#section-4.2.1`
-leaves that one to GETNEXT and GETBULK. A GETNEXT or GETBULK steps over
+is recorded, *noSuchObject* or *noSuchInstance*. An *endOfMibView* is no
+answer to a GET (:RFC:`3416#section-4.2.1` leaves it to GETNEXT and
+GETBULK), and a GET of one is answered as for a variable the recording does
+not hold, with *noSuchInstance*. A GETNEXT or GETBULK steps over
 all three to the next variable that has a value, as
 :RFC:`3416#section-4.2.2` has it, rather than sending them, which would stop
 a manager's walk there. To have an agent send one anyway, use the
